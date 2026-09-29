@@ -1,0 +1,14 @@
+# generated data / caches
+data_cache/
+__pycache__/
+*.pyc
+wandb/
+runs/
+*.parquet
+
+# secrets: never commit (the repo is public)
+wandb_token
+*_token
+*.token
+.env
+*.key
