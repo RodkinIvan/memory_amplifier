@@ -54,7 +54,15 @@ unrelated to the trade-off, and would contaminate the sweep.
    `norm_eps` (1e-2 / 1e-1) or without `o_norm`, and use that for **all** alphas (the choice is already a config knob).
 2. seed 0, alpha = 1.0: require passkey exact match >= 95% at n256 (capacity check for head_dim 32). If not, try head_dim 64.
 
+## How it runs (confirmed by the user)
+- Everything runs in **tmux** via `src/launch.py` (one window per worker, several workers per GPU, resumable: finished runs are skipped):
+  `python src/launch.py --config configs/exp1.yaml --session exp1 --gpus 0 1 --procs-per-gpu 3 --sweep model.alpha=1.0,0.999,0.995,0.99,0.98,0.95,0.9,0.8 seed=0,1,2`
+- Logging to wandb project `passkey_swar`, group = experiment. The run name is the model kind plus **every hyperparameter that
+  is overridden for that run** plus the seed, e.g. `gdn_fixed_a0.95_s1`, `gdn_fixed_a0.95_eps0.01_s0` (`src/config.py`).
+  The wandb key is read from the git-ignored `wandb_token` file (the repo is public), never printed or committed.
+- Per-run results: `results/raw/<name>.json`; weights: `runs/<name>/model.pt` (git-ignored); logs: `logs/<session>/<name>.log`.
+  `python src/aggregate.py` builds `results/summary*.csv` and the trade-off plots.
+
 ## Open points
-- wandb: `WANDB_API_KEY` is not set in this shell; online (default entity) or offline + sync later?
 - Exp 2 (later): fla's Mamba-2 needs `mamba_ssm` for its SSD kernels; it is not installed (needs a prebuilt wheel for torch 2.6 / cu12).
 - Exp 2/3 GDN with learned decay uses the stock `gdn` builder already in `src/models.py` (`allow_neg_eigval=True` for Grazzi et al.).

@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 wandb/
 runs/
+logs/
 *.parquet
 
 # secrets: never commit (the repo is public)
