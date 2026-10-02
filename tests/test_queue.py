@@ -49,14 +49,27 @@ class SweepProgress(unittest.TestCase):
 
     def test_parses_validation_lines_and_ignores_the_rest(self):
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "swa_fb_nltanh_seg16_s2.log").write_text("noise\n" + self.LINE + "\nwandb: something\n")
-            (Path(d) / "swa_fb_nlnone_seg64_s0.log").write_text(self.LINE.replace("nltanh_seg16_s2", "nlnone_seg64_s0").replace("step 4000", "step 2000"))
-            (Path(d) / "swa_fb_seg8_nltanh_s0.log").write_text(self.LINE)  # not part of the main grid: other name order
+            (Path(d) / "fbsweep").mkdir()
+            (Path(d) / "fbsweep" / "swa_fb_nltanh_seg16_s2.log").write_text("noise\n" + self.LINE + "\nwandb: something\n")
+            (Path(d) / "fbsweep" / "swa_fb_nlnone_seg64_s0.log").write_text(self.LINE.replace("nltanh_seg16_s2", "nlnone_seg64_s0").replace("step 4000", "step 2000"))
+            (Path(d) / "fbsweep" / "swa_fb_seg8_nltanh_s0.log").write_text(self.LINE)  # not part of the main grid: other name order
             prog = R.sweep_progress(Path(d))
         self.assertEqual(sorted(prog), [(16, "tanh"), (64, "none")])
         m = prog[(16, "tanh")][2][4000]
         self.assertEqual((m["pk256"], m["v256"], m["pk1024"], m["loss"]), (0.10, 0.86, 0.05, 0.166))
         self.assertIn(2000, prog[(64, "none")][0])
+
+    def test_a_restarted_run_replaces_its_stopped_log(self):
+        """The same run name in two session folders: the newest log is the restart, the older one is the stopped attempt."""
+        import os
+        with tempfile.TemporaryDirectory() as d:
+            old, new = Path(d) / "fbsweep" / "swa_fb_nltanh_seg16_s1.log", Path(d) / "fbre_s1a" / "swa_fb_nltanh_seg16_s1.log"
+            old.parent.mkdir(); new.parent.mkdir()
+            old.write_text(self.LINE.replace("s2", "s1").replace("step 4000", "step 6000"))
+            new.write_text(self.LINE.replace("s2", "s1").replace("step 4000", "step 2000"))
+            os.utime(old, (1000, 1000)); os.utime(new, (2000, 2000))
+            prog = R.sweep_progress(Path(d))
+        self.assertEqual(list(prog[(16, "tanh")][1]), [2000])
 
 
 if __name__ == "__main__":

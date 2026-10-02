@@ -348,10 +348,15 @@ LOG_RE = re.compile(r"\[swa_fb_nl(?P<nl>\w+?)_seg(?P<seg>\d+)_s(?P<seed>\d+)\] s
                     r"n1024: pk (?P<pk1024>[\d.]+) v (?P<v1024>[\d.]+) e (?P<e1024>[\d.]+)")
 
 
-def sweep_progress(logdir: Path) -> dict:
-    """{(segment, nonlin): {seed: {step: {metric: value}}}} parsed from the validation lines of the sweep logs (2 decimals)."""
+def sweep_progress(logs_root: Path) -> dict:
+    """{(segment, nonlin): {seed: {step: {metric: value}}}} parsed from the validation lines of the sweep logs (2 decimals).
+    Logs live in logs/<tmux session>/<run name>.log; a run that was stopped and started again in another session has two logs
+    with the same name, and the newest one wins."""
+    newest: dict[str, Path] = {}
+    for f in sorted(Path(logs_root).glob("*/swa_fb_nl*_seg*_s*.log"), key=lambda f: f.stat().st_mtime):
+        newest[f.stem] = f
     out: dict = {}
-    for f in sorted(Path(logdir).glob("swa_fb_nl*_seg*_s*.log")):
+    for f in newest.values():
         for line in f.read_text().splitlines():
             m = LOG_RE.search(line)
             if m:
@@ -396,7 +401,7 @@ def fb_data() -> tuple[dict, str, str]:
     hops = lambda n, seg=64: round(tok(n) / seg)
 
     # ---- the main sweep, from its logs
-    prog = sweep_progress(C.ROOT / "logs" / "fbsweep")
+    prog = sweep_progress(C.ROOT / "logs")
     series_keys = [(seg, nl) for seg in SEGS for nl in NLS if (seg, nl) in prog]
     n_started = sum(len(prog[k]) for k in prog)
 
