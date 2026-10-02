@@ -142,7 +142,9 @@ const lum = c => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : M
 const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
 // ordinal colour for item i of n: i = 0 is the darkest (light mode) / lightest (dark mode)
 const ordColor = (i, n) => { const s = [0, 1, 2, 3].map(k => hex2rgb(cssv('--ord' + k))); const j = n - 1 - i; const x = n === 1 ? 3 : j / (n - 1) * 3, k = Math.min(2, Math.floor(x)); return rgb(mix(s[k], s[k + 1], x - k)); };
-const rowColor = i => ordColor(i, ROWS.length);
+const rowColor = i => (ROWS[i].color ? cssv(ROWS[i].color) : ordColor(i, ROWS.length));  // a row may name its own colour token
+// series colour: explicit css colour, or an ordinal slot [i, n], or its position in the list
+const serCol = (sr, i, spec) => sr.c || (sr.ord ? ordColor(sr.ord[0], sr.ord[1]) : ordColor(spec.ordReverse ? spec.series.length - 1 - i : i, spec.series.length));
 
 // ---- tooltip
 const tip = $('#tip');
@@ -164,7 +166,7 @@ function heatmap(host, key, title, extra) {
   s += `<text x="0" y="13" style="fill:var(--ink);font-family:var(--sans);font-size:13px;font-weight:600">${esc(title)}</text>`;
   s += `<line x1="${left}" x2="${left + trainCols * cw - 4}" y1="34" y2="34" stroke="var(--axis)" stroke-width="1"/>`;
   s += `<text x="${left}" y="28" font-size="10">trained on N ≤ 256</text>`;
-  s += `<text x="${left + trainCols * cw + 2}" y="28" font-size="10">evaluation only, longer than training</text>`;
+  s += `<text x="${left + trainCols * cw + 2}" y="28" font-size="10">${NS.length - trainCols >= 3 ? 'evaluation only, longer than training' : 'beyond training'}</text>`;
   NS.forEach((n, j) => { s += `<text x="${left + j * cw + cw / 2}" y="${top - 6}" font-size="10.5" text-anchor="middle">${n}</text>`; });
   ROWS.forEach((row, i) => {
     s += `<text x="${left - 8}" y="${top + i * ch + ch / 2 + 4}" font-size="11" text-anchor="end" style="fill:var(--ink)">${esc(row.label)}</text>`;
@@ -206,7 +208,8 @@ function scatter(host, n) {
       const hollow = o.r.valid < .9;
       s += `<circle cx="${cx}" cy="${cy}" r="6" fill="${hollow ? 'var(--surface)' : rowColor(o.i)}" stroke="${hollow ? rowColor(o.i) : 'var(--surface)'}" stroke-width="${hollow ? 2 : 1.6}" data-tip="${esc(tipTxt)}"/>`;
     });
-    const names = g.map(o => o.row.label);
+    const names = g.filter(o => !o.row.nolabel).map(o => o.row.label);  // rows may opt out of a label (identified by colour and tooltip)
+    if (!names.length) return;
     const label = (DATA.row_prefix || '') + (names.length > 3 ? names[0] + ' … ' + names[names.length - 1] + ' (' + names.length + ')' : names.join(', '));
     const onRight = cx > m.l + iw * .55, lx = onRight ? cx - 10 : cx + 10;
     const ly = cy + (r.passkey > .5 ? 14 : -9);
@@ -242,7 +245,7 @@ function lineChart(host, legendHost, spec) {
   if (spec.note) s += `<text x="${m.l + 8}" y="${m.t + ih - 10}" font-size="10">${esc(spec.note)}</text>`;
   const ends = [];
   spec.series.forEach((sr, i) => {
-    const col = sr.c || ordColor(spec.ordReverse ? spec.series.length - 1 - i : i, spec.series.length), pts = sr.points.filter(p => p.y != null);
+    const col = serCol(sr, i, spec), pts = sr.points.filter(p => p.y != null);
     s += `<polyline fill="none" style="stroke:${col}" stroke-width="${sr.width || 2}" ${sr.dashed ? 'stroke-dasharray="6 4"' : ''} points="${pts.map(p => X(p.x) + ',' + Y(p.y)).join(' ')}"/>`;
     pts.forEach(p => {
       if (p.lo != null && p.hi != null && p.hi - p.lo > 1e-6) s += `<line x1="${X(p.x)}" x2="${X(p.x)}" y1="${Y(p.lo)}" y2="${Y(p.hi)}" style="stroke:${col}" stroke-width="1.4" opacity=".6"/>`;
@@ -262,7 +265,7 @@ function lineChart(host, legendHost, spec) {
     s += `<text x="${e.x + 14}" y="${e.y + 4}" font-size="10.5" class="endlabel" style="fill:var(--ink)">${esc(e.text)}</text>`;
   });
   host.innerHTML = s + '</svg>';
-  legendHost.innerHTML = spec.series.map((sr, i) => `<span><i class="${sr.dashed ? 'dash' : (spec.legendLine ? 'line' : '')}" style="${sr.dashed || spec.legendLine ? 'border-color' : 'background'}:${sr.c || ordColor(spec.ordReverse ? spec.series.length - 1 - i : i, spec.series.length)}"></i>${esc(sr.label)}</span>`).join('');
+  legendHost.innerHTML = spec.series.map((sr, i) => `<span><i class="${sr.dashed ? 'dash' : (spec.legendLine ? 'line' : '')}" style="${sr.dashed || spec.legendLine ? 'border-color' : 'background'}:${serCol(sr, i, spec)}"></i>${esc(sr.label)}</span>`).join('');
 }
 
 function table(cols, rows) {

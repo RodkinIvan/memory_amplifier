@@ -1,0 +1,140 @@
+{
+ "name": "swa_fb_steps12000_cur2000_pka4000_llr10_ps0.1_gi0.1_pkw100_nltanh_s0",
+ "config": {
+  "experiment": "swa_fb_explore",
+  "project": "passkey_swar",
+  "data_dir": "data_cache/passkey_swar",
+  "seed": 0,
+  "model": {
+   "kind": "swa_fb",
+   "window": 64,
+   "segment": 0,
+   "nonlin": "tanh",
+   "noise": 0.0,
+   "gain_init": 0.1,
+   "proj_std": 0.1,
+   "n_layers": 2,
+   "d_model": 128,
+   "num_heads": 4
+  },
+  "train": {
+   "steps": 12000,
+   "batch_size": 32,
+   "train_ns": [
+    32,
+    64,
+    128,
+    256
+   ],
+   "lr": 0.001,
+   "betas": [
+    0.9,
+    0.95
+   ],
+   "weight_decay": 0.01,
+   "warmup_steps": 500,
+   "min_lr_ratio": 0.1,
+   "grad_clip": 1.0,
+   "pad_multiple": 256,
+   "precision": "bf16",
+   "loop_lr_mult": 10,
+   "passkey_weight": 100,
+   "curriculum_stage_steps": 2000,
+   "passkey_weight_anneal_steps": 4000,
+   "log_every": 50,
+   "eval_every": 2000,
+   "eval_examples": 200,
+   "eval_ns": [
+    32,
+    64,
+    128,
+    256,
+    512,
+    1024
+   ]
+  },
+  "eval": {
+   "splits": [
+    "validation"
+   ],
+   "ns": [
+    32,
+    64,
+    256,
+    1024
+   ],
+   "tokens_per_batch": 2097152
+  }
+ },
+ "explicit_keys": [
+  "experiment",
+  "train.steps",
+  "train.eval_every",
+  "train.curriculum_stage_steps",
+  "train.passkey_weight_anneal_steps",
+  "train.loop_lr_mult",
+  "model.proj_std",
+  "model.gain_init",
+  "eval.ns",
+  "eval.splits",
+  "train.passkey_weight",
+  "model.nonlin"
+ ],
+ "n_params": 563584,
+ "final_train_loss": 0.4295052719116211,
+ "train_time_s": 874.68128657341,
+ "rows": [
+  {
+   "split": "validation",
+   "N": 32,
+   "passkey_acc": 0.95,
+   "ar_valid_acc": 0.774402390438247,
+   "ar_expired_acc": 0.9932058379466533,
+   "ar_expired_stale_acc": NaN,
+   "ar_expired_never_acc": 0.9932058379466533,
+   "n_examples": 1000,
+   "n_valid": 4016,
+   "n_expired_stale": 0,
+   "n_expired_never": 3974
+  },
+  {
+   "split": "validation",
+   "N": 64,
+   "passkey_acc": 0.914,
+   "ar_valid_acc": 0.7319326667510442,
+   "ar_expired_acc": 0.9924392662369856,
+   "ar_expired_stale_acc": 0.9968,
+   "ar_expired_never_acc": 0.9920730888082763,
+   "n_examples": 1000,
+   "n_valid": 7901,
+   "n_expired_stale": 625,
+   "n_expired_never": 7443
+  },
+  {
+   "split": "validation",
+   "N": 256,
+   "passkey_acc": 0.578,
+   "ar_valid_acc": 0.7075696964058672,
+   "ar_expired_acc": 0.9930363864491845,
+   "ar_expired_stale_acc": 0.9934426229508196,
+   "ar_expired_never_acc": 0.9925675675675676,
+   "n_examples": 1000,
+   "n_valid": 32247,
+   "n_expired_stale": 17080,
+   "n_expired_never": 14800
+  },
+  {
+   "split": "validation",
+   "N": 1024,
+   "passkey_acc": 0.355,
+   "ar_valid_acc": 0.698970173523012,
+   "ar_expired_acc": 0.993165273974206,
+   "ar_expired_stale_acc": 0.993210345289677,
+   "ar_expired_never_acc": 0.9928545028951583,
+   "n_examples": 1000,
+   "n_valid": 127303,
+   "n_expired_stale": 111935,
+   "n_expired_never": 16234
+  }
+ ]
+}

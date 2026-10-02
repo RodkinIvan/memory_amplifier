@@ -76,6 +76,20 @@ def sample_train_indices(rng, tc: dict, bounds: dict, step: int, n_total: int, b
     return lo + (rng.random(batch) * (hi - lo)).astype(np.int64)
 
 
+def evaluate_with_backoff(model, packed, dev, tokens_per_batch: int, amp, min_tokens: int = 65536) -> dict:
+    """`evaluate_packed`, but when the GPU is shared by many runs and a long-stream batch does not fit, retry with half
+    the batch instead of losing a trained model. The metrics do not depend on the batch size (up to float rounding)."""
+    while True:
+        try:
+            return E.evaluate_packed(model, packed, dev, tokens_per_batch, amp_dtype=amp)
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            if tokens_per_batch // 2 < min_tokens:
+                raise
+            tokens_per_batch //= 2
+            print(f"evaluation ran out of memory, retrying with tokens_per_batch={tokens_per_batch}", flush=True)
+
+
 def make_optimizer(model, tc: dict):
     """AdamW with weight decay on matrices (not embeddings/norms); feedback-loop parameters ("loops.") get their own
     learning-rate multiplier `train.loop_lr_mult` and no weight decay."""
@@ -194,17 +208,18 @@ def main(argv=None) -> None:
                 f"e {logs[f'val/n{n}/ar_expired_acc']:.2f}" for n in (32, 256, 1024) if n in val), flush=True)
     train_time = time.time() - t0
 
+    ckpt = C.ROOT / "runs" / name / "model.pt"  # saved before the (long) final evaluation so a failure there cannot lose the model
+    ckpt.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(model.state_dict(), ckpt)
+
     rows = []
     for split in ec["splits"]:
         for n in ec["ns"]:
-            m = E.evaluate_packed(model, D.load_packed(data_dir / f"n{n}" / f"{split}.parquet", kinds=True), dev, ec["tokens_per_batch"], amp_dtype=amp)
+            m = evaluate_with_backoff(model, D.load_packed(data_dir / f"n{n}" / f"{split}.parquet", kinds=True), dev, ec["tokens_per_batch"], amp)
             rows.append({"split": split, "N": n, **m})
             run.summary.update({f"final/{split}/n{n}/{k}": m[k] for k in METRICS})
         print(f"[{name}] {split}: " + " ".join(f"n{r['N']}:{r['passkey_acc']:.2f}/{r['ar_expired_acc']:.2f}" for r in rows if r["split"] == split), flush=True)
 
-    ckpt = C.ROOT / "runs" / name / "model.pt"
-    ckpt.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), ckpt)
     write_json_atomic(out_json, {"name": name, "config": cfg, "explicit_keys": explicit, "n_params": n_params,
                                  "final_train_loss": last, "train_time_s": train_time, "rows": rows})
     run.finish()

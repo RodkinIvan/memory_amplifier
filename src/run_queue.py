@@ -1,0 +1,85 @@
+#!/usr/bin/env python
+"""Run a queue of sweeps unattended: start the next one whenever the GPUs have free worker slots.
+
+    tmux new -d -s fbqueue 'python src/run_queue.py --queue configs/queue.txt --watch fbsweep'
+
+Each queue line is `<tmux session> | <arguments of src/launch.py>`; `#` starts a comment. The file is re-read on every
+poll, so lines can be appended while the driver runs. A line is started once (the session name is the key, recorded in
+logs/queue/launched.txt) when at most `--start-below` workers are still alive in the watched + already launched
+sessions. launch.py skips runs whose result already exists, so restarting the driver is safe.
+"""
+from __future__ import annotations
+
+import argparse
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def parse_queue(text: str) -> list[tuple[str, list[str]]]:
+    """[(session, launch.py arguments)] in file order; blank lines and `#` comments are ignored."""
+    stages = []
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        session, sep, args = line.partition("|")
+        if not sep or not session.strip():
+            raise ValueError(f"queue line needs '<session> | <launch.py args>': {raw!r}")
+        stages.append((session.strip(), shlex.split(args)))
+    sessions = [s for s, _ in stages]
+    if len(set(sessions)) != len(sessions):
+        raise ValueError("duplicate session names in the queue")
+    return stages
+
+
+def live_workers(session: str) -> int:
+    """Worker windows of a tmux session whose script is still running (finished ones stay as dead panes)."""
+    r = subprocess.run(["tmux", "list-panes", "-s", "-t", session, "-F", "#{pane_dead}"], capture_output=True, text=True)
+    return sum(1 for x in r.stdout.split() if x == "0") if r.returncode == 0 else 0
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--queue", default="configs/queue.txt")
+    ap.add_argument("--watch", nargs="*", default=[], help="already running tmux sessions whose workers count as busy")
+    ap.add_argument("--start-below", type=int, default=6, help="start the next stage when at most this many workers are alive")
+    ap.add_argument("--poll", type=int, default=60, help="seconds between checks")
+    ap.add_argument("--dry-run", action="store_true", help="print the stages and exit")
+    args = ap.parse_args()
+
+    qfile = ROOT / args.queue
+    state = ROOT / "logs" / "queue" / "launched.txt"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    stamp = lambda: time.strftime("%F %T")  # noqa: E731
+    if args.dry_run:
+        for session, a in parse_queue(qfile.read_text()):
+            print(f"{session}: launch.py {shlex.join(a)}")
+        return
+
+    while True:
+        launched = set(state.read_text().split()) if state.exists() else set()
+        pending = [(s, a) for s, a in parse_queue(qfile.read_text()) if s not in launched]
+        live = sum(live_workers(s) for s in [*args.watch, *launched])
+        if not pending and live == 0:
+            print(f"{stamp()} queue empty and nothing running: done", flush=True)
+            return
+        if pending and live <= args.start_below:
+            session, a = pending[0]
+            print(f"{stamp()} {live} workers alive -> starting {session}", flush=True)
+            r = subprocess.run([sys.executable, str(ROOT / "src" / "launch.py"), "--session", session, *a], cwd=ROOT)
+            if r.returncode:  # do not retry forever; the log shows why
+                print(f"{stamp()} launch of {session} failed with code {r.returncode}", flush=True)
+            with state.open("a") as f:
+                f.write(session + "\n")
+            time.sleep(120)  # let its workers start before counting again
+            continue
+        time.sleep(args.poll)
+
+
+if __name__ == "__main__":
+    main()

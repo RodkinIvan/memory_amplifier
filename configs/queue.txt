@@ -1,0 +1,11 @@
+# Overnight queue for src/run_queue.py (one stage per line: `<tmux session> | <launch.py arguments>`), in priority order.
+# Main grid (already running, session fbsweep): nonlin {tanh,none} x segment {64,32,16} x seed {0,1,2}, window 64, 20k steps.
+
+# 1. The user's hypothesis, one step further: even smaller segments (same window 64). Step time ~ 1/segment, so only 2 seeds.
+fbseg8 | --config configs/swa_fb.yaml --gpus 0 1 --procs-per-gpu 2 --set experiment=swa_fb_extra model.segment=8 --sweep model.nonlin=tanh,none seed=0,1
+
+# 2. Noise on the segment vector during training (std 0.1 / 0.3), segment 32, tanh and linear loop: does robustness help extrapolation?
+fbnoise | --config configs/swa_fb.yaml --gpus 0 1 --procs-per-gpu 2 --set experiment=swa_fb_extra model.segment=32 --sweep model.noise=0.1,0.3 model.nonlin=tanh,none
+
+# 3. Twice the training steps (40k) for segment 64 and 32: is the extrapolation gap an optimisation-time effect?
+fblong | --config configs/swa_fb.yaml --gpus 0 1 --procs-per-gpu 2 --set experiment=swa_fb_extra train.steps=40000 --sweep model.segment=64,32 model.nonlin=tanh,none

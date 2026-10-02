@@ -3,6 +3,7 @@
 
     python src/report.py gdn --out reports/gdn_report.html
     python src/report.py swa --out reports/swa_report.html
+    python src/report.py fb --out reports/fb_report.html     # SWA + segment feedback loop (also reads logs/fbsweep for runs in progress)
 
 All numbers in the text are computed from the data; the template is reports/report_template.html.
 """
@@ -10,7 +11,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -30,11 +33,11 @@ def _nn(x):
     return None if x is None or x != x else float(x)
 
 
-def cells_for_row(runs: list[dict], split: str = "test") -> dict:
+def cells_for_row(runs: list[dict], split: str = "test", ns: list[int] | None = None) -> dict:
     """{str(N): {passkey, valid, stale, expired (means over seeds), counts, per: {metric: [per seed]}}} for one row."""
     keys = {"passkey": "passkey_acc", "valid": "ar_valid_acc", "stale": "ar_expired_stale_acc", "expired": "ar_expired_acc"}
     out = {}
-    for n in NS:
+    for n in ns or NS:
         per = {k: [] for k in keys}
         base = None
         for r in sorted(runs, key=lambda r: r["seed"]):
@@ -336,12 +339,182 @@ def swa_data() -> tuple[dict, str, str]:
     return data, "SWA Baseline Report", "Sliding-window attention baseline"
 
 
+# ------------------------------------------------------------------------------------------- SWA + feedback-loop report
+EXP_NS = [32, 64, 256, 1024]  # evaluation lengths of the 12k-step exploration runs (validation split only)
+SEGS, NLS = (64, 32, 16), ("tanh", "none")
+NL_NAME = {"tanh": "tanh loop", "none": "linear loop"}
+LOG_RE = re.compile(r"\[swa_fb_nl(?P<nl>\w+?)_seg(?P<seg>\d+)_s(?P<seed>\d+)\] step (?P<step>\d+) loss (?P<loss>[\d.]+) \| "
+                    r"n32: pk (?P<pk32>[\d.]+) v (?P<v32>[\d.]+) e (?P<e32>[\d.]+) n256: pk (?P<pk256>[\d.]+) v (?P<v256>[\d.]+) e (?P<e256>[\d.]+) "
+                    r"n1024: pk (?P<pk1024>[\d.]+) v (?P<v1024>[\d.]+) e (?P<e1024>[\d.]+)")
+
+
+def sweep_progress(logdir: Path) -> dict:
+    """{(segment, nonlin): {seed: {step: {metric: value}}}} parsed from the validation lines of the sweep logs (2 decimals)."""
+    out: dict = {}
+    for f in sorted(Path(logdir).glob("swa_fb_nl*_seg*_s*.log")):
+        for line in f.read_text().splitlines():
+            m = LOG_RE.search(line)
+            if m:
+                g = m.groupdict()
+                out.setdefault((int(g["seg"]), g["nl"]), {}).setdefault(int(g["seed"]), {})[int(g["step"])] = {k: float(v) for k, v in g.items() if k not in ("nl", "seg", "seed", "step")}
+    return out
+
+
+def fb_data() -> tuple[dict, str, str]:
+    all_runs = A.load_runs(C.ROOT / "results" / "raw")
+    ref_runs = [r for r in all_runs if r["cfg"]["model"]["kind"] == "swa" and r["cfg"]["model"]["window"] == 64 and r["cfg"]["model"]["n_layers"] == 2]
+    explore = [r for r in A.load_runs(C.ROOT / "results" / "explore") if r["cfg"]["model"]["kind"] == "swa_fb"]
+    finished = [r for r in all_runs if r["cfg"]["model"]["kind"] == "swa_fb" and r["cfg"]["train"]["steps"] == 20000]
+
+    def family(r):
+        tc = r["cfg"]["train"]
+        cur, w, a = tc.get("curriculum_stage_steps", 0) > 0, tc["passkey_weight"], tc["passkey_weight_anneal_steps"]
+        if cur and w == 1:
+            return 0, "curriculum", "--s1"
+        if cur:
+            return 1, f"curriculum + w{w:g}→1", "--s2"
+        return 2 + (a // 4000 - 1), f"w{w:g}→1 over {a // 1000}k", "--s3"
+
+    explore.sort(key=lambda r: (family(r)[0], r["cfg"]["model"]["nonlin"] != "tanh"))
+    rows = [{"key": "ref", "label": "SWA, no loop", "color": "--muted",
+             "long": f"plain sliding window, W = 64, 2 layers, no loop ({len(ref_runs)} seeds, 30k steps)"}]
+    results = {"ref": cells_for_row(ref_runs, "validation", EXP_NS)}
+    for r in explore:
+        _, fam, col = family(r)
+        nl = "tanh" if r["cfg"]["model"]["nonlin"] == "tanh" else "linear"
+        rows.append({"key": r["name"], "label": f"{fam} · {nl}", "color": col, "nolabel": family(r)[0] != 0,
+                     "long": f"{fam}, {nl} loop, window 64, segment 64, 12k steps, seed {r['seed']}"})
+        results[r["name"]] = cells_for_row([r], "validation", EXP_NS)
+    cell = lambda key, n, k: results[key][str(n)][k]
+    fam_rows = lambda f, nl: next(x for x in explore if family(x)[1] == f and x["cfg"]["model"]["nonlin"] == nl)["name"]
+    cur_t, cur_l = fam_rows("curriculum", "tanh"), fam_rows("curriculum", "none")
+    weight_only = [x["name"] for x in explore if family(x)[0] >= 2]
+    cw = [x["name"] for x in explore if family(x)[0] == 1]
+    best_w_valid = max(cell(k, 256, "valid") for k in weight_only)
+    best_cw_valid = max(cell(k, 256, "valid") for k in cw)
+    tok = lambda n: n * TOKENS_PER_WRITE
+    hops = lambda n, seg=64: round(tok(n) / seg)
+
+    # ---- the main sweep, from its logs
+    prog = sweep_progress(C.ROOT / "logs" / "fbsweep")
+    series_keys = [(seg, nl) for seg in SEGS for nl in NLS if (seg, nl) in prog]
+    n_started = sum(len(prog[k]) for k in prog)
+
+    def pts(key, metric):
+        seeds = prog[key]
+        common = sorted(set.intersection(*[set(v) for v in seeds.values()])) if len(seeds) == 3 else []
+        out = []
+        for st in common:
+            vals = [seeds[s][st][metric] for s in sorted(seeds)]
+            m, lo, hi = _mlh(vals)
+            out.append({"x": st, "y": m, "lo": lo, "hi": hi,
+                        "tip": f"segment {key[0]} · {NL_NAME[key[1]]}<br>step {st}<br>{metric} {m:.2f} (seeds {lo:.2f} to {hi:.2f})"})
+        return out
+
+    def curve(metric, title_y, aria):
+        series = []
+        for key in series_keys:
+            p = pts(key, metric)
+            if p:
+                series.append({"label": f"segment {key[0]} · {NL_NAME[key[1]]}", **({"short": f"{key[0]} {'tanh' if key[1] == 'tanh' else 'lin'}"} if min(x["x"] for x in [p[-1]]) >= 18000 else {}),  # end labels only once the curves have separated
+                               "ord": [SEGS.index(key[0]), len(SEGS)], "dashed": key[1] == "none", "points": p})
+        return {"series": series, "xTicks": [0, 4000, 8000, 12000, 16000, 20000], "x0": 0, "x1": 20000, "xLog": False, "yMin": 0, "yMax": 1,
+                "xLabel": "training step (the runs are 20,000 steps long)", "yLabel": title_y, "legendLine": True, "rightPad": 86, "aria": aria,
+                "vlines": [{"x": 2000, "label": "n64 joins"}, {"x": 4000, "label": "n128 joins", "dy": 12}, {"x": 6000, "label": "n256 joins", "dy": 24}]}
+
+    last_common = {k: (max(pts(k, "pk256"), key=lambda p: p["x"])["x"] if pts(k, "pk256") else 0) for k in series_keys}
+    step_c = min(last_common.values()) if last_common else 0
+    at_c = {k: next((p for p in pts(k, "pk256") if p["x"] == step_c), None) for k in series_keys}
+    at_c1k = {k: next((p for p in pts(k, "pk1024") if p["x"] == step_c), None) for k in series_keys}
+    at_cv = {k: next((p for p in pts(k, "v256") if p["x"] == step_c), None) for k in series_keys}
+    prog_txt = ", ".join(f"segment {s}: step {max(last_common[(s, nl)] for nl in NLS if (s, nl) in last_common):,}" for s in SEGS if any((s, nl) in last_common for nl in NLS))
+    tbl_rows = "".join(
+        f"<tr><td>segment {k[0]}</td><td>{NL_NAME[k[1]]}</td><td>{at_c[k]['y']:.2f} ({at_c[k]['lo']:.2f} to {at_c[k]['hi']:.2f})</td>"
+        f"<td>{at_c1k[k]['y']:.2f} ({at_c1k[k]['lo']:.2f} to {at_c1k[k]['hi']:.2f})</td><td>{at_cv[k]['y']:.2f} ({at_cv[k]['lo']:.2f} to {at_cv[k]['hi']:.2f})</td></tr>"
+        for k in series_keys if at_c[k] and at_c1k[k] and at_cv[k])
+    cur_tbl = (f"<div class='tbl'><table><thead><tr><th>segment</th><th>loop</th><th>passkey, N = 256</th><th>passkey, N = 1024</th><th>AR valid, N = 256</th></tr></thead><tbody>{tbl_rows}</tbody></table></div>"
+               if tbl_rows else "")
+    now = time.strftime("%d %b %Y, %H:%M")
+
+    ref_pk = {n: cell("ref", n, "passkey") for n in EXP_NS}
+    tldr = [
+        f"<b>A plain window cannot carry the passkey.</b> Sliding-window attention with W = 64 and 2 layers (reach {2 * 63} tokens) scores "
+        f"{ref_pk[32]:.2f} / {ref_pk[64]:.2f} / {ref_pk[256]:.2f} / {ref_pk[1024]:.2f} on the passkey at N = 32 / 64 / 256 / 1024, while its AR queries are solved (valid accuracy {cell('ref', 256, 'valid'):.2f} at N = 256).",
+        f"<b>The feedback loop learns the passkey and the AR task together only with a stream-length curriculum.</b> Training on n32 first and adding n64, n128, n256 every 2,000 steps gives "
+        f"passkey {cell(cur_l, 256, 'passkey'):.2f} (linear loop) and {cell(cur_t, 256, 'passkey'):.2f} (tanh loop) at N = 256, with AR valid accuracy {cell(cur_l, 256, 'valid'):.2f} and {cell(cur_t, 256, 'valid'):.2f}. "
+        f"Without the curriculum the loop only started when the passkey loss was up-weighted ×100 (earlier 8k-step runs with default settings stayed at 0.00 at every N; they are not in the table), and then AR is starved: valid accuracy at N = 256 is at most {best_w_valid:.2f} in the four runs without the curriculum "
+        f"({best_cw_valid:.2f} when the up-weighting is combined with the curriculum).",
+        f"<b>Extrapolation beyond the training length is weak so far.</b> N = 1024 is 4× the longest training stream (about {hops(1024)} loop hops against {hops(256)} in training). "
+        f"The curriculum models score {cell(cur_l, 1024, 'passkey'):.2f} (linear) and {cell(cur_t, 1024, 'passkey'):.2f} (tanh) there, against {ref_pk[1024]:.2f} for the plain window. "
+        "These are single runs, 12k steps each.",
+        f"<b>The 3-seed sweep is running and nothing in it is final.</b> {n_started} of 18 runs have logged evaluations (latest step with all seeds: {prog_txt}); {len(finished)} have finished. "
+        "The question it answers is the one you raised: does a smaller segment (same window) extrapolate better? Smaller segments need proportionally more sequential hops, so they are slower to train.",
+        "<b>Queued for tonight:</b> segment 8, noise on the loop vector during training, and 40k-step runs. Each is a separate wandb group and a separate stage of the queue.",
+    ]
+    tested = [
+        {"title": "Feedback loop", "tag": "implemented", "ok": True,
+         "body": "Once per segment every layer turns its output into one vector, the mean over the segment of nonlin(linear(norm(y))), and adds it with a learned per-channel gain to its own input at every token of the next segment. "
+                 "The segment may be shorter than the window. Unit tests: zero feedback reproduces plain sliding-window attention exactly, the model is causal, information passes the window reach, gradients reach every hop."},
+        {"title": "Training recipe exploration", "tag": f"{len(explore)} runs, seed 0", "ok": True,
+         "body": "Window 64, 2 layers, segment 64, 12k steps, validation split. Compared a stream-length curriculum, a ×100 passkey loss weight annealed to 1 (over 4k or 8k steps), and both, each with a tanh and a linear loop. Loop parameters at 10× learning rate, gain 0.1, projection std 0.1 in all of them."},
+        {"title": "Main sweep", "tag": f"{len(finished)}/18 finished", "ok": False,
+         "body": "Loop type (tanh, linear) × segment (64, 32, 16) × 3 seeds, window 64, 20k steps, curriculum with 2,000 steps per stage, no loss re-weighting. Final evaluation on validation and test up to N = 16,384. wandb group swa_fb."},
+        {"title": "Overnight queue", "tag": "queued", "ok": False,
+         "body": "Segment 8 (2 seeds), noise 0.1 and 0.3 on the loop vector at segment 32, and 40k-step runs at segments 64 and 32. wandb group swa_fb_extra."},
+    ]
+    lin_pk = [cell(x["name"], 256, "passkey") for x in explore if x["cfg"]["model"]["nonlin"] == "none"]
+    tan_pk = [cell(x["name"], 256, "passkey") for x in explore if x["cfg"]["model"]["nonlin"] == "tanh"]
+    max_1k = max(cell(x["name"], 1024, "passkey") for x in explore)
+    cap1 = (f"<p><b>Top grid.</b> The plain window is at {ref_pk[256]:.2f} from N = 256 on. With a loop, the linear variants keep the passkey at N = 256 under every recipe ({min(lin_pk):.2f} to {max(lin_pk):.2f}) "
+            f"and the tanh variants less so ({min(tan_pk):.2f} to {max(tan_pk):.2f}). At N = 1024 no run is above {max_1k:.2f}.</p>"
+            f"<p><b>Middle grid.</b> The difference between the recipes is here: valid accuracy at N = 256 is {min(cell(k, 256, 'valid') for k in weight_only):.2f} to {best_w_valid:.2f} for the four runs without the curriculum, "
+            f"{min(cell(k, 256, 'valid') for k in cw):.2f} to {best_cw_valid:.2f} with the curriculum plus up-weighting, and {cell(cur_l, 256, 'valid'):.2f} / {cell(cur_t, 256, 'valid'):.2f} (linear / tanh) with the curriculum alone. "
+            "Only the curriculum-alone rows have both halves.</p>"
+            "<p><b>Bottom grid.</b> Stale-key accuracy stays close to 1.00 for every row where it exists (N = 32 has no stale queries). Hover a cell for the numbers.</p>")
+    cap2 = ("<p>Expired-query accuracy is high for all runs, so the points differ mainly in height. Hollow markers have AR valid accuracy below 0.90, which is the case for the weighted runs: they trade the AR half for the passkey. "
+            "The top-right corner needs both, and only the curriculum rows get close at N = 256.</p>")
+    nxt = ("<p><b>1. Read the sweep when it finishes.</b> Final numbers (test split, N up to 16,384, 3 seeds) and the report in this format, with the segment-size comparison as the main figure.</p>"
+           "<p><b>2. Decide from it what comes after the queue.</b> If smaller segments help, segment 8 shows whether the trend continues. If they do not, the limit is what one vector can carry per hop, and the loop vector, not the schedule, is what to change.</p>"
+           "<p><b>3. Still open:</b> training on longer streams (n512, n1024) would remove the extrapolation gap by construction and needs your decision; the benchmark change that samples the query density per stream; Exp 3 and Exp 4 are on hold.</p>")
+    data = {
+        "ns": EXP_NS, "rows": rows, "results": results, "scatter_ns": [256, 1024], "label_w": 206, "row_name": "configuration", "row_prefix": "",
+        "meta": f"Phase 1, snapshot of {now}. <span class='status'><span>main sweep: <b>{len(finished)}/18 runs finished</b></span><span>·</span><span><b>intermediate</b></span></span>",
+        "tldr": tldr, "tested": tested,
+        "results_intro": "The first part is the exploration that fixed the training recipe (validation split, 1,000 examples per N, one seed per row except the plain-window reference, which is the mean of 3 seeds trained for 30k steps). "
+                         "The second part is the main sweep, seen through its training curves so far. N counts AR writes; one write is about 3.75 tokens.",
+        "fig1_sub": "Rows: training recipe and loop type. Columns: number of AR writes N. Darker is higher. w100→1 = passkey loss weight ×100, annealed to 1.",
+        "fig2_sub": "One point per configuration. Ideal is the top-right corner. Hollow = AR valid accuracy below 0.90. Colour: "
+                    "<span class='legend' style='display:inline-flex;margin:0'><span><i style='background:var(--muted)'></i>plain window</span><span><i style='background:var(--s1)'></i>curriculum alone</span>"
+                    "<span><i style='background:var(--s2)'></i>curriculum + weight</span><span><i style='background:var(--s3)'></i>weight only, no curriculum</span></span>. Only the first two groups carry labels; hover the others.",
+        "valid_title": "AR valid accuracy (key written within the last 16 writes)",
+        "stale_title": "AR expired accuracy, stale keys only (last write more than 32 writes ago)",
+        "cap1": cap1, "cap2": cap2,
+        "extra_figs": [
+            {"title": "3. Main sweep so far: passkey at N = 256 during training",
+             "sub": "Validation, 200 examples per evaluation, mean over the 3 seeds with the seed range as bars. Colour = segment length, dashed = linear loop. Lines end at the current step of the slowest seed.",
+             "caption": f"<p>N = 256 is the longest training stream (about {hops(256)} hops at segment 64, {hops(256, 16)} at segment 16). Steps 0 to 6,000 are the curriculum stages, so the curves are not comparable before the n256 stage starts at step 6,000. "
+                        f"Latest step reached by all seeds of every series: {step_c:,}.</p>" + cur_tbl,
+             "spec": curve("pk256", "passkey exact match, N = 256", "Passkey accuracy at N = 256 against training step")},
+            {"title": "4. Main sweep so far: passkey at N = 1024 (4× the training length)",
+             "sub": "The extrapolation test. Same runs and evaluation as figure 3.",
+             "caption": "<p>This is the number the segment-size hypothesis is about: whether more, shorter hops carry the passkey farther. It is the noisiest of the three curves; read it only when the runs have finished.</p>",
+             "spec": curve("pk1024", "passkey exact match, N = 1024", "Passkey accuracy at N = 1024 against training step")},
+            {"title": "5. Main sweep so far: AR valid accuracy at N = 256",
+             "sub": "Checks that the AR half is learned alongside the passkey.",
+             "caption": "<p>Valid accuracy rises early in every run, since the AR half needs no loop; a run whose passkey is high but whose AR curve stays low would be the weighted-loss failure from the exploration.</p>",
+             "spec": curve("v256", "AR valid accuracy, N = 256", "AR valid accuracy at N = 256 against training step")},
+        ],
+        "next": nxt,
+    }
+    return data, "SWA Feedback Loop Report", "Sliding-window attention with a segment feedback loop"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("kind", choices=["gdn", "swa"])
+    ap.add_argument("kind", choices=["gdn", "swa", "fb"])
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
-    render(*(gdn_data() if a.kind == "gdn" else swa_data()), a.out)
+    render(*{"gdn": gdn_data, "swa": swa_data, "fb": fb_data}[a.kind](), a.out)
 
 
 if __name__ == "__main__":

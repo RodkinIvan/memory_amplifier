@@ -1,0 +1,316 @@
+<title>SWA Feedback Loop Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; the summary comes first, each chart sits in its own bordered figure with the description under it. */
+:root {
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,.10); --nodata: #ecebe6;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+  --seq0: #eaf2fd; --seq1: #9ec5f4; --seq2: #3987e5; --seq3: #1c5cab; --seq4: #0d366b;
+  --ord0: #86b6ef; --ord1: #3987e5; --ord2: #1c5cab; --ord3: #0d366b;
+  --good: #0f6b2f;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --nodata: #262624;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+    --seq0: #14294a; --seq1: #1c5cab; --seq2: #3987e5; --seq3: #86b6ef; --seq4: #cde2fb;
+    --ord0: #cde2fb; --ord1: #6da7ec; --ord2: #2a78d6; --ord3: #1c5cab;
+    --good: #5fd98a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,.10); --nodata: #262624;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  --seq0: #14294a; --seq1: #1c5cab; --seq2: #3987e5; --seq3: #86b6ef; --seq4: #cde2fb;
+  --ord0: #cde2fb; --ord1: #6da7ec; --ord2: #2a78d6; --ord3: #1c5cab;
+  --good: #5fd98a;
+}
+body { background: var(--page); color: var(--ink); font: 15px/1.6 var(--sans); margin: 0; }
+.wrap { max-width: 980px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 64px; }
+h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 6px; font-weight: 600; text-wrap: balance; }
+h2 { font-size: 1.2rem; margin: 40px 0 10px; font-weight: 600; text-wrap: balance; }
+h3 { font-size: 1rem; margin: 0 0 4px; font-weight: 600; }
+p { margin: 0 0 10px; max-width: 70ch; }
+.meta { color: var(--ink-2); font-size: .9rem; margin: 0 0 22px; }
+code, .mono { font-family: var(--mono); font-size: .88em; }
+.summary { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+.summary ol { margin: 8px 0 0; padding-left: 1.2em; display: grid; gap: 8px; }
+.summary li { max-width: 78ch; }
+.status { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: .85rem; color: var(--ink-2); font-family: var(--mono); }
+.status b { color: var(--ink); font-weight: 500; }
+figure { margin: 18px 0 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 14px 10px; }
+figcaption { color: var(--ink-2); font-size: .92rem; margin-top: 8px; }
+figcaption p { max-width: 82ch; }
+.fig-title { font-weight: 600; font-size: .98rem; }
+.fig-sub { color: var(--ink-2); font-size: .86rem; margin: 0 0 8px; }
+.chart { position: relative; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart text { font-family: var(--mono); fill: var(--ink-2); }
+.chart text.endlabel { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.hm-scroll { overflow-x: auto; }
+.hm-scroll svg { min-width: 640px; }
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: .84rem; color: var(--ink-2); margin: 4px 0 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.legend i.line { width: 18px; height: 0; border-radius: 0; border-top: 2px solid; vertical-align: 3px; }
+.legend i.dash { width: 18px; height: 0; border-radius: 0; border-top: 2px dashed; vertical-align: 3px; }
+details { margin-top: 8px; font-size: .86rem; }
+summary { cursor: pointer; color: var(--ink-2); }
+summary:focus-visible, a:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+.tbl { overflow-x: auto; margin-top: 6px; }
+table { border-collapse: collapse; font-family: var(--mono); font-size: .8rem; font-variant-numeric: tabular-nums; }
+th, td { padding: 3px 9px; border-bottom: 1px solid var(--grid); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--ink-2); font-weight: 500; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 14px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.card p { font-size: .9rem; }
+ul.tight { margin: 4px 0 10px; padding-left: 1.2em; display: grid; gap: 4px; max-width: 82ch; }
+.tag { font-family: var(--mono); font-size: .75rem; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); color: var(--ink-2); white-space: nowrap; }
+.tag.ok { color: var(--good); border-color: var(--good); }
+#tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--page); font: 12px/1.45 var(--mono); padding: 6px 9px; border-radius: 5px; max-width: 300px; display: none; }
+@media (max-width: 520px) { h1 { font-size: 1.5rem; } .wrap { padding-block: 20px 48px; } }
+</style>
+
+<div class="wrap">
+  <h1>Sliding-window attention with a segment feedback loop</h1>
+  <p class="meta" id="meta"></p>
+
+  <section class="summary" aria-label="Summary">
+    <h3>Summary</h3>
+    <ol id="tldr"></ol>
+  </section>
+
+  <h2>What was tested</h2>
+  <div class="two" id="tested"></div>
+
+  <h2>Results</h2>
+  <p id="results-intro"></p>
+
+  <figure>
+    <div class="fig-title">1. Accuracy by configuration and stream length</div>
+    <p class="fig-sub" id="fig1-sub"></p>
+    <div class="hm-scroll chart" id="hm-passkey"></div>
+    <div class="hm-scroll chart" id="hm-valid"></div>
+    <div class="hm-scroll chart" id="hm-stale"></div>
+    <figcaption id="cap1"></figcaption>
+    <details><summary>Table view</summary><div class="tbl" id="tbl1"></div></details>
+  </figure>
+
+  <figure>
+    <div class="fig-title">2. The requested trade-off plot: passkey vs expired-query accuracy</div>
+    <p class="fig-sub" id="fig2-sub"></p>
+    <div class="panels chart" id="scatter"></div>
+    <figcaption id="cap2"></figcaption>
+    <details><summary>Table view</summary><div class="tbl" id="tbl2"></div></details>
+  </figure>
+
+  <div id="extra-figs"></div>
+
+  <h2>What is next</h2>
+  <div id="next"></div>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+const DATA = {"ns": [32, 64, 256, 1024], "rows": [{"key": "ref", "label": "SWA, no loop", "color": "--muted", "long": "plain sliding window, W = 64, 2 layers, no loop (3 seeds, 30k steps)"}, {"key": "swa_fb_steps12000_cur2000_pka4000_llr10_ps0.1_gi0.1_pkw1_nltanh_s0", "label": "curriculum \u00b7 tanh", "color": "--s1", "nolabel": false, "long": "curriculum, tanh loop, window 64, segment 64, 12k steps, seed 0"}, {"key": "swa_fb_steps12000_cur2000_pka4000_llr10_ps0.1_gi0.1_pkw1_nlnone_s0", "label": "curriculum \u00b7 linear", "color": "--s1", "nolabel": false, "long": "curriculum, linear loop, window 64, segment 64, 12k steps, seed 0"}, {"key": "swa_fb_steps12000_cur2000_pka4000_llr10_ps0.1_gi0.1_pkw100_nltanh_s0", "label": "curriculum + w100\u21921 \u00b7 tanh", "color": "--s2", "nolabel": true, "long": "curriculum + w100\u21921, tanh loop, window 64, segment 64, 12k steps, seed 0"}, {"key": "swa_fb_steps12000_cur2000_pka4000_llr10_ps0.1_gi0.1_pkw100_nlnone_s0", "label": "curriculum + w100\u21921 \u00b7 linear", "color": "--s2", "nolabel": true, "long": "curriculum + w100\u21921, linear loop, window 64, segment 64, 12k steps, seed 0"}, {"key": "swa_fb_steps12000_pkw100_llr10_ps0.1_gi0.1_pka4000_nltanh_s0", "label": "w100\u21921 over 4k \u00b7 tanh", "color": "--s3", "nolabel": true, "long": "w100\u21921 over 4k, tanh loop, window 64, segment 64, 12k steps, seed 0"}, {"key": "swa_fb_steps12000_pkw100_llr10_ps0.1_gi0.1_pka4000_nlnone_s0", "label": "w100\u21921 over 4k \u00b7 linear", "color": "--s3", "nolabel": true, "long": "w100\u21921 over 4k, linear loop, window 64, segment 64, 12k steps, seed 0"}, {"key": "swa_fb_steps12000_pkw100_llr10_ps0.1_gi0.1_pka8000_nltanh_s0", "label": "w100\u21921 over 8k \u00b7 tanh", "color": "--s3", "nolabel": true, "long": "w100\u21921 over 8k, tanh loop, window 64, segment 64, 12k steps, seed 0"}, {"key": "swa_fb_steps12000_pkw100_llr10_ps0.1_gi0.1_pka8000_nlnone_s0", "label": "w100\u21921 over 8k \u00b7 linear", "color": "--s3", "nolabel": true, "long": "w100\u21921 over 8k, linear loop, window 64, segment 64, 12k steps, seed 0"}], "results": {"ref": {"32": {"passkey": 0.0, "valid": 0.9977589641434262, "stale": null, "expired": 1.0, "n_examples": 1000, "n_valid": 4016, "n_stale": 0, "per": {"passkey": [0.0, 0.0, 0.0], "valid": [0.9977589641434262, 0.9977589641434262, 0.9977589641434262], "stale": [null, null, null], "expired": [1.0, 1.0, 1.0]}}, "64": {"passkey": 0.0, "valid": 0.9964561447917987, "stale": 1.0, "expired": 1.0, "n_examples": 1000, "n_valid": 7901, "n_stale": 625, "per": {"passkey": [0.0, 0.0, 0.0], "valid": [0.9964561447917986, 0.9964561447917986, 0.9964561447917986], "stale": [1.0, 1.0, 1.0], "expired": [1.0, 1.0, 1.0]}}, "256": {"passkey": 0.0, "valid": 0.9943974116455278, "stale": 0.9999609679937548, "expired": 0.9999790882475952, "n_examples": 1000, "n_valid": 32247, "n_stale": 17080, "per": {"passkey": [0.0, 0.0, 0.0], "valid": [0.9944180854032934, 0.994387074766645, 0.994387074766645], "stale": [1.0, 1.0, 0.9998829039812647], "expired": [1.0, 1.0, 0.9999372647427854]}}, "1024": {"passkey": 0.0, "valid": 0.9945327290008876, "stale": 0.9999910662438021, "expired": 0.9999921978013404, "n_examples": 1000, "n_valid": 127303, "n_stale": 111935, "per": {"passkey": [0.0, 0.0, 0.0], "valid": [0.9945405842753117, 0.9945170184520397, 0.9945405842753117], "stale": [0.9999910662438022, 1.0, 0.9999821324876044], "expired": [0.9999921978013404, 1.0, 0.9999843956026808]}}}, "swa_fb_steps12000_cur2000_pka4000_llr10_ps0.1_gi0.1_pkw1_nltanh_s0": {"32": {"passkey": 1.0, "valid": 0.9977589641434262, "stale": null, "expired": 1.0, "n_examples": 1000, "n_valid": 4016, "n_stale": 0, "per": {"passkey": [1.0], "valid": [0.9977589641434262], "stale": [null], "expired": [1.0]}}, "64": {"passkey": 0.997, "valid": 0.9963295785343628, "stale": 1.0, "expired": 1.0, "n_examples": 1000, "n_valid": 7901, "n_stale": 625, "per": {"passkey": [0.997], "valid": [0.9963295785343628], "stale": [1.0], "expired": [1.0]}}, "256": {"passkey": 0.729, "valid": 0.9942630322200515, "stale": 0.999824355971897, "expired": 0.9999058971141782, "n_examples": 1000, "n_valid": 32247, "n_stale": 17080, "per": {"passkey": [0.729], "valid": [0.9942630322200515], "stale": [0.999824355971897], "expired": [0.9999058971141782]}}, "1024": {"passkey": 0.257, "valid": 0.9943756235124074, "stale": 0.9998838611694287, "expired": 0.9998985714174254, "n_examples": 1000, "n_valid": 127303, "n_stale": 111935, "per": {"passkey": [0.257], "valid": [0.9943756235124074], "stale": [0.9998838611694287], "expired": [0.9998985714174254]}}}, "swa_fb_steps12000_cur2000_pka4000_llr10_ps0.1_gi0.1_pkw1_nlnone_s0": {"32": {"passkey": 0.992, "valid": 0.9957669322709163, "stale": null, "expired": 0.9997483643683945, "n_examples": 1000, "n_valid": 4016, "n_stale": 0, "per": {"passkey": [0.992], "valid": [0.9957669322709163], "stale": [null], "expired": [0.9997483643683945]}}, "64": {"passkey": 0.995, "valid": 0.9932919883559043, "stale": 1.0, "expired": 0.9996281606346058, "n_examples": 1000, "n_valid": 7901, "n_stale": 625, "per": {"passkey": [0.995], "valid": [0.9932919883559043], "stale": [1.0], "expired": [0.9996281606346058]}}, "256": {"passkey": 0.957, "valid": 0.9903246813657084, "stale": 0.9995901639344262, "expired": 0.9997176913425345, "n_examples": 1000, "n_valid": 32247, "n_stale": 17080, "per": {"passkey": [0.957], "valid": [0.9903246813657084], "stale": [0.9995901639344262], "expired": [0.9997176913425345]}}, "1024": {"passkey": 0.139, "valid": 0.9906914998075458, "stale": 0.9995443784339125, "expired": 0.999570879073723, "n_examples": 1000, "n_valid": 127303, "n_stale": 111935, "per": {"passkey": [0.139], "valid": [0.9906914998075458], "stale": [0.9995443784339125], "expired": [0.999570879073723]}}}, "swa_fb_steps12000_cur2000_pka4000_llr10_ps0.1_gi0.1_pkw100_nltanh_s0": {"32": {"passkey": 0.95, "valid": 0.774402390438247, "stale": null, "expired": 0.9932058379466533, "n_examples": 1000, "n_valid": 4016, "n_stale": 0, "per": {"passkey": [0.95], "valid": [0.774402390438247], "stale": [null], "expired": [0.9932058379466533]}}, "64": {"passkey": 0.914, "valid": 0.7319326667510442, "stale": 0.9968, "expired": 0.9924392662369856, "n_examples": 1000, "n_valid": 7901, "n_stale": 625, "per": {"passkey": [0.914], "valid": [0.7319326667510442], "stale": [0.9968], "expired": [0.9924392662369856]}}, "256": {"passkey": 0.578, "valid": 0.7075696964058672, "stale": 0.9934426229508196, "expired": 0.9930363864491845, "n_examples": 1000, "n_valid": 32247, "n_stale": 17080, "per": {"passkey": [0.578], "valid": [0.7075696964058672], "stale": [0.9934426229508196], "expired": [0.9930363864491845]}}, "1024": {"passkey": 0.355, "valid": 0.698970173523012, "stale": 0.993210345289677, "expired": 0.993165273974206, "n_examples": 1000, "n_valid": 127303, "n_stale": 111935, "per": {"passkey": [0.355], "valid": [0.698970173523012], "stale": [0.993210345289677], "expired": [0.993165273974206]}}}, "swa_fb_steps12000_cur2000_pka4000_llr10_ps0.1_gi0.1_pkw100_nlnone_s0": {"32": {"passkey": 0.987, "valid": 0.21190239043824702, "stale": null, "expired": 0.9625062908907901, "n_examples": 1000, "n_valid": 4016, "n_stale": 0, "per": {"passkey": [0.987], "valid": [0.21190239043824702], "stale": [null], "expired": [0.9625062908907901]}}, "64": {"passkey": 0.994, "valid": 0.174281736489052, "stale": 0.968, "expired": 0.9577342588001984, "n_examples": 1000, "n_valid": 7901, "n_stale": 625, "per": {"passkey": [0.994], "valid": [0.174281736489052], "stale": [0.968], "expired": [0.9577342588001984]}}, "256": {"passkey": 0.883, "valid": 0.1520761621236084, "stale": 0.9628805620608899, "expired": 0.960414052697616, "n_examples": 1000, "n_valid": 32247, "n_stale": 17080, "per": {"passkey": [0.883], "valid": [0.1520761621236084], "stale": [0.9628805620608899], "expired": [0.960414052697616]}}, "1024": {"passkey": 0.046, "valid": 0.14529901102095003, "stale": 0.9608344128288739, "expired": 0.9606301055637478, "n_examples": 1000, "n_valid": 127303, "n_stale": 111935, "per": {"passkey": [0.046], "valid": [0.14529901102095003], "stale": [0.9608344128288739], "expired": [0.9606301055637478]}}}, "swa_fb_steps12000_pkw100_llr10_ps0.1_gi0.1_pka4000_nltanh_s0": {"32": {"passkey": 0.935, "valid": 0.19073705179282868, "stale": null, "expired": 0.9589833920483141, "n_examples": 1000, "n_valid": 4016, "n_stale": 0, "per": {"passkey": [0.935], "valid": [0.19073705179282868], "stale": [null], "expired": [0.9589833920483141]}}, "64": {"passkey": 0.858, "valid": 0.1626376408049614, "stale": 0.9696, "expired": 0.9604610808130888, "n_examples": 1000, "n_valid": 7901, "n_stale": 625, "per": {"passkey": [0.858], "valid": [0.1626376408049614], "stale": [0.9696], "expired": [0.9604610808130888]}}, "256": {"passkey": 0.275, "valid": 0.14512977951437342, "stale": 0.96692037470726, "expired": 0.9637703889585947, "n_examples": 1000, "n_valid": 32247, "n_stale": 17080, "per": {"passkey": [0.275], "valid": [0.14512977951437342], "stale": [0.96692037470726], "expired": [0.9637703889585947]}}, "1024": {"passkey": 0.252, "valid": 0.14072724130617503, "stale": 0.9654352972707375, "expired": 0.9643751609203474, "n_examples": 1000, "n_valid": 127303, "n_stale": 111935, "per": {"passkey": [0.252], "valid": [0.14072724130617503], "stale": [0.9654352972707375], "expired": [0.9643751609203474]}}}, "swa_fb_steps12000_pkw100_llr10_ps0.1_gi0.1_pka4000_nlnone_s0": {"32": {"passkey": 0.995, "valid": 0.012948207171314742, "stale": null, "expired": 0.9823855057876195, "n_examples": 1000, "n_valid": 4016, "n_stale": 0, "per": {"passkey": [0.995], "valid": [0.012948207171314742], "stale": [null], "expired": [0.9823855057876195]}}, "64": {"passkey": 0.993, "valid": 0.004429819010251867, "stale": 1.0, "expired": 0.9933068914229053, "n_examples": 1000, "n_valid": 7901, "n_stale": 625, "per": {"passkey": [0.993], "valid": [0.004429819010251867], "stale": [1.0], "expired": [0.9933068914229053]}}, "256": {"passkey": 0.921, "valid": 0.0017055850156603716, "stale": 1.0, "expired": 0.9986198243412798, "n_examples": 1000, "n_valid": 32247, "n_stale": 17080, "per": {"passkey": [0.921], "valid": [0.0017055850156603716], "stale": [1.0], "expired": [0.9986198243412798]}}, "1024": {"passkey": 0.143, "valid": 0.0004084742700486242, "stale": 0.9999910662438022, "expired": 0.9994928570871272, "n_examples": 1000, "n_valid": 127303, "n_stale": 111935, "per": {"passkey": [0.143], "valid": [0.0004084742700486242], "stale": [0.9999910662438022], "expired": [0.9994928570871272]}}}, "swa_fb_steps12000_pkw100_llr10_ps0.1_gi0.1_pka8000_nltanh_s0": {"32": {"passkey": 0.939, "valid": 0.016185258964143426, "stale": null, "expired": 0.9811273276295923, "n_examples": 1000, "n_valid": 4016, "n_stale": 0, "per": {"passkey": [0.939], "valid": [0.016185258964143426], "stale": [null], "expired": [0.9811273276295923]}}, "64": {"passkey": 0.854, "valid": 0.007340842931274522, "stale": 1.0, "expired": 0.9921913733267228, "n_examples": 1000, "n_valid": 7901, "n_stale": 625, "per": {"passkey": [0.854], "valid": [0.007340842931274522], "stale": [1.0], "expired": [0.9921913733267228]}}, "256": {"passkey": 0.341, "valid": 0.002077712655440816, "stale": 1.0, "expired": 0.9978042659974906, "n_examples": 1000, "n_valid": 32247, "n_stale": 17080, "per": {"passkey": [0.341], "valid": [0.002077712655440816], "stale": [1.0], "expired": [0.9978042659974906]}}, "1024": {"passkey": 0.345, "valid": 0.0005577244841048522, "stale": 0.9999910662438022, "expired": 0.9994226372991909, "n_examples": 1000, "n_valid": 127303, "n_stale": 111935, "per": {"passkey": [0.345], "valid": [0.0005577244841048522], "stale": [0.9999910662438022], "expired": [0.9994226372991909]}}}, "swa_fb_steps12000_pkw100_llr10_ps0.1_gi0.1_pka8000_nlnone_s0": {"32": {"passkey": 0.981, "valid": 0.1317231075697211, "stale": null, "expired": 0.9921992954202316, "n_examples": 1000, "n_valid": 4016, "n_stale": 0, "per": {"passkey": [0.981], "valid": [0.1317231075697211], "stale": [null], "expired": [0.9921992954202316]}}, "64": {"passkey": 0.981, "valid": 0.08644475382862929, "stale": 1.0, "expired": 0.9944224095190878, "n_examples": 1000, "n_valid": 7901, "n_stale": 625, "per": {"passkey": [0.981], "valid": [0.08644475382862929], "stale": [1.0], "expired": [0.9944224095190878]}}, "256": {"passkey": 0.95, "valid": 0.0625174434831147, "stale": 0.9970140515222482, "expired": 0.9964868255959849, "n_examples": 1000, "n_valid": 32247, "n_stale": 17080, "per": {"passkey": [0.95], "valid": [0.0625174434831147], "stale": [0.9970140515222482], "expired": [0.9964868255959849]}}, "1024": {"passkey": 0.355, "valid": 0.05427209099549893, "stale": 0.9975342832894091, "expired": 0.9973862634490399, "n_examples": 1000, "n_valid": 127303, "n_stale": 111935, "per": {"passkey": [0.355], "valid": [0.05427209099549893], "stale": [0.9975342832894091], "expired": [0.9973862634490399]}}}}, "scatter_ns": [256, 1024], "label_w": 206, "row_name": "configuration", "row_prefix": "", "meta": "Phase 1, snapshot of 02 Oct 2026, 17:34. <span class='status'><span>main sweep: <b>0/18 runs finished</b></span><span>\u00b7</span><span><b>intermediate</b></span></span>", "tldr": ["<b>A plain window cannot carry the passkey.</b> Sliding-window attention with W = 64 and 2 layers (reach 126 tokens) scores 0.00 / 0.00 / 0.00 / 0.00 on the passkey at N = 32 / 64 / 256 / 1024, while its AR queries are solved (valid accuracy 0.99 at N = 256).", "<b>The feedback loop learns the passkey and the AR task together only with a stream-length curriculum.</b> Training on n32 first and adding n64, n128, n256 every 2,000 steps gives passkey 0.96 (linear loop) and 0.73 (tanh loop) at N = 256, with AR valid accuracy 0.99 and 0.99. Without the curriculum the loop only started when the passkey loss was up-weighted \u00d7100 (earlier 8k-step runs with default settings stayed at 0.00 at every N; they are not in the table), and then AR is starved: valid accuracy at N = 256 is at most 0.15 in the four runs without the curriculum (0.71 when the up-weighting is combined with the curriculum).", "<b>Extrapolation beyond the training length is weak so far.</b> N = 1024 is 4\u00d7 the longest training stream (about 60 loop hops against 15 in training). The curriculum models score 0.14 (linear) and 0.26 (tanh) there, against 0.00 for the plain window. These are single runs, 12k steps each.", "<b>The 3-seed sweep is running and nothing in it is final.</b> 18 of 18 runs have logged evaluations (latest step with all seeds: segment 64: step 8,000, segment 32: step 6,000, segment 16: step 4,000); 0 have finished. The question it answers is the one you raised: does a smaller segment (same window) extrapolate better? Smaller segments need proportionally more sequential hops, so they are slower to train.", "<b>Queued for tonight:</b> segment 8, noise on the loop vector during training, and 40k-step runs. Each is a separate wandb group and a separate stage of the queue."], "tested": [{"title": "Feedback loop", "tag": "implemented", "ok": true, "body": "Once per segment every layer turns its output into one vector, the mean over the segment of nonlin(linear(norm(y))), and adds it with a learned per-channel gain to its own input at every token of the next segment. The segment may be shorter than the window. Unit tests: zero feedback reproduces plain sliding-window attention exactly, the model is causal, information passes the window reach, gradients reach every hop."}, {"title": "Training recipe exploration", "tag": "8 runs, seed 0", "ok": true, "body": "Window 64, 2 layers, segment 64, 12k steps, validation split. Compared a stream-length curriculum, a \u00d7100 passkey loss weight annealed to 1 (over 4k or 8k steps), and both, each with a tanh and a linear loop. Loop parameters at 10\u00d7 learning rate, gain 0.1, projection std 0.1 in all of them."}, {"title": "Main sweep", "tag": "0/18 finished", "ok": false, "body": "Loop type (tanh, linear) \u00d7 segment (64, 32, 16) \u00d7 3 seeds, window 64, 20k steps, curriculum with 2,000 steps per stage, no loss re-weighting. Final evaluation on validation and test up to N = 16,384. wandb group swa_fb."}, {"title": "Overnight queue", "tag": "queued", "ok": false, "body": "Segment 8 (2 seeds), noise 0.1 and 0.3 on the loop vector at segment 32, and 40k-step runs at segments 64 and 32. wandb group swa_fb_extra."}], "results_intro": "The first part is the exploration that fixed the training recipe (validation split, 1,000 examples per N, one seed per row except the plain-window reference, which is the mean of 3 seeds trained for 30k steps). The second part is the main sweep, seen through its training curves so far. N counts AR writes; one write is about 3.75 tokens.", "fig1_sub": "Rows: training recipe and loop type. Columns: number of AR writes N. Darker is higher. w100\u21921 = passkey loss weight \u00d7100, annealed to 1.", "fig2_sub": "One point per configuration. Ideal is the top-right corner. Hollow = AR valid accuracy below 0.90. Colour: <span class='legend' style='display:inline-flex;margin:0'><span><i style='background:var(--muted)'></i>plain window</span><span><i style='background:var(--s1)'></i>curriculum alone</span><span><i style='background:var(--s2)'></i>curriculum + weight</span><span><i style='background:var(--s3)'></i>weight only, no curriculum</span></span>. Only the first two groups carry labels; hover the others.", "valid_title": "AR valid accuracy (key written within the last 16 writes)", "stale_title": "AR expired accuracy, stale keys only (last write more than 32 writes ago)", "cap1": "<p><b>Top grid.</b> The plain window is at 0.00 from N = 256 on. With a loop, the linear variants keep the passkey at N = 256 under every recipe (0.88 to 0.96) and the tanh variants less so (0.28 to 0.73). At N = 1024 no run is above 0.35.</p><p><b>Middle grid.</b> The difference between the recipes is here: valid accuracy at N = 256 is 0.00 to 0.15 for the four runs without the curriculum, 0.15 to 0.71 with the curriculum plus up-weighting, and 0.99 / 0.99 (linear / tanh) with the curriculum alone. Only the curriculum-alone rows have both halves.</p><p><b>Bottom grid.</b> Stale-key accuracy stays close to 1.00 for every row where it exists (N = 32 has no stale queries). Hover a cell for the numbers.</p>", "cap2": "<p>Expired-query accuracy is high for all runs, so the points differ mainly in height. Hollow markers have AR valid accuracy below 0.90, which is the case for the weighted runs: they trade the AR half for the passkey. The top-right corner needs both, and only the curriculum rows get close at N = 256.</p>", "extra_figs": [{"title": "3. Main sweep so far: passkey at N = 256 during training", "sub": "Validation, 200 examples per evaluation, mean over the 3 seeds with the seed range as bars. Colour = segment length, dashed = linear loop. Lines end at the current step of the slowest seed.", "caption": "<p>N = 256 is the longest training stream (about 15 hops at segment 64, 60 at segment 16). Steps 0 to 6,000 are the curriculum stages, so the curves are not comparable before the n256 stage starts at step 6,000. Latest step reached by all seeds of every series: 4,000.</p><div class='tbl'><table><thead><tr><th>segment</th><th>loop</th><th>passkey, N = 256</th><th>passkey, N = 1024</th><th>AR valid, N = 256</th></tr></thead><tbody><tr><td>segment 64</td><td>tanh loop</td><td>0.00 (0.00 to 0.01)</td><td>0.00 (0.00 to 0.00)</td><td>0.95 (0.86 to 0.99)</td></tr><tr><td>segment 64</td><td>linear loop</td><td>0.01 (0.00 to 0.01)</td><td>0.00 (0.00 to 0.00)</td><td>0.87 (0.66 to 0.98)</td></tr><tr><td>segment 32</td><td>tanh loop</td><td>0.00 (0.00 to 0.00)</td><td>0.00 (0.00 to 0.00)</td><td>0.95 (0.93 to 0.99)</td></tr><tr><td>segment 32</td><td>linear loop</td><td>0.00 (0.00 to 0.00)</td><td>0.00 (0.00 to 0.00)</td><td>0.54 (0.21 to 0.83)</td></tr><tr><td>segment 16</td><td>tanh loop</td><td>0.00 (0.00 to 0.00)</td><td>0.00 (0.00 to 0.00)</td><td>0.00 (0.00 to 0.00)</td></tr><tr><td>segment 16</td><td>linear loop</td><td>0.00 (0.00 to 0.00)</td><td>0.00 (0.00 to 0.00)</td><td>0.19 (0.00 to 0.56)</td></tr></tbody></table></div>", "spec": {"series": [{"label": "segment 64 \u00b7 tanh loop", "ord": [0, 3], "dashed": false, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 64 \u00b7 tanh loop<br>step 2000<br>pk256 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0033333333333333335, "lo": 0.0, "hi": 0.01, "tip": "segment 64 \u00b7 tanh loop<br>step 4000<br>pk256 0.00 (seeds 0.00 to 0.01)"}, {"x": 6000, "y": 0.08, "lo": 0.07, "hi": 0.1, "tip": "segment 64 \u00b7 tanh loop<br>step 6000<br>pk256 0.08 (seeds 0.07 to 0.10)"}, {"x": 8000, "y": 0.09999999999999999, "lo": 0.08, "hi": 0.12, "tip": "segment 64 \u00b7 tanh loop<br>step 8000<br>pk256 0.10 (seeds 0.08 to 0.12)"}]}, {"label": "segment 64 \u00b7 linear loop", "ord": [0, 3], "dashed": true, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 64 \u00b7 linear loop<br>step 2000<br>pk256 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.006666666666666667, "lo": 0.0, "hi": 0.01, "tip": "segment 64 \u00b7 linear loop<br>step 4000<br>pk256 0.01 (seeds 0.00 to 0.01)"}, {"x": 6000, "y": 0.11333333333333334, "lo": 0.05, "hi": 0.2, "tip": "segment 64 \u00b7 linear loop<br>step 6000<br>pk256 0.11 (seeds 0.05 to 0.20)"}, {"x": 8000, "y": 0.31, "lo": 0.22, "hi": 0.41, "tip": "segment 64 \u00b7 linear loop<br>step 8000<br>pk256 0.31 (seeds 0.22 to 0.41)"}]}, {"label": "segment 32 \u00b7 tanh loop", "ord": [1, 3], "dashed": false, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 32 \u00b7 tanh loop<br>step 2000<br>pk256 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 32 \u00b7 tanh loop<br>step 4000<br>pk256 0.00 (seeds 0.00 to 0.00)"}, {"x": 6000, "y": 0.016666666666666666, "lo": 0.0, "hi": 0.04, "tip": "segment 32 \u00b7 tanh loop<br>step 6000<br>pk256 0.02 (seeds 0.00 to 0.04)"}]}, {"label": "segment 32 \u00b7 linear loop", "ord": [1, 3], "dashed": true, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 32 \u00b7 linear loop<br>step 2000<br>pk256 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 32 \u00b7 linear loop<br>step 4000<br>pk256 0.00 (seeds 0.00 to 0.00)"}, {"x": 6000, "y": 0.049999999999999996, "lo": 0.0, "hi": 0.09, "tip": "segment 32 \u00b7 linear loop<br>step 6000<br>pk256 0.05 (seeds 0.00 to 0.09)"}]}, {"label": "segment 16 \u00b7 tanh loop", "ord": [2, 3], "dashed": false, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 tanh loop<br>step 2000<br>pk256 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 tanh loop<br>step 4000<br>pk256 0.00 (seeds 0.00 to 0.00)"}]}, {"label": "segment 16 \u00b7 linear loop", "ord": [2, 3], "dashed": true, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 linear loop<br>step 2000<br>pk256 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 linear loop<br>step 4000<br>pk256 0.00 (seeds 0.00 to 0.00)"}]}], "xTicks": [0, 4000, 8000, 12000, 16000, 20000], "x0": 0, "x1": 20000, "xLog": false, "yMin": 0, "yMax": 1, "xLabel": "training step (the runs are 20,000 steps long)", "yLabel": "passkey exact match, N = 256", "legendLine": true, "rightPad": 86, "aria": "Passkey accuracy at N = 256 against training step", "vlines": [{"x": 2000, "label": "n64 joins"}, {"x": 4000, "label": "n128 joins", "dy": 12}, {"x": 6000, "label": "n256 joins", "dy": 24}]}}, {"title": "4. Main sweep so far: passkey at N = 1024 (4\u00d7 the training length)", "sub": "The extrapolation test. Same runs and evaluation as figure 3.", "caption": "<p>This is the number the segment-size hypothesis is about: whether more, shorter hops carry the passkey farther. It is the noisiest of the three curves; read it only when the runs have finished.</p>", "spec": {"series": [{"label": "segment 64 \u00b7 tanh loop", "ord": [0, 3], "dashed": false, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 64 \u00b7 tanh loop<br>step 2000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 64 \u00b7 tanh loop<br>step 4000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 6000, "y": 0.006666666666666667, "lo": 0.0, "hi": 0.02, "tip": "segment 64 \u00b7 tanh loop<br>step 6000<br>pk1024 0.01 (seeds 0.00 to 0.02)"}, {"x": 8000, "y": 0.02, "lo": 0.01, "hi": 0.04, "tip": "segment 64 \u00b7 tanh loop<br>step 8000<br>pk1024 0.02 (seeds 0.01 to 0.04)"}]}, {"label": "segment 64 \u00b7 linear loop", "ord": [0, 3], "dashed": true, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 64 \u00b7 linear loop<br>step 2000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 64 \u00b7 linear loop<br>step 4000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 6000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 64 \u00b7 linear loop<br>step 6000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 8000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 64 \u00b7 linear loop<br>step 8000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}]}, {"label": "segment 32 \u00b7 tanh loop", "ord": [1, 3], "dashed": false, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 32 \u00b7 tanh loop<br>step 2000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 32 \u00b7 tanh loop<br>step 4000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 6000, "y": 0.0033333333333333335, "lo": 0.0, "hi": 0.01, "tip": "segment 32 \u00b7 tanh loop<br>step 6000<br>pk1024 0.00 (seeds 0.00 to 0.01)"}]}, {"label": "segment 32 \u00b7 linear loop", "ord": [1, 3], "dashed": true, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 32 \u00b7 linear loop<br>step 2000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 32 \u00b7 linear loop<br>step 4000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 6000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 32 \u00b7 linear loop<br>step 6000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}]}, {"label": "segment 16 \u00b7 tanh loop", "ord": [2, 3], "dashed": false, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 tanh loop<br>step 2000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 tanh loop<br>step 4000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}]}, {"label": "segment 16 \u00b7 linear loop", "ord": [2, 3], "dashed": true, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 linear loop<br>step 2000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 linear loop<br>step 4000<br>pk1024 0.00 (seeds 0.00 to 0.00)"}]}], "xTicks": [0, 4000, 8000, 12000, 16000, 20000], "x0": 0, "x1": 20000, "xLog": false, "yMin": 0, "yMax": 1, "xLabel": "training step (the runs are 20,000 steps long)", "yLabel": "passkey exact match, N = 1024", "legendLine": true, "rightPad": 86, "aria": "Passkey accuracy at N = 1024 against training step", "vlines": [{"x": 2000, "label": "n64 joins"}, {"x": 4000, "label": "n128 joins", "dy": 12}, {"x": 6000, "label": "n256 joins", "dy": 24}]}}, {"title": "5. Main sweep so far: AR valid accuracy at N = 256", "sub": "Checks that the AR half is learned alongside the passkey.", "caption": "<p>Valid accuracy rises early in every run, since the AR half needs no loop; a run whose passkey is high but whose AR curve stays low would be the weighted-loss failure from the exploration.</p>", "spec": {"series": [{"label": "segment 64 \u00b7 tanh loop", "ord": [0, 3], "dashed": false, "points": [{"x": 2000, "y": 0.8266666666666667, "lo": 0.63, "hi": 0.97, "tip": "segment 64 \u00b7 tanh loop<br>step 2000<br>v256 0.83 (seeds 0.63 to 0.97)"}, {"x": 4000, "y": 0.9466666666666667, "lo": 0.86, "hi": 0.99, "tip": "segment 64 \u00b7 tanh loop<br>step 4000<br>v256 0.95 (seeds 0.86 to 0.99)"}, {"x": 6000, "y": 0.9766666666666666, "lo": 0.95, "hi": 0.99, "tip": "segment 64 \u00b7 tanh loop<br>step 6000<br>v256 0.98 (seeds 0.95 to 0.99)"}, {"x": 8000, "y": 0.9866666666666667, "lo": 0.98, "hi": 0.99, "tip": "segment 64 \u00b7 tanh loop<br>step 8000<br>v256 0.99 (seeds 0.98 to 0.99)"}]}, {"label": "segment 64 \u00b7 linear loop", "ord": [0, 3], "dashed": true, "points": [{"x": 2000, "y": 0.39999999999999997, "lo": 0.15, "hi": 0.88, "tip": "segment 64 \u00b7 linear loop<br>step 2000<br>v256 0.40 (seeds 0.15 to 0.88)"}, {"x": 4000, "y": 0.87, "lo": 0.66, "hi": 0.98, "tip": "segment 64 \u00b7 linear loop<br>step 4000<br>v256 0.87 (seeds 0.66 to 0.98)"}, {"x": 6000, "y": 0.9133333333333334, "lo": 0.76, "hi": 0.99, "tip": "segment 64 \u00b7 linear loop<br>step 6000<br>v256 0.91 (seeds 0.76 to 0.99)"}, {"x": 8000, "y": 0.9733333333333333, "lo": 0.94, "hi": 0.99, "tip": "segment 64 \u00b7 linear loop<br>step 8000<br>v256 0.97 (seeds 0.94 to 0.99)"}]}, {"label": "segment 32 \u00b7 tanh loop", "ord": [1, 3], "dashed": false, "points": [{"x": 2000, "y": 0.33666666666666667, "lo": 0.01, "hi": 0.96, "tip": "segment 32 \u00b7 tanh loop<br>step 2000<br>v256 0.34 (seeds 0.01 to 0.96)"}, {"x": 4000, "y": 0.9533333333333333, "lo": 0.93, "hi": 0.99, "tip": "segment 32 \u00b7 tanh loop<br>step 4000<br>v256 0.95 (seeds 0.93 to 0.99)"}, {"x": 6000, "y": 0.9733333333333333, "lo": 0.96, "hi": 0.99, "tip": "segment 32 \u00b7 tanh loop<br>step 6000<br>v256 0.97 (seeds 0.96 to 0.99)"}]}, {"label": "segment 32 \u00b7 linear loop", "ord": [1, 3], "dashed": true, "points": [{"x": 2000, "y": 0.0033333333333333335, "lo": 0.0, "hi": 0.01, "tip": "segment 32 \u00b7 linear loop<br>step 2000<br>v256 0.00 (seeds 0.00 to 0.01)"}, {"x": 4000, "y": 0.5366666666666666, "lo": 0.21, "hi": 0.83, "tip": "segment 32 \u00b7 linear loop<br>step 4000<br>v256 0.54 (seeds 0.21 to 0.83)"}, {"x": 6000, "y": 0.9666666666666667, "lo": 0.96, "hi": 0.98, "tip": "segment 32 \u00b7 linear loop<br>step 6000<br>v256 0.97 (seeds 0.96 to 0.98)"}]}, {"label": "segment 16 \u00b7 tanh loop", "ord": [2, 3], "dashed": false, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 tanh loop<br>step 2000<br>v256 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 tanh loop<br>step 4000<br>v256 0.00 (seeds 0.00 to 0.00)"}]}, {"label": "segment 16 \u00b7 linear loop", "ord": [2, 3], "dashed": true, "points": [{"x": 2000, "y": 0.0, "lo": 0.0, "hi": 0.0, "tip": "segment 16 \u00b7 linear loop<br>step 2000<br>v256 0.00 (seeds 0.00 to 0.00)"}, {"x": 4000, "y": 0.18666666666666668, "lo": 0.0, "hi": 0.56, "tip": "segment 16 \u00b7 linear loop<br>step 4000<br>v256 0.19 (seeds 0.00 to 0.56)"}]}], "xTicks": [0, 4000, 8000, 12000, 16000, 20000], "x0": 0, "x1": 20000, "xLog": false, "yMin": 0, "yMax": 1, "xLabel": "training step (the runs are 20,000 steps long)", "yLabel": "AR valid accuracy, N = 256", "legendLine": true, "rightPad": 86, "aria": "AR valid accuracy at N = 256 against training step", "vlines": [{"x": 2000, "label": "n64 joins"}, {"x": 4000, "label": "n128 joins", "dy": 12}, {"x": 6000, "label": "n256 joins", "dy": 24}]}}], "next": "<p><b>1. Read the sweep when it finishes.</b> Final numbers (test split, N up to 16,384, 3 seeds) and the report in this format, with the segment-size comparison as the main figure.</p><p><b>2. Decide from it what comes after the queue.</b> If smaller segments help, segment 8 shows whether the trend continues. If they do not, the limit is what one vector can carry per hop, and the loop vector, not the schedule, is what to change.</p><p><b>3. Still open:</b> training on longer streams (n512, n1024) would remove the extrapolation gap by construction and needs your decision; the benchmark change that samples the query density per stream; Exp 3 and Exp 4 are on hold.</p>"};
+const NS = DATA.ns, ROWS = DATA.rows;
+const fmt2 = v => (v == null ? '–' : v.toFixed(2));
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cell = (rk, n) => (DATA.results[rk] || {})[String(n)];
+const perTxt = (r, key) => (r && r.per && r.per[key] ? 'seeds: ' + r.per[key].map(v => v == null ? '–' : v.toFixed(2)).join(' / ') : '');
+
+// ---- colour helpers (tokens are read from CSS so both themes work)
+function hex2rgb(h) { h = h.replace('#', ''); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
+function mix(c1, c2, t) { return c1.map((v, i) => Math.round(v + (c2[i] - v) * t)); }
+function seqColor(v) {
+  const stops = [0, 1, 2, 3, 4].map(i => hex2rgb(cssv('--seq' + i)));
+  const x = Math.max(0, Math.min(1, v)) * 4, i = Math.min(3, Math.floor(x));
+  return mix(stops[i], stops[i + 1], x - i);
+}
+const lum = c => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); }; return .2126 * f(c[0]) + .7152 * f(c[1]) + .0722 * f(c[2]); };
+const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+// ordinal colour for item i of n: i = 0 is the darkest (light mode) / lightest (dark mode)
+const ordColor = (i, n) => { const s = [0, 1, 2, 3].map(k => hex2rgb(cssv('--ord' + k))); const j = n - 1 - i; const x = n === 1 ? 3 : j / (n - 1) * 3, k = Math.min(2, Math.floor(x)); return rgb(mix(s[k], s[k + 1], x - k)); };
+const rowColor = i => (ROWS[i].color ? cssv(ROWS[i].color) : ordColor(i, ROWS.length));  // a row may name its own colour token
+// series colour: explicit css colour, or an ordinal slot [i, n], or its position in the list
+const serCol = (sr, i, spec) => sr.c || (sr.ord ? ordColor(sr.ord[0], sr.ord[1]) : ordColor(spec.ordReverse ? spec.series.length - 1 - i : i, spec.series.length));
+
+// ---- tooltip
+const tip = $('#tip');
+document.addEventListener('mousemove', e => {
+  const t = e.target.closest && e.target.closest('[data-tip]');
+  if (!t) { tip.style.display = 'none'; return; }
+  tip.innerHTML = t.getAttribute('data-tip');
+  tip.style.display = 'block';
+  const w = tip.offsetWidth, x = Math.min(e.clientX + 14, window.innerWidth - w - 8);
+  tip.style.left = Math.max(8, x) + 'px';
+  tip.style.top = Math.min(e.clientY + 16, window.innerHeight - tip.offsetHeight - 8) + 'px';
+});
+
+// ---- figure 1: heatmaps (rows = configurations, columns = N)
+function heatmap(host, key, title, extra) {
+  const lw = DATA.label_w || 58, W = 760, left = lw, top = 54, right = 8, ch = 28, cw = (W - left - right) / NS.length;
+  const H = top + ROWS.length * ch + 24, trainCols = NS.filter(n => n <= 256).length;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)} by configuration and N">`;
+  s += `<text x="0" y="13" style="fill:var(--ink);font-family:var(--sans);font-size:13px;font-weight:600">${esc(title)}</text>`;
+  s += `<line x1="${left}" x2="${left + trainCols * cw - 4}" y1="34" y2="34" stroke="var(--axis)" stroke-width="1"/>`;
+  s += `<text x="${left}" y="28" font-size="10">trained on N ≤ 256</text>`;
+  s += `<text x="${left + trainCols * cw + 2}" y="28" font-size="10">${NS.length - trainCols >= 3 ? 'evaluation only, longer than training' : 'beyond training'}</text>`;
+  NS.forEach((n, j) => { s += `<text x="${left + j * cw + cw / 2}" y="${top - 6}" font-size="10.5" text-anchor="middle">${n}</text>`; });
+  ROWS.forEach((row, i) => {
+    s += `<text x="${left - 8}" y="${top + i * ch + ch / 2 + 4}" font-size="11" text-anchor="end" style="fill:var(--ink)">${esc(row.label)}</text>`;
+    NS.forEach((n, j) => {
+      const r = cell(row.key, n), v = r ? r[key] : null, x = left + j * cw, y = top + i * ch;
+      let fill, txt, tcol;
+      if (v == null) { fill = cssv('--nodata'); txt = '–'; tcol = cssv('--muted'); }
+      else { const c = seqColor(v); fill = rgb(c); txt = v >= .995 ? '1.00' : v.toFixed(2); tcol = lum(c) > .32 ? '#0b0b0b' : '#ffffff'; }
+      const tipTxt = `${esc(row.long || row.label)}, N = ${n.toLocaleString()} (~${Math.round(n * 3.75 / 1000)}k tokens)<br>${esc(title)}: ${v == null ? 'no such queries' : v.toFixed(3)}${v != null && r ? '<br>' + perTxt(r, key) : ''}${extra && r && v != null ? '<br>' + extra(r) : ''}`;
+      s += `<rect x="${x + 1}" y="${y + 1}" width="${cw - 2}" height="${ch - 2}" rx="2" fill="${fill}" data-tip="${esc(tipTxt)}"/>`;
+      s += `<text x="${x + cw / 2}" y="${y + ch / 2 + 4}" font-size="10.5" text-anchor="middle" style="fill:${tcol};pointer-events:none">${txt}</text>`;
+    });
+  });
+  s += `<line x1="${left + trainCols * cw - 1}" x2="${left + trainCols * cw - 1}" y1="${top - 2}" y2="${top + ROWS.length * ch}" stroke="var(--ink-2)" stroke-width="1" stroke-dasharray="3 3"/>`;
+  host.innerHTML = s + '</svg>';
+}
+
+// ---- figure 2: scatter panels (one point per configuration, faint dots = seeds)
+function scatter(host, n) {
+  const S = 250, m = { l: 40, r: 12, t: 24, b: 38 }, iw = S - m.l - m.r, ih = S - m.t - m.b;
+  const X = v => m.l + v * iw, Y = v => m.t + (1 - v) * ih;
+  let s = `<svg viewBox="0 0 ${S} ${S}" role="img" aria-label="Passkey vs expired accuracy at N=${n}">`;
+  s += `<text x="${m.l}" y="14" style="fill:var(--ink);font-family:var(--sans);font-size:13.5px;font-weight:600">N = ${n.toLocaleString()} writes</text>`;
+  [0, .25, .5, .75, 1].forEach(t => {
+    s += `<line x1="${m.l}" x2="${m.l + iw}" y1="${Y(t)}" y2="${Y(t)}" stroke="var(--grid)" stroke-width=".8"/>`;
+    s += `<line y1="${m.t}" y2="${m.t + ih}" x1="${X(t)}" x2="${X(t)}" stroke="var(--grid)" stroke-width=".8"/>`;
+    s += `<text x="${m.l - 5}" y="${Y(t) + 3.5}" font-size="10.5" text-anchor="end">${Math.round(t * 100)}</text>`;
+    s += `<text x="${X(t)}" y="${m.t + ih + 14}" font-size="10.5" text-anchor="middle">${Math.round(t * 100)}</text>`;
+  });
+  s += `<text x="${m.l + iw / 2}" y="${S - 6}" font-size="11" text-anchor="middle">expired-query accuracy, %</text>`;
+  s += `<text transform="translate(10 ${m.t + ih / 2}) rotate(-90)" font-size="11" text-anchor="middle">passkey exact match, %</text>`;
+  const groups = {};
+  ROWS.forEach((row, i) => { const r = cell(row.key, n); if (!r) return; const k = r.expired.toFixed(2) + '|' + r.passkey.toFixed(2); (groups[k] = groups[k] || []).push({ row, i, r }); });
+  Object.values(groups).forEach(g => {
+    const r = g[0].r, cx = X(r.expired), cy = Y(r.passkey);
+    const tipTxt = g.map(o => `${esc(o.row.long || o.row.label)}: passkey ${o.r.passkey.toFixed(3)}, expired ${o.r.expired.toFixed(3)}, valid ${o.r.valid.toFixed(3)}`).join('<br>');
+    g.forEach(o => { if (o.r.per && o.r.per.passkey) o.r.per.passkey.forEach((pk, k) => { const ex = o.r.per.expired[k]; if (pk != null && ex != null) s += `<circle cx="${X(ex)}" cy="${Y(pk)}" r="2.6" fill="${rowColor(o.i)}" opacity=".4"/>`; }); });
+    [...g].reverse().forEach(o => {  // drawn from the last row to the first so row 0 ends up on top
+      const hollow = o.r.valid < .9;
+      s += `<circle cx="${cx}" cy="${cy}" r="6" fill="${hollow ? 'var(--surface)' : rowColor(o.i)}" stroke="${hollow ? rowColor(o.i) : 'var(--surface)'}" stroke-width="${hollow ? 2 : 1.6}" data-tip="${esc(tipTxt)}"/>`;
+    });
+    const names = g.filter(o => !o.row.nolabel).map(o => o.row.label);  // rows may opt out of a label (identified by colour and tooltip)
+    if (!names.length) return;
+    const label = (DATA.row_prefix || '') + (names.length > 3 ? names[0] + ' … ' + names[names.length - 1] + ' (' + names.length + ')' : names.join(', '));
+    const onRight = cx > m.l + iw * .55, lx = onRight ? cx - 10 : cx + 10;
+    const ly = cy + (r.passkey > .5 ? 14 : -9);
+    s += `<text x="${lx}" y="${ly}" font-size="10.5" class="endlabel" text-anchor="${onRight ? 'end' : 'start'}" style="fill:var(--ink)">${esc(label)}</text>`;
+  });
+  host.insertAdjacentHTML('beforeend', `<div>${s}</svg></div>`);
+}
+
+// ---- generic line chart: spec = { xTicks, x0, x1, xLog, xLabel, yLabel, yMax, series[], vlines[], note }
+// series: { label, short, c (css colour, optional), width, dashed, points: [{x, y, lo, hi, tip}] }
+function lineChart(host, legendHost, spec) {
+  const W = 760, H = spec.height || 340, m = { l: 52, r: spec.rightPad || 132, t: 14, b: 44 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const tr = v => spec.xLog === false ? v : Math.log2(v);
+  const y0 = spec.yMin || 0, y1 = spec.yMax || 1;
+  const X = v => m.l + (tr(v) - tr(spec.x0)) / (tr(spec.x1) - tr(spec.x0)) * iw, Y = v => m.t + (1 - (v - y0) / (y1 - y0)) * ih;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(spec.aria || 'line chart')}">`;
+  [0, .25, .5, .75, 1].forEach(t => {
+    const v = y0 + t * (y1 - y0);
+    s += `<line x1="${m.l}" x2="${m.l + iw}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)" stroke-width=".8"/>`;
+    s += `<text x="${m.l - 8}" y="${Y(v) + 3.5}" font-size="10.5" text-anchor="end">${(v * 100).toFixed(y1 - y0 < .5 ? 1 : 0)}%</text>`;
+  });
+  spec.xTicks.forEach(x => {
+    s += `<line x1="${X(x)}" x2="${X(x)}" y1="${m.t + ih}" y2="${m.t + ih + 4}" stroke="var(--axis)"/>`;
+    s += `<text x="${X(x)}" y="${m.t + ih + 17}" font-size="10.5" text-anchor="middle">${x}</text>`;
+  });
+  s += `<line x1="${m.l}" x2="${m.l + iw}" y1="${m.t + ih}" y2="${m.t + ih}" stroke="var(--axis)"/>`;
+  s += `<text x="${m.l + iw / 2}" y="${H - 8}" font-size="11" text-anchor="middle">${esc(spec.xLabel)}</text>`;
+  s += `<text transform="translate(13 ${m.t + ih / 2}) rotate(-90)" font-size="11" text-anchor="middle">${esc(spec.yLabel)}</text>`;
+  (spec.vlines || []).forEach(v => {
+    s += `<line x1="${X(v.x)}" x2="${X(v.x)}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--ink-2)" stroke-dasharray="3 3" stroke-width=".8"/>`;
+    if (v.label) s += `<text x="${X(v.x) + 4}" y="${m.t + 10 + (v.dy || 0)}" font-size="9.5">${esc(v.label)}</text>`;
+  });
+  if (spec.note) s += `<text x="${m.l + 8}" y="${m.t + ih - 10}" font-size="10">${esc(spec.note)}</text>`;
+  const ends = [];
+  spec.series.forEach((sr, i) => {
+    const col = serCol(sr, i, spec), pts = sr.points.filter(p => p.y != null);
+    s += `<polyline fill="none" style="stroke:${col}" stroke-width="${sr.width || 2}" ${sr.dashed ? 'stroke-dasharray="6 4"' : ''} points="${pts.map(p => X(p.x) + ',' + Y(p.y)).join(' ')}"/>`;
+    pts.forEach(p => {
+      if (p.lo != null && p.hi != null && p.hi - p.lo > 1e-6) s += `<line x1="${X(p.x)}" x2="${X(p.x)}" y1="${Y(p.lo)}" y2="${Y(p.hi)}" style="stroke:${col}" stroke-width="1.4" opacity=".6"/>`;
+      if (sr.noDots) return;
+      const t = p.tip || `${sr.label}<br>${esc(spec.xLabel)}: ${p.x}<br>${esc(spec.yLabel)}: ${p.y.toFixed(3)}`;
+      s += `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="${sr.dashed ? 3.5 : 5}" style="fill:${sr.dashed ? 'var(--surface)' : col};stroke:${sr.dashed ? col : 'var(--surface)'}" stroke-width="1.6" data-tip="${esc(t)}"/>`;
+    });
+    if (sr.short && pts.length) { const last = pts[pts.length - 1]; ends.push({ x: X(last.x), py: Y(last.y), y: Y(last.y), text: sr.short }); }
+  });
+  // spread the end labels so they never touch each other or the axis
+  const gap = 15, ymax = m.t + ih - 12;
+  ends.sort((a, b) => a.y - b.y);
+  for (let k = 1; k < ends.length; k++) ends[k].y = Math.max(ends[k].y, ends[k - 1].y + gap);
+  if (ends.length && ends[ends.length - 1].y > ymax) { ends[ends.length - 1].y = ymax; for (let k = ends.length - 2; k >= 0; k--) ends[k].y = Math.min(ends[k].y, ends[k + 1].y - gap); }
+  ends.forEach(e => {
+    if (Math.abs(e.y - e.py) > 3) s += `<line x1="${e.x + 6}" y1="${e.py}" x2="${e.x + 12}" y2="${e.y}" stroke="var(--muted)" stroke-width=".8"/>`;
+    s += `<text x="${e.x + 14}" y="${e.y + 4}" font-size="10.5" class="endlabel" style="fill:var(--ink)">${esc(e.text)}</text>`;
+  });
+  host.innerHTML = s + '</svg>';
+  legendHost.innerHTML = spec.series.map((sr, i) => `<span><i class="${sr.dashed ? 'dash' : (spec.legendLine ? 'line' : '')}" style="${sr.dashed || spec.legendLine ? 'border-color' : 'background'}:${serCol(sr, i, spec)}"></i>${esc(sr.label)}</span>`).join('');
+}
+
+function table(cols, rows) {
+  return `<table><thead><tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
+function renderCharts() {
+  heatmap($('#hm-passkey'), 'passkey', 'Passkey exact match', r => `${r.n_examples} examples per seed`);
+  heatmap($('#hm-valid'), 'valid', DATA.valid_title, r => `${r.n_valid.toLocaleString()} queries per seed`);
+  heatmap($('#hm-stale'), 'stale', DATA.stale_title, r => `${r.n_stale.toLocaleString()} queries per seed`);
+  $('#scatter').innerHTML = '';
+  DATA.scatter_ns.forEach(n => scatter($('#scatter'), n));
+  DATA.extra_figs.forEach((f, i) => lineChart($('#ch-' + i), $('#lg-' + i), f.spec));
+}
+
+function fillText() {
+  $('#meta').innerHTML = DATA.meta;
+  $('#tldr').innerHTML = DATA.tldr.map(t => `<li>${t}</li>`).join('');
+  $('#tested').innerHTML = DATA.tested.map(c => `<div class="card"><h3>${c.title} <span class="tag ${c.ok ? 'ok' : ''}">${esc(c.tag)}</span></h3><p>${c.body}</p></div>`).join('');
+  $('#results-intro').innerHTML = DATA.results_intro;
+  $('#fig1-sub').innerHTML = DATA.fig1_sub; $('#fig2-sub').innerHTML = DATA.fig2_sub;
+  $('#cap1').innerHTML = DATA.cap1; $('#cap2').innerHTML = DATA.cap2;
+  $('#next').innerHTML = DATA.next;
+  const rows = [];
+  ROWS.forEach(row => NS.forEach(n => { const r = cell(row.key, n); if (r) rows.push([row.label, n, fmt2(r.passkey), fmt2(r.valid), fmt2(r.stale), fmt2(r.expired), r.n_stale]); }));
+  $('#tbl1').innerHTML = table([DATA.row_name, 'N', 'passkey', 'ar_valid', 'expired (stale)', 'expired (all)', '# stale queries per seed'], rows);
+  const rows2 = [];
+  DATA.scatter_ns.forEach(n => ROWS.forEach(row => { const r = cell(row.key, n); if (r) rows2.push([n, row.label, fmt2(r.expired), fmt2(r.passkey), fmt2(r.valid)]); }));
+  $('#tbl2').innerHTML = table(['N', DATA.row_name, 'expired acc', 'passkey', 'ar_valid'], rows2);
+  $('#extra-figs').innerHTML = DATA.extra_figs.map((f, i) => `
+    <figure>
+      <div class="fig-title">${f.title}</div>
+      <p class="fig-sub">${f.sub}</p>
+      <div class="legend" id="lg-${i}"></div>
+      <div class="chart" id="ch-${i}"></div>
+      <figcaption>${f.caption}</figcaption>
+      <details><summary>Table view</summary><div class="tbl" id="tb-${i}"></div></details>
+    </figure>`).join('');
+  DATA.extra_figs.forEach((f, i) => {
+    const rws = []; f.spec.series.forEach(sr => sr.points.forEach(p => rws.push([sr.label, p.x, p.y == null ? '–' : p.y.toFixed(3), p.lo != null ? `${p.lo.toFixed(3)} to ${p.hi.toFixed(3)}` : ''])));
+    $('#tb-' + i).innerHTML = table(['series', f.spec.xLabel, f.spec.yLabel, 'range over seeds'], rws);
+  });
+}
+fillText();
+renderCharts();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderCharts);
+new MutationObserver(renderCharts).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+</script>

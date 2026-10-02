@@ -245,5 +245,37 @@ class DataAndEvaluation(unittest.TestCase):
         self.assertEqual(m, ref)  # counts (n_valid, ...) must not include the filler rows
 
 
+class EvaluateWithBackoff(unittest.TestCase):
+    """A shared GPU can run out of memory on a long-stream batch; the final evaluation must retry smaller, not die."""
+
+    def run_with(self, fits_up_to):
+        calls = []
+
+        def fake(model, packed, dev, tokens_per_batch, amp_dtype=None):
+            calls.append(tokens_per_batch)
+            if tokens_per_batch > fits_up_to:
+                raise torch.cuda.OutOfMemoryError("fake")
+            return {"passkey_acc": 1.0}
+
+        real, T.E.evaluate_packed = T.E.evaluate_packed, fake
+        try:
+            return T.evaluate_with_backoff(None, None, None, 1 << 21, None), calls
+        finally:
+            T.E.evaluate_packed = real
+
+    def test_halves_until_it_fits(self):
+        out, calls = self.run_with(fits_up_to=1 << 19)
+        self.assertEqual(out, {"passkey_acc": 1.0})
+        self.assertEqual(calls, [1 << 21, 1 << 20, 1 << 19])
+
+    def test_no_retry_when_it_fits(self):
+        _, calls = self.run_with(fits_up_to=1 << 30)
+        self.assertEqual(calls, [1 << 21])
+
+    def test_gives_up_at_the_floor(self):
+        with self.assertRaises(torch.cuda.OutOfMemoryError):
+            self.run_with(fits_up_to=1)
+
+
 if __name__ == "__main__":
     unittest.main()
