@@ -75,22 +75,26 @@ def alpha_colors(alphas: list[float]) -> dict[float, str]:
     return {a: BLUE_RAMP[i] for a, i in zip(order, pick)}
 
 
-def _place_labels(ax, pts: dict[float, tuple[float, float]], colors) -> None:
-    """Direct-label alpha next to each mean point; greedy, skips a label rather than overlapping another one."""
-    cand = [(0.025, 0.02), (0.025, -0.065), (-0.105, 0.02), (-0.105, -0.065), (0.025, 0.075), (-0.105, 0.075),
-            (0.025, -0.12), (-0.105, -0.12)]
-    w, h = 0.085, 0.05
-    boxes = []
-    for a, (x, y) in sorted(pts.items(), key=lambda kv: -kv[0]):
-        for dx, dy in cand:
-            bx, by = x + dx, y + dy
-            box = (bx, by, bx + w, by + h)
-            hit = any(not (box[2] < q[0] or q[2] < box[0] or box[3] < q[1] or q[3] < box[1]) for q in boxes)
-            hit |= any(box[0] - 0.02 < px < box[2] + 0.02 and box[1] - 0.02 < py < box[3] + 0.02 for px, py in pts.values())
-            if not hit and -0.02 <= bx and bx + w <= 1.04 and -0.02 <= by and by + h <= 1.04:
-                boxes.append(box)
-                ax.text(bx, by, f"{a:g}", fontsize=8.5, color=INK2, ha="left", va="bottom", zorder=6)
+def cluster_points(pts: dict[float, tuple[float, float]], tol: float = 0.02) -> list[tuple[float, float, str, list[float]]]:
+    """Group alphas whose mean points coincide (within tol on both axes) -> [(x, y, label, alphas)].
+
+    Several alphas often land on exactly the same point (e.g. everything at 0% passkey); one label per group lists them all
+    (long groups are compacted to "first ... last (n)") so no alpha is left unlabeled and no marker hides another."""
+    groups: list[dict] = []
+    for a in sorted(pts, reverse=True):
+        x, y = pts[a]
+        for g in groups:
+            if abs(g["x"] - x) <= tol and abs(g["y"] - y) <= tol:
+                g["alphas"].append(a)
                 break
+        else:
+            groups.append({"x": x, "y": y, "alphas": [a]})
+    out = []
+    for g in groups:
+        names = [f"{a:g}" for a in g["alphas"]]
+        label = ", ".join(names) if len(names) <= 4 else f"{names[0]} \u2026 {names[-1]} ({len(names)})"
+        out.append((g["x"], g["y"], "\u03b1 " + label, g["alphas"]))
+    return out
 
 
 def plot_tradeoff(df: pd.DataFrame, out_base: Path, model: str = "gdn_fixed", split: str = "test", x: str = "ar_expired_acc",
@@ -117,15 +121,18 @@ def plot_tradeoff(df: pd.DataFrame, out_base: Path, model: str = "gdn_fixed", sp
         for s in ("top", "right"):
             ax.spines[s].set_visible(False)
         g = d[d.N == n]
-        mean = g.groupby("alpha")[["passkey_acc", x, "ar_valid_acc"]].mean().sort_index(ascending=False)
-        ax.plot(mean[x], mean.passkey_acc, color=MUTED, linewidth=1.2, alpha=0.6, zorder=2)  # order along alpha, neutral ink
-        for a, row in mean.iterrows():
+        mean = g.groupby("alpha")[["passkey_acc", x, "ar_valid_acc"]].mean()
+        for a in mean.index:  # faint dots: the individual seeds
             seeds = g[g.alpha == a]
             ax.scatter(seeds[x], seeds.passkey_acc, s=14, color=colors[a], alpha=0.35, linewidths=0, zorder=3)
-            hollow = row.ar_valid_acc < 0.9
-            ax.scatter([row[x]], [row.passkey_acc], s=85, zorder=5, facecolor=SURFACE if hollow else colors[a],
-                       edgecolor=colors[a] if hollow else SURFACE, linewidths=2.0 if hollow else 1.5)
-        _place_labels(ax, {a: (r[x], r.passkey_acc) for a, r in mean.iterrows()}, colors)
+        for gx, gy, label, members in cluster_points({a: (r[x], r.passkey_acc) for a, r in mean.iterrows()}):
+            for a in sorted(members):  # lowest alpha first, so the highest alpha of a cluster ends up on top
+                hollow = mean.loc[a, "ar_valid_acc"] < 0.9
+                ax.scatter([mean.loc[a, x]], [mean.loc[a, "passkey_acc"]], s=85, zorder=5, facecolor=SURFACE if hollow else colors[a],
+                           edgecolor=colors[a] if hollow else SURFACE, linewidths=2.0 if hollow else 1.5)
+            right = gx > 0.55
+            ax.annotate(label, (gx, gy), xytext=(-9 if right else 9, 9 if gy < 0.5 else -14), textcoords="offset points",
+                        ha="right" if right else "left", fontsize=8.5, color=INK2, zorder=6)
         tok = int(round(g.N.iloc[0] * 3.75))
         ax.set_title(f"N = {n:,} writes  (~{tok / 1000:.0f}k tokens)", fontsize=10.5, color=INK, loc="left")
         ax.set_xlim(-0.04, 1.06)

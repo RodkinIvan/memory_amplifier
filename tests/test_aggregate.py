@@ -76,5 +76,17 @@ class Aggregate(unittest.TestCase):
                 self.assertGreater(Path(f"{out}{suffix}.{ext}").stat().st_size, 1000)
 
 
+    def test_cluster_points_labels_every_alpha_once(self):
+        pts = {1.0: (1.0, 1.0), 0.999: (1.0, 0.995), 0.95: (1.0, 0.0), 0.9: (1.0, 0.0), 0.8: (1.0, 0.01)}
+        groups = A.cluster_points(pts)
+        self.assertEqual(len(groups), 2)
+        self.assertEqual(sorted(a for g in groups for a in g[3]), sorted(pts))  # nothing lost, nothing duplicated
+        labels = {g[2] for g in groups}
+        self.assertIn("\u03b1 1, 0.999", labels)
+        self.assertIn("\u03b1 0.95, 0.9, 0.8", labels)
+        many = {a: (1.0, 0.0) for a in (1.0, 0.999, 0.995, 0.99, 0.98, 0.95)}
+        self.assertEqual(A.cluster_points(many)[0][2], "\u03b1 1 \u2026 0.95 (6)")
+
+
 if __name__ == "__main__":
     unittest.main()
