@@ -38,6 +38,8 @@ class ConfigAndNaming(unittest.TestCase):
         self.assertEqual(self.name(["model.alpha=0.95", "model.norm_eps=1e-2", "model.head_dim=64", "seed=2"]),
                          "gdn_fixed_a0.95_eps0.01_hd64_s2")
         self.assertEqual(self.name([]), "gdn_fixed_s0")
+        # evaluation settings and the wandb group are not part of the model's name
+        self.assertEqual(self.name(["model.alpha=0.9", "train.eval_every=100", "eval.ns=[32,64]", "experiment=explore", "seed=1"]), "gdn_fixed_a0.9_s1")
 
     def test_swa_run_names(self):
         cfg, keys = C.load_config(_paths.ROOT / "configs" / "swa.yaml", ["model.window=64", "model.n_layers=4", "seed=2"])
@@ -76,6 +78,64 @@ class TrainHelpers(unittest.TestCase):
         self.assertAlmostEqual(T.lr_at(10, tc), 1.0)
         self.assertAlmostEqual(T.lr_at(110, tc), 0.1)
         self.assertTrue(all(T.lr_at(s, tc) >= T.lr_at(s + 1, tc) for s in range(10, 110)))
+
+
+    def test_weighted_ce_default_equals_the_plain_mean_and_weights_only_the_passkey(self):
+        torch.manual_seed(0)
+        logits = torch.randn(3, 20, 40)
+        labels = torch.full((3, 20), -100)
+        labels[:, 4], labels[:, 7] = 9, 11          # two AR answers
+        labels[:, 15:19] = torch.tensor([8, 9, 10, 11])  # four passkey tokens, then EOS (unsupervised)
+        plain = F.cross_entropy(logits[:, :-1].reshape(-1, 40), labels[:, 1:].reshape(-1), ignore_index=-100)
+        self.assertAlmostEqual(float(T.weighted_ce(logits, labels)), float(plain), places=6)
+        w = T.weighted_ce(logits, labels, passkey_weight=10.0)
+        ce = F.cross_entropy(logits[:, :-1].reshape(-1, 40), labels[:, 1:].reshape(-1), ignore_index=-100, reduction="none").view(3, 19)
+        sup = labels[:, 1:] != -100
+        pk = torch.zeros_like(sup)
+        pk[:, 14:18] = True  # shifted by one: targets of positions 15..18
+        expect = (ce * (sup.float() * (1 + 9 * pk.float()))).sum() / (sup.float() * (1 + 9 * pk.float())).sum()
+        self.assertAlmostEqual(float(w), float(expect), places=5)
+
+    def test_passkey_weight_anneals_log_linearly_to_one(self):
+        tc = {"passkey_weight": 100.0, "passkey_weight_anneal_steps": 1000}
+        self.assertAlmostEqual(T.passkey_weight_at(0, tc), 100.0)
+        self.assertAlmostEqual(T.passkey_weight_at(500, tc), 10.0)  # geometric midpoint
+        self.assertAlmostEqual(T.passkey_weight_at(1000, tc), 1.0)
+        self.assertAlmostEqual(T.passkey_weight_at(5000, tc), 1.0)  # stays at 1 afterwards
+        self.assertEqual(T.passkey_weight_at(123, {"passkey_weight": 7.0}), 7.0)  # no annealing configured: constant
+        self.assertEqual(T.passkey_weight_at(123, {}), 1.0)
+
+    def test_curriculum_adds_one_config_per_stage(self):
+        tc = {"train_ns": [32, 64, 128, 256], "curriculum_stage_steps": 1000}
+        self.assertEqual(T.active_train_ns(1, tc), [32])
+        self.assertEqual(T.active_train_ns(1000, tc), [32])
+        self.assertEqual(T.active_train_ns(1001, tc), [32, 64])
+        self.assertEqual(T.active_train_ns(3001, tc), [32, 64, 128, 256])
+        self.assertEqual(T.active_train_ns(99999, tc), [32, 64, 128, 256])
+        self.assertEqual(T.active_train_ns(5, {"train_ns": [32, 64]}), [32, 64])  # no curriculum: everything
+
+    def test_curriculum_samples_only_active_configs(self):
+        bounds = {32: (0, 100), 64: (100, 200), 128: (200, 300)}
+        tc = {"train_ns": [32, 64, 128], "curriculum_stage_steps": 10}
+        rng = np.random.default_rng(0)
+        for step, hi in ((1, 100), (11, 200), (21, 300)):
+            idx = T.sample_train_indices(rng, tc, bounds, step, 300, 4000)
+            self.assertTrue(idx.min() >= 0 and idx.max() < hi, (step, idx.max()))
+        idx = T.sample_train_indices(rng, tc, bounds, 11, 300, 4000)
+        self.assertEqual(sorted(set((idx // 100).tolist())), [0, 1])  # both active configs are drawn, about equally
+        self.assertAlmostEqual(float(np.mean(idx >= 100)), 0.5, delta=0.05)
+        plain = T.sample_train_indices(np.random.default_rng(1), {"train_ns": [32]}, bounds, 5, 300, 8)
+        np.testing.assert_array_equal(plain, np.random.default_rng(1).integers(0, 300, size=8))  # off: unchanged random stream
+
+    def test_optimizer_gives_loops_their_own_lr_multiplier(self):
+        from models import build_swa_fb
+        m = build_swa_fb(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=8)
+        opt = T.make_optimizer(m, {"lr": 1e-3, "betas": [0.9, 0.95], "weight_decay": 0.01, "loop_lr_mult": 10.0})
+        mult = {id(p): g["lr_mult"] for g in opt.param_groups for p in g["params"]}
+        loop_ids = {id(p) for l in m.loops for p in l.parameters()}
+        self.assertTrue(all(mult[i] == 10.0 for i in loop_ids))
+        self.assertTrue(all(v == 1.0 for i, v in mult.items() if i not in loop_ids))
+        self.assertEqual(sum(len(g["params"]) for g in opt.param_groups), len(list(m.parameters())))  # nothing lost or doubled
 
 
 class PeekingModel(torch.nn.Module):

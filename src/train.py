@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import pyarrow.parquet as pq
 import torch
 import torch.nn.functional as F
 
@@ -43,11 +44,65 @@ def lr_at(step: int, tc: dict) -> float:
     return tc["lr"] * (tc["min_lr_ratio"] + (1 - tc["min_lr_ratio"]) * 0.5 * (1 + math.cos(math.pi * min(frac, 1.0))))
 
 
+def passkey_weight_at(step: int, tc: dict) -> float:
+    """Loss weight of the passkey tokens at `step`: `train.passkey_weight` decays log-linearly to 1 over
+    `train.passkey_weight_anneal_steps` steps (0 = constant). A large start value bootstraps a memory loop that would
+    otherwise look like noise; annealing back to 1 makes the final model train on the plain objective."""
+    w0, T = float(tc.get("passkey_weight", 1.0)), int(tc.get("passkey_weight_anneal_steps", 0))
+    if T <= 0 or w0 == 1.0:
+        return w0
+    return math.exp(math.log(w0) * (1.0 - min(1.0, step / T)))
+
+
+def active_train_ns(step: int, tc: dict) -> list[int]:
+    """Training configs that may be sampled at `step`. With `train.curriculum_stage_steps` = S > 0 training starts on the
+    first config of `train.train_ns` only (shortest streams, fewest memory-loop hops) and adds the next config every S
+    steps; 0 = all configs from the start."""
+    ns, stage = list(tc["train_ns"]), int(tc.get("curriculum_stage_steps", 0))
+    if stage <= 0:
+        return ns
+    return ns[:min(len(ns), 1 + (step - 1) // stage)]
+
+
+def sample_train_indices(rng, tc: dict, bounds: dict, step: int, n_total: int, batch: int):
+    """Example indices into the pooled train set. `bounds[n] = (start, end)` is the slice of config n in the pool.
+    Without a curriculum this is the plain uniform draw over the whole pool (same random stream as before)."""
+    if int(tc.get("curriculum_stage_steps", 0)) <= 0:
+        return rng.integers(0, n_total, size=batch)
+    active = active_train_ns(step, tc)
+    cfg = rng.integers(0, len(active), size=batch)
+    lo = np.array([bounds[n][0] for n in active])[cfg]
+    hi = np.array([bounds[n][1] for n in active])[cfg]
+    return lo + (rng.random(batch) * (hi - lo)).astype(np.int64)
+
+
 def make_optimizer(model, tc: dict):
-    decay = [p for n, p in model.named_parameters() if p.ndim >= 2 and "embed" not in n]
-    no_decay = [p for n, p in model.named_parameters() if p.ndim < 2 or "embed" in n]
-    return torch.optim.AdamW([{"params": decay, "weight_decay": tc["weight_decay"]},
-                              {"params": no_decay, "weight_decay": 0.0}], lr=tc["lr"], betas=tuple(tc["betas"]))
+    """AdamW with weight decay on matrices (not embeddings/norms); feedback-loop parameters ("loops.") get their own
+    learning-rate multiplier `train.loop_lr_mult` and no weight decay."""
+    named = list(model.named_parameters())
+    loop = [p for n, p in named if ".loops." in "." + n or n.startswith("loops.")]
+    rest = [(n, p) for n, p in named if not any(p is q for q in loop)]
+    decay = [p for n, p in rest if p.ndim >= 2 and "embed" not in n]
+    no_decay = [p for n, p in rest if p.ndim < 2 or "embed" in n]
+    groups = [{"params": decay, "weight_decay": tc["weight_decay"], "lr_mult": 1.0},
+              {"params": no_decay, "weight_decay": 0.0, "lr_mult": 1.0}]
+    if loop:
+        groups.append({"params": loop, "weight_decay": 0.0, "lr_mult": float(tc.get("loop_lr_mult", 1.0))})
+    return torch.optim.AdamW(groups, lr=tc["lr"], betas=tuple(tc["betas"]))
+
+
+def weighted_ce(logits: torch.Tensor, labels: torch.Tensor, passkey_weight: float = 1.0) -> torch.Tensor:
+    """Cross-entropy on supervised positions (label != -100). The last 4 supervised tokens of every row are the passkey;
+    `passkey_weight` multiplies their weight (1.0 = the plain mean over supervised tokens)."""
+    tgt = labels[:, 1:]
+    ce = F.cross_entropy(logits[:, :-1].reshape(-1, logits.size(-1)).float(), tgt.reshape(-1), ignore_index=-100, reduction="none")
+    ce = ce.view_as(tgt)
+    sup = tgt != -100
+    w = sup.float()
+    if passkey_weight != 1.0:
+        from_end = sup.flip(1).cumsum(1).flip(1)  # 1 for the last supervised token of a row, 2 for the one before, ...
+        w = w * (1.0 + (passkey_weight - 1.0) * (sup & (from_end <= 4)).float())
+    return (ce * w).sum() / w.sum()
 
 
 def write_json_atomic(path: Path, obj) -> None:
@@ -95,6 +150,11 @@ def main(argv=None) -> None:
     print(f"[{name}] params={n_params:,} wandb={run.url if not args.no_wandb else 'off'}", flush=True)
 
     train = D.load_train(data_dir, tc["train_ns"])
+    bounds, start = {}, 0
+    for n in tc["train_ns"]:  # slice of every config inside the pooled train set (needed by the curriculum)
+        rows = pq.ParquetFile(data_dir / f"n{n}" / "train.parquet").metadata.num_rows
+        bounds[n] = (start, start + rows)
+        start += rows
     val = {n: D.load_packed(data_dir / f"n{n}" / "validation.parquet", kinds=True).subset(tc["eval_examples"])
            for n in tc["eval_ns"]}
     opt = make_optimizer(model, tc)
@@ -102,12 +162,13 @@ def main(argv=None) -> None:
     t0, loss_acc, n_acc, last = time.time(), torch.zeros((), device=dev), 0, 0.0
     for step in range(1, tc["steps"] + 1):
         for g in opt.param_groups:
-            g["lr"] = lr_at(step, tc)
-        ids, labs = D.pad_batch(train, rng.integers(0, len(train), size=tc["batch_size"]), tc["pad_multiple"])
+            g["lr"] = lr_at(step, tc) * g.get("lr_mult", 1.0)
+        ids, labs = D.pad_batch(train, sample_train_indices(rng, tc, bounds, step, len(train), tc["batch_size"]), tc["pad_multiple"])
         ids, labs = torch.from_numpy(ids).to(dev), torch.from_numpy(labs).to(dev)
         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp is not None):
             logits = model(input_ids=ids).logits
-        loss = F.cross_entropy(logits[:, :-1].reshape(-1, logits.size(-1)).float(), labs[:, 1:].reshape(-1), ignore_index=-100)
+        pk_w = passkey_weight_at(step, tc)
+        loss = weighted_ce(logits, labs, pk_w)
         loss.backward()
         gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc["grad_clip"])
         opt.step()
@@ -118,7 +179,7 @@ def main(argv=None) -> None:
             last = float(loss_acc) / n_acc
             if not math.isfinite(last):
                 raise RuntimeError(f"[{name}] non-finite loss at step {step}")
-            wandb.log({"train/loss": last, "train/lr": opt.param_groups[0]["lr"], "train/grad_norm": float(gnorm),
+            wandb.log({"train/loss": last, "train/lr": opt.param_groups[0]["lr"], "train/grad_norm": float(gnorm), "train/passkey_weight": pk_w, "train/active_max_n": max(active_train_ns(step, tc)),
                        "train/steps_per_s": step / (time.time() - t0)}, step=step)
             loss_acc.zero_()
             n_acc = 0

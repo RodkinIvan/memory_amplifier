@@ -9,7 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 
 # short names for the run name; any other key falls back to its last path component
-SHORT = {"model.alpha": "a", "model.window": "w", "model.norm_eps": "eps", "model.head_dim": "hd", "model.num_heads": "nh",
+SHORT = {"model.alpha": "a", "model.window": "w", "model.segment": "seg", "model.nonlin": "nl", "model.noise": "noise", "model.gain_init": "gi", "model.proj_std": "ps", "train.loop_lr_mult": "llr", "train.passkey_weight": "pkw", "train.passkey_weight_anneal_steps": "pka", "train.curriculum_stage_steps": "cur", "model.norm_eps": "eps", "model.head_dim": "hd", "model.num_heads": "nh",
          "model.d_model": "d", "model.n_layers": "L", "model.expand_v": "ev", "model.allow_neg_eigval": "neg",
          "train.lr": "lr",
          "train.steps": "steps", "train.batch_size": "bs", "seed": "s"}
@@ -59,7 +59,9 @@ def fmt(v) -> str:
 
 def run_name(cfg: dict, explicit_keys: list[str]) -> str:
     """model kind + every hyperparameter that was overridden for this run (sweep axes, --set) + seed."""
-    keys = [k for k in explicit_keys if k not in ("seed", "model.kind")]
+    # evaluation / logging settings and the wandb group do not describe the model, so they stay out of the name
+    skip = ("seed", "model.kind", "experiment", "train.eval_every", "train.log_every", "train.eval_examples", "train.eval_ns")
+    keys = [k for k in explicit_keys if k not in skip and not k.startswith("eval.")]
     parts = [f"{SHORT.get(k, k.split('.')[-1])}{fmt(get_nested(cfg, k))}" for k in keys]
     parts.append(f"s{cfg['seed']}")
     return "_".join([cfg["model"]["kind"], *parts])

@@ -59,7 +59,8 @@ def to_frame(runs: list[dict]) -> pd.DataFrame:
                          # model-specific hyperparameters; blank for the model family that does not have them
                          "norm_eps": mc.get("norm_eps"), "head_dim": mc.get("head_dim"), "window": mc.get("window"),
                          "n_layers": mc["n_layers"], "num_heads": mc["num_heads"],
-                         "reach": mc["n_layers"] * (mc["window"] - 1) if mc.get("window") else None,
+                         "reach": mc["n_layers"] * (mc["window"] - 1) if mc["kind"] == "swa" else None,  # a feedback loop has no fixed reach
+                         "segment": mc.get("segment"), "nonlin": mc.get("nonlin"),
                          "d_model": mc["d_model"], "steps": tc["steps"], "final_train_loss": r["final_train_loss"], "run": r["name"]})
     df = pd.DataFrame(recs)
     return df.sort_values(["split", "model", "alpha", "seed", "N"], ascending=[True, True, False, True, True]).reset_index(drop=True)

@@ -8,7 +8,7 @@ import unittest
 import torch
 
 from tests import _paths  # noqa: F401
-from models import build_from_config, build_model, build_swa, swa_reach
+from models import FeedbackSWA, build_from_config, build_model, build_swa, build_swa_fb, swa_reach
 
 
 def naive_gated_delta(q, k, v, alpha, beta_logit, neg):
@@ -123,6 +123,102 @@ class SWAReach(unittest.TestCase):
         x = torch.randint(8, 40, (1, 61440), device="cuda")
         with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
             self.assertTrue(bool(torch.isfinite(m(input_ids=x).logits).all()))
+
+
+def zero_feedback(model: FeedbackSWA):
+    for loop in model.loops:
+        torch.nn.init.zeros_(loop.proj.weight)
+        torch.nn.init.zeros_(loop.proj.bias)
+
+
+def strong_feedback(model: FeedbackSWA, std=0.5, gain=1.0):
+    """Switch the loops on: random projection of scale `std`, injection gain `gain` (the default init has gain 0)."""
+    for loop in model.loops:
+        torch.nn.init.normal_(loop.proj.weight, std=std)
+        torch.nn.init.constant_(loop.gain, gain)
+
+
+class FeedbackBuilder(unittest.TestCase):
+    def test_dispatch_and_defaults(self):
+        mc = {"kind": "swa_fb", "d_model": 128, "n_layers": 2, "num_heads": 4, "window": 64}
+        m = build_from_config(mc, 40)
+        self.assertEqual((m.window, m.segment, m.loops[0].nonlin), (64, 64, "tanh"))  # segment 0/absent -> one per window
+        self.assertEqual(build_from_config({**mc, "segment": 32, "nonlin": "none"}, 40).segment, 32)
+        plain = build_from_config({**mc, "kind": "swa"}, 40)
+        extra = sum(p.numel() for p in m.parameters()) - sum(p.numel() for p in plain.parameters())
+        self.assertEqual(extra, 2 * (128 * 128 + 128 + 128 + 128))  # per layer: proj weight+bias, norm weight, gain
+        self.assertTrue(all(float(l.gain.abs().max()) == 0.0 for l in m.loops))  # starts as plain SWA
+        self.assertEqual(build_from_config({**mc, "gain_init": 0.5}, 40).loops[0].gain[0].item(), 0.5)
+
+    def test_bad_arguments(self):
+        with self.assertRaises(ValueError):
+            build_swa_fb(vocab_size=40, window=16, nonlin="relu")
+
+
+@unittest.skipUnless(torch.cuda.is_available(), "needs a CUDA GPU")
+class FeedbackBehaviour(unittest.TestCase):
+    def run_model(self, m, x):
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            return m(input_ids=x).logits.float()
+
+    def test_zero_feedback_equals_plain_swa(self):
+        """The segment loop with m = 0 must reproduce the plain sliding-window forward (checks tail handling)."""
+        torch.manual_seed(0)
+        for window, segment, length in ((16, 16, 100), (16, 8, 100), (16, 5, 77), (8, 24, 90)):
+            fb = build_swa_fb(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=window, segment=segment).cuda().eval()
+            zero_feedback(fb)
+            x = torch.randint(8, 40, (2, length), device="cuda")
+            diff = (self.run_model(fb, x) - self.run_model(fb.base, x)).abs().max().item()
+            self.assertLess(diff, 5e-2, (window, segment, length, diff))
+
+    def test_default_init_is_plain_swa_even_with_nonzero_projection(self):
+        torch.manual_seed(0)
+        fb = build_swa_fb(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=16, segment=16).cuda().eval()
+        strong_feedback(fb, gain=0.0)  # a big projection, but gain 0 keeps the injection off
+        x = torch.randint(8, 40, (2, 100), device="cuda")
+        self.assertLess((self.run_model(fb, x) - self.run_model(fb.base, x)).abs().max().item(), 5e-2)
+
+    def test_causality(self):
+        torch.manual_seed(0)
+        fb = build_swa_fb(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=8).cuda().eval()
+        strong_feedback(fb)
+        x = torch.randint(8, 40, (1, 96), device="cuda")
+        x2 = x.clone()
+        x2[0, 50] = 8 + (int(x[0, 50]) - 8 + 1) % 32
+        d = (self.run_model(fb, x) - self.run_model(fb, x2)).abs().amax(-1)[0]
+        self.assertEqual(float(d[:50].max()), 0.0)  # nothing before the changed token moves
+        self.assertGreater(float(d[50:].max()), 0.0)
+
+    def test_feedback_carries_information_past_the_window_reach(self):
+        torch.manual_seed(0)
+        window, layers = 8, 2
+        R = swa_reach(window, layers)
+        x = torch.randint(8, 40, (1, 8 * 15), device="cuda")
+        x2 = x.clone()
+        x2[0, 1] = 8 + (int(x[0, 1]) - 8 + 1) % 32
+        far = slice(R + 2 * window, None)  # positions the window alone can never see
+        for strength, expect_leak in ((None, False), (0.5, True)):
+            fb = build_swa_fb(vocab_size=40, d_model=64, n_layers=layers, num_heads=2, window=window).cuda().eval()
+            zero_feedback(fb) if strength is None else strong_feedback(fb, strength)
+            d = (self.run_model(fb, x) - self.run_model(fb, x2)).abs().amax(-1)[0, far]
+            self.assertEqual(bool((d > 0).any()), expect_leak, (strength, float(d.max())))
+
+    def test_gradients_reach_every_loop_through_the_segments(self):
+        fb = build_swa_fb(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=8).cuda()
+        strong_feedback(fb, 0.3)
+        x = torch.randint(8, 40, (2, 64), device="cuda")
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            fb(input_ids=x).logits.float()[:, -1].sum().backward()  # the last token depends on the first segment only via m
+        for loop in fb.loops:
+            self.assertGreater(float(loop.proj.weight.grad.abs().sum()), 0.0)
+            self.assertGreater(float(loop.gain.grad.abs().sum()), 0.0)
+
+    def test_state_dict_roundtrip(self):
+        a = build_swa_fb(vocab_size=40, window=16, n_layers=2, num_heads=4).cuda().eval()
+        b = build_swa_fb(vocab_size=40, window=16, n_layers=2, num_heads=4).cuda().eval()
+        b.load_state_dict(a.state_dict())
+        x = torch.randint(8, 40, (1, 50), device="cuda")
+        self.assertEqual(float((self.run_model(a, x) - self.run_model(b, x)).abs().max()), 0.0)
 
 
 if __name__ == "__main__":

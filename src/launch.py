@@ -49,6 +49,7 @@ def main() -> None:
     ap.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE", help="overrides applied to every run")
     ap.add_argument("--gpus", type=int, nargs="+", default=[0, 1])
     ap.add_argument("--procs-per-gpu", type=int, default=2)
+    ap.add_argument("--no-wandb", action="store_true", help="pass --no-wandb to every train.py call (smoke tests)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -77,7 +78,7 @@ def main() -> None:
                  # the token is read by the shell here and never written to a log or a command line
                  '[ -f wandb_token ] && export WANDB_API_KEY="$(cat wandb_token)"']
         for j in mine:
-            cmd = [sys.executable, "src/train.py", "--config", args.config, "--set", *j["overrides"]]
+            cmd = [sys.executable, "src/train.py", "--config", args.config, *(["--no-wandb"] if args.no_wandb else []), "--set", *j["overrides"]]
             log = logdir / f"{j['name']}.log"
             lines.append(f"{shlex.join(cmd)} > {shlex.quote(str(log))} 2>&1 || echo FAILED {j['name']} >> {shlex.quote(str(logdir / 'failed.txt'))}")
         lines.append(f'echo "worker {w} (gpu {gpu}) finished"')

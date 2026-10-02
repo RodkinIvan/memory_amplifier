@@ -6,13 +6,19 @@
 Everything except the mixer (embeddings, norms, MLP, head) is stock fla `GatedDeltaNetForCausalLM`.
 `swa`        : sliding-window attention baseline, stock fla `TransformerForCausalLM` with `window_size=W`. Information
                travels at most `n_layers * (W - 1)` tokens, so anything further back is unreachable by construction.
+`swa_fb`     : the same sliding-window transformer plus a *segment feedback loop* ("memory amplification"): once per
+               segment every layer turns its output into one vector, which is added to that layer's input at every
+               token of the next segment. See `FeedbackSWA`.
 """
 from __future__ import annotations
 
 import math
+from types import SimpleNamespace
 
 import torch
+import torch.nn.functional as F
 from einops import rearrange
+from torch import nn
 from fla.layers import GatedDeltaNet
 from fla.models import GatedDeltaNetConfig, GatedDeltaNetForCausalLM, TransformerConfig, TransformerForCausalLM
 from fla.ops.gated_delta_rule import chunk_gated_delta_rule
@@ -104,6 +110,10 @@ def build_swa(*, vocab_size: int, d_model: int = 128, n_layers: int = 2, num_hea
 def build_from_config(mc: dict, vocab_size: int):
     """Build the model described by the `model:` block of a run config (see configs/*.yaml)."""
     kind = mc["kind"]
+    if kind == "swa_fb":
+        return build_swa_fb(vocab_size=vocab_size, d_model=mc["d_model"], n_layers=mc["n_layers"], num_heads=mc["num_heads"],
+                            window=mc["window"], segment=mc.get("segment", 0), nonlin=mc.get("nonlin", "tanh"),
+                            noise=mc.get("noise", 0.0), gain_init=mc.get("gain_init", 0.0), proj_std=mc.get("proj_std", 0.02))
     if kind == "swa":
         return build_swa(vocab_size=vocab_size, d_model=mc["d_model"], n_layers=mc["n_layers"],
                          num_heads=mc["num_heads"], window=mc["window"])
@@ -111,3 +121,85 @@ def build_from_config(mc: dict, vocab_size: int):
                        num_heads=mc["num_heads"], head_dim=mc["head_dim"], expand_v=mc["expand_v"],
                        alpha=mc["alpha"] if kind == "gdn_fixed" else None,
                        allow_neg_eigval=mc["allow_neg_eigval"], norm_eps=mc["norm_eps"])
+
+
+class SegmentFeedback(nn.Module):
+    """One feedback loop: m = mean over the segment of nonlin(proj(norm(y))), added to the next segment's layer input.
+
+    y are the layer's outputs for the segment (the residual stream after the block, so the memory can ride along the
+    residual path). `tanh` keeps m bounded (fixed points, no blow-up over hundreds of hops); `none` is the linear
+    control; `gelu` is unbounded. The injection gain is a learned per-channel scale. It starts at `gain_init` = 0 by
+    default: a loop that injects structured noise from the first step stalls the learning of the AR task (loss stuck at
+    2.1 vs 1.2 after 600 steps), whereas with gain 0 the model starts as exactly plain SWA and the loop can grow."""
+
+    def __init__(self, d_model: int, nonlin: str = "tanh", gain_init: float = 0.0, proj_std: float = 0.02):
+        super().__init__()
+        if nonlin not in ("tanh", "gelu", "none"):
+            raise ValueError(f"unknown nonlin {nonlin!r}")
+        self.nonlin = nonlin
+        self.norm = nn.RMSNorm(d_model)
+        self.proj = nn.Linear(d_model, d_model)
+        self.gain = nn.Parameter(torch.full((d_model,), float(gain_init)))
+        nn.init.normal_(self.proj.weight, std=proj_std)
+        nn.init.zeros_(self.proj.bias)
+
+    def forward(self, y: torch.Tensor) -> torch.Tensor:  # (B, C, d) -> (B, d)
+        with torch.autocast(y.device.type, enabled=False):  # fp32: bf16 rounding would erase a small recurrent signal
+            z = self.proj(self.norm(y.float()))
+            z = torch.tanh(z) if self.nonlin == "tanh" else F.gelu(z) if self.nonlin == "gelu" else z
+            return z.mean(dim=1)
+
+    def inject(self, x: torch.Tensor, m: torch.Tensor) -> torch.Tensor:  # add the memory to every token
+        return x + self.gain * m[:, None, :].to(x.dtype)
+
+
+class FeedbackSWA(nn.Module):
+    """Sliding-window transformer run one segment at a time, with a SegmentFeedback loop around every layer.
+
+    For segment s and layer i:  inp = x_s + gain * m_i(s-1);  y = block_i([tail ; inp])[segment part];  m_i(s) = loop_i(y).
+    `tail` holds the last window-1 layer *inputs* of the preceding segments, so attention inside a segment sees exactly
+    what plain sliding-window attention would see. m_i(-1) = 0, so the first segment is plain SWA. Information can now
+    travel past the window reach by riding along m, one segment per hop."""
+
+    def __init__(self, base: TransformerForCausalLM, window: int, segment: int, nonlin: str = "tanh", noise_std: float = 0.0,
+                 gain_init: float = 0.0, proj_std: float = 0.02):
+        super().__init__()
+        self.base, self.window, self.segment, self.noise_std = base, window, segment, noise_std
+        d = base.config.hidden_size
+        self.loops = nn.ModuleList(SegmentFeedback(d, nonlin, gain_init, proj_std) for _ in base.model.layers)
+
+    def forward(self, input_ids: torch.Tensor, **_) -> SimpleNamespace:
+        B, T = input_ids.shape
+        C, W = self.segment, self.window
+        if T % C:  # right-pad with PAD (causal, so earlier outputs are unaffected)
+            input_ids = F.pad(input_ids, (0, C - T % C), value=0)
+        x = self.base.model.embeddings(input_ids)
+        layers = self.base.model.layers
+        tails = [None] * len(layers)
+        mems = [None] * len(layers)
+        outs = []
+        for s in range(x.shape[1] // C):
+            h = x[:, s * C:(s + 1) * C]
+            for i, (layer, loop) in enumerate(zip(layers, self.loops)):
+                inp = h if mems[i] is None else loop.inject(h, mems[i])
+                ctx = inp if tails[i] is None else torch.cat([tails[i], inp], dim=1)
+                y = layer(ctx)[0][:, -C:]
+                tails[i] = ctx[:, -(W - 1):]
+                m = loop(y)
+                if self.training and self.noise_std > 0:
+                    m = m + self.noise_std * torch.randn_like(m)
+                mems[i] = m
+                h = y
+            outs.append(h)
+        hidden = self.base.model.norm(torch.cat(outs, dim=1)[:, :T])
+        return SimpleNamespace(logits=self.base.lm_head(hidden))
+
+
+def build_swa_fb(*, vocab_size: int, d_model: int = 128, n_layers: int = 2, num_heads: int = 4, window: int,
+                 segment: int = 0, nonlin: str = "tanh", noise: float = 0.0, gain_init: float = 0.0, proj_std: float = 0.02) -> FeedbackSWA:
+    """`segment` = 0 means one segment per window. Needs 1 <= segment; any segment length works (the tail spans segments)."""
+    segment = segment or window
+    if segment < 1:
+        raise ValueError(f"segment must be >= 1, got {segment}")
+    base = build_swa(vocab_size=vocab_size, d_model=d_model, n_layers=n_layers, num_heads=num_heads, window=window)
+    return FeedbackSWA(base, window=window, segment=segment, nonlin=nonlin, noise_std=noise, gain_init=gain_init, proj_std=proj_std)
