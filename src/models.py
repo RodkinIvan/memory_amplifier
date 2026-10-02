@@ -4,6 +4,8 @@
 `gdn`        : stock fla GatedDeltaNet with learned, data-dependent decay (Exp 2/3);
                `allow_neg_eigval=True` gives the [-1, 1] eigenvalue variant of Grazzi et al. (2025).
 Everything except the mixer (embeddings, norms, MLP, head) is stock fla `GatedDeltaNetForCausalLM`.
+`swa`        : sliding-window attention baseline, stock fla `TransformerForCausalLM` with `window_size=W`. Information
+               travels at most `n_layers * (W - 1)` tokens, so anything further back is unreachable by construction.
 """
 from __future__ import annotations
 
@@ -12,7 +14,7 @@ import math
 import torch
 from einops import rearrange
 from fla.layers import GatedDeltaNet
-from fla.models import GatedDeltaNetConfig, GatedDeltaNetForCausalLM
+from fla.models import GatedDeltaNetConfig, GatedDeltaNetForCausalLM, TransformerConfig, TransformerForCausalLM
 from fla.ops.gated_delta_rule import chunk_gated_delta_rule
 
 
@@ -79,3 +81,33 @@ def build_model(kind: str, *, vocab_size: int, d_model: int = 128, n_layers: int
     elif kind != "gdn":
         raise ValueError(f"unknown model kind {kind!r}")
     return model
+
+
+def swa_reach(window: int, n_layers: int) -> int:
+    """Longest distance (in tokens) over which a sliding-window transformer can pass information."""
+    return n_layers * (window - 1)
+
+
+def build_swa(*, vocab_size: int, d_model: int = 128, n_layers: int = 2, num_heads: int = 4, window: int) -> TransformerForCausalLM:
+    """Sliding-window attention: every layer attends to the current token and the `window - 1` tokens before it (RoPE)."""
+    if d_model % num_heads:
+        raise ValueError(f"d_model={d_model} must be divisible by num_heads={num_heads}")
+    if window < 2:
+        raise ValueError(f"window must be >= 2, got {window}")
+    cfg = TransformerConfig(
+        hidden_size=d_model, num_hidden_layers=n_layers, num_heads=num_heads, window_size=window, vocab_size=vocab_size,
+        max_position_embeddings=1 << 17, tie_word_embeddings=True, fuse_cross_entropy=False, use_cache=False,
+    )
+    return TransformerForCausalLM(cfg)
+
+
+def build_from_config(mc: dict, vocab_size: int):
+    """Build the model described by the `model:` block of a run config (see configs/*.yaml)."""
+    kind = mc["kind"]
+    if kind == "swa":
+        return build_swa(vocab_size=vocab_size, d_model=mc["d_model"], n_layers=mc["n_layers"],
+                         num_heads=mc["num_heads"], window=mc["window"])
+    return build_model(kind, vocab_size=vocab_size, d_model=mc["d_model"], n_layers=mc["n_layers"],
+                       num_heads=mc["num_heads"], head_dim=mc["head_dim"], expand_v=mc["expand_v"],
+                       alpha=mc["alpha"] if kind == "gdn_fixed" else None,
+                       allow_neg_eigval=mc["allow_neg_eigval"], norm_eps=mc["norm_eps"])

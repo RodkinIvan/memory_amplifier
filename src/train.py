@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config as C  # noqa: E402
 import data as D  # noqa: E402
 import evaluate as E  # noqa: E402
-from models import build_model  # noqa: E402
+from models import build_from_config  # noqa: E402
 
 METRICS = ("passkey_acc", "ar_valid_acc", "ar_expired_acc", "ar_expired_stale_acc", "ar_expired_never_acc")
 
@@ -84,11 +84,9 @@ def main(argv=None) -> None:
     torch.manual_seed(cfg["seed"])
     rng = np.random.default_rng(cfg["seed"])
     dev = torch.device("cuda")
-    model = build_model(mc["kind"], vocab_size=vocab_size, d_model=mc["d_model"], n_layers=mc["n_layers"],
-                        num_heads=mc["num_heads"], head_dim=mc["head_dim"], expand_v=mc["expand_v"],
-                        alpha=mc["alpha"] if mc["kind"] == "gdn_fixed" else None,
-                        allow_neg_eigval=mc["allow_neg_eigval"], norm_eps=mc["norm_eps"]).to(dev)
+    model = build_from_config(mc, vocab_size).to(dev)
     n_params = sum(p.numel() for p in model.parameters())
+    amp = torch.bfloat16 if tc.get("precision", "fp32") == "bf16" else None  # flash-attention models need bf16
 
     load_wandb_key()
     import wandb
@@ -107,7 +105,8 @@ def main(argv=None) -> None:
             g["lr"] = lr_at(step, tc)
         ids, labs = D.pad_batch(train, rng.integers(0, len(train), size=tc["batch_size"]), tc["pad_multiple"])
         ids, labs = torch.from_numpy(ids).to(dev), torch.from_numpy(labs).to(dev)
-        logits = model(input_ids=ids).logits
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp is not None):
+            logits = model(input_ids=ids).logits
         loss = F.cross_entropy(logits[:, :-1].reshape(-1, logits.size(-1)).float(), labs[:, 1:].reshape(-1), ignore_index=-100)
         loss.backward()
         gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc["grad_clip"])
@@ -126,7 +125,7 @@ def main(argv=None) -> None:
         if step % tc["eval_every"] == 0 or step == tc["steps"]:
             logs = {}
             for n, p in val.items():
-                m = E.evaluate_packed(model, p, dev)
+                m = E.evaluate_packed(model, p, dev, amp_dtype=amp)
                 logs.update({f"val/n{n}/{k}": m[k] for k in METRICS})
             wandb.log(logs, step=step)
             print(f"[{name}] step {step} loss {last:.4f} | " + " ".join(
@@ -137,7 +136,7 @@ def main(argv=None) -> None:
     rows = []
     for split in ec["splits"]:
         for n in ec["ns"]:
-            m = E.evaluate_packed(model, D.load_packed(data_dir / f"n{n}" / f"{split}.parquet", kinds=True), dev, ec["tokens_per_batch"])
+            m = E.evaluate_packed(model, D.load_packed(data_dir / f"n{n}" / f"{split}.parquet", kinds=True), dev, ec["tokens_per_batch"], amp_dtype=amp)
             rows.append({"split": split, "N": n, **m})
             run.summary.update({f"final/{split}/n{n}/{k}": m[k] for k in METRICS})
         print(f"[{name}] {split}: " + " ".join(f"n{r['N']}:{r['passkey_acc']:.2f}/{r['ar_expired_acc']:.2f}" for r in rows if r["split"] == split), flush=True)

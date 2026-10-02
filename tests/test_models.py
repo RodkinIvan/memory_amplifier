@@ -8,7 +8,7 @@ import unittest
 import torch
 
 from tests import _paths  # noqa: F401
-from models import build_model
+from models import build_from_config, build_model, build_swa, swa_reach
 
 
 def naive_gated_delta(q, k, v, alpha, beta_logit, neg):
@@ -80,6 +80,49 @@ class FixedDecayKernel(unittest.TestCase):
         x = torch.randint(8, 40, (2, 128), device="cuda")
         m(input_ids=x).logits.float().mean().backward()
         self.assertTrue(all(p.grad is not None for p in m.parameters()))
+
+
+class SWABuilder(unittest.TestCase):
+    def test_argument_checks(self):
+        with self.assertRaises(ValueError):
+            build_swa(vocab_size=40, d_model=128, num_heads=3, window=8)  # 128 not divisible by 3
+        with self.assertRaises(ValueError):
+            build_swa(vocab_size=40, window=1)
+
+    def test_dispatch_from_config_block(self):
+        swa = build_from_config({"kind": "swa", "d_model": 128, "n_layers": 3, "num_heads": 4, "window": 16}, 40)
+        self.assertEqual((swa.config.window_size, swa.config.num_hidden_layers, swa.config.hidden_size), (16, 3, 128))
+        gdn = build_from_config({"kind": "gdn_fixed", "d_model": 128, "n_layers": 2, "num_heads": 1, "head_dim": 32,
+                                 "expand_v": 1.0, "alpha": 0.9, "allow_neg_eigval": False, "norm_eps": 1e-5}, 40)
+        self.assertEqual(sum(p.numel() for p in gdn.parameters()), 441_024)  # unchanged by the refactor
+
+    def test_reach_formula(self):
+        self.assertEqual(swa_reach(64, 2), 126)
+        self.assertEqual(swa_reach(128, 4), 508)
+
+
+@unittest.skipUnless(torch.cuda.is_available(), "needs a CUDA GPU")
+class SWAReach(unittest.TestCase):
+    def test_information_travels_exactly_layers_times_window_minus_one(self):
+        """Changing token 0 must change the output at positions 0..R and leave every later position bit-identical."""
+        torch.manual_seed(0)
+        for window, layers in ((8, 3), (5, 2), (16, 1)):
+            m = build_swa(vocab_size=40, d_model=64, n_layers=layers, num_heads=2, window=window).cuda().eval()
+            R = swa_reach(window, layers)
+            x = torch.randint(8, 40, (1, 3 * R + 10), device="cuda")
+            x2 = x.clone()
+            x2[0, 0] = 8 + (int(x[0, 0]) - 8 + 1) % 32
+            with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+                diff = (m(input_ids=x).logits.float() - m(input_ids=x2).logits.float()).abs().amax(-1)[0]
+            changed = diff > 0
+            self.assertTrue(bool(changed[:R + 1].all()), (window, layers, "no effect inside the reach"))
+            self.assertFalse(bool(changed[R + 1:].any()), (window, layers, "effect leaked beyond the reach"))
+
+    def test_runs_on_a_61k_token_sequence(self):
+        m = build_swa(vocab_size=40, window=64, n_layers=2, num_heads=4).cuda().eval()
+        x = torch.randint(8, 40, (1, 61440), device="cuda")
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            self.assertTrue(bool(torch.isfinite(m(input_ids=x).logits).all()))
 
 
 if __name__ == "__main__":

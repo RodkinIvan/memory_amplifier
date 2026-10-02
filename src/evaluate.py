@@ -28,8 +28,8 @@ def eval_plan(lengths: np.ndarray, tokens_per_batch: int) -> tuple[int, int]:
 
 
 @torch.no_grad()
-def evaluate_packed(model, p: D.Packed, device, tokens_per_batch: int = 262144) -> dict:
-    """Returns accuracies plus counts for one set of examples (needs p.kinds)."""
+def evaluate_packed(model, p: D.Packed, device, tokens_per_batch: int = 262144, amp_dtype=None) -> dict:
+    """Returns accuracies plus counts for one set of examples (needs p.kinds). `amp_dtype` e.g. torch.bfloat16 enables autocast."""
     assert p.kinds is not None, "load with kinds=True"
     was_training = model.training
     model.eval()
@@ -43,7 +43,8 @@ def evaluate_packed(model, p: D.Packed, device, tokens_per_batch: int = 262144) 
         if n_real < B <= len(p):  # filler rows (repeats of the last example) keep the batch shape; their results are ignored
             idx = np.concatenate([idx, np.full(B - n_real, idx[-1])])
         ids, labs = D.pad_batch(p, idx, L)
-        logits = model(input_ids=torch.from_numpy(ids).to(device)).logits
+        with torch.autocast(device.type, dtype=amp_dtype or torch.float32, enabled=amp_dtype is not None):
+            logits = model(input_ids=torch.from_numpy(ids).to(device)).logits
         tgt = torch.from_numpy(labs[:, 1:]).to(device)
         mask = tgt != D.IGNORE
         correct = ((logits[:, :-1].argmax(-1) == tgt) & mask).cpu().numpy()

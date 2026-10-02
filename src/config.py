@@ -9,7 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 
 # short names for the run name; any other key falls back to its last path component
-SHORT = {"model.alpha": "a", "model.norm_eps": "eps", "model.head_dim": "hd", "model.num_heads": "nh",
+SHORT = {"model.alpha": "a", "model.window": "w", "model.norm_eps": "eps", "model.head_dim": "hd", "model.num_heads": "nh",
          "model.d_model": "d", "model.n_layers": "L", "model.expand_v": "ev", "model.allow_neg_eigval": "neg",
          "train.lr": "lr",
          "train.steps": "steps", "train.batch_size": "bs", "seed": "s"}

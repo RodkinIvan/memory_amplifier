@@ -38,6 +38,11 @@ class ConfigAndNaming(unittest.TestCase):
         self.assertEqual(self.name(["model.alpha=0.95", "model.norm_eps=1e-2", "model.head_dim=64", "seed=2"]),
                          "gdn_fixed_a0.95_eps0.01_hd64_s2")
         self.assertEqual(self.name([]), "gdn_fixed_s0")
+
+    def test_swa_run_names(self):
+        cfg, keys = C.load_config(_paths.ROOT / "configs" / "swa.yaml", ["model.window=64", "model.n_layers=4", "seed=2"])
+        self.assertEqual(C.run_name(cfg, keys), "swa_w64_L4_s2")
+        self.assertEqual(cfg["train"]["precision"], "bf16")
         self.assertEqual(self.name(["model.kind=gdn", "model.allow_neg_eigval=true"]), "gdn_negTrue_s0")
 
     def test_value_parsing(self):
