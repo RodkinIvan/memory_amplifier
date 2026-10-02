@@ -177,10 +177,13 @@ def swa_data() -> tuple[dict, str, str]:
     cfgs = sorted({wl(r) for r in runs}, key=lambda c: (-(c[1] * (c[0] - 1)), -c[0]))  # longest reach first
     reach = {c: c[1] * (c[0] - 1) for c in cfgs}
     key = lambda c: f"w{c[0]}_L{c[1]}"
-    rows = [{"key": key(c), "label": f"W{c[0]} · L{c[1]} · R{reach[c]}", "long": f"window {c[0]}, {c[1]} layers, reach {reach[c]} tokens"} for c in cfgs]
     by_cfg = {c: [r for r in runs if wl(r) == c] for c in cfgs}
+    rows = [{"key": key(c), "label": f"W{c[0]} · L{c[1]} · R{reach[c]}",
+             "long": f"window {c[0]}, {c[1]} layers, reach {reach[c]} tokens ({len(by_cfg[c])} seed{'s' if len(by_cfg[c]) != 1 else ''})"} for c in cfgs]
     results = {key(c): cells_for_row(by_cfg[c]) for c in cfgs}
-    n_runs, n_seeds = len(runs), len({r["seed"] for r in runs})
+    n_runs = len(runs)
+    seed_counts = {c: len(by_cfg[c]) for c in cfgs}
+    partial_seeds = n_runs < 18
     cell = lambda c, n, k: results[key(c)][str(n)][k]
     worst_valid = {c: min(v for n in NS for v in results[key(c)][str(n)]["per"]["valid"]) for c in cfgs}
     worst_stale = {c: min(v for n in NS for v in results[key(c)][str(n)]["per"]["stale"] if v is not None) for c in cfgs}
@@ -212,6 +215,7 @@ def swa_data() -> tuple[dict, str, str]:
             last = max(good, key=lambda p: p["x"])
             nxt = next((p for p in pts if p["x"] > last["x"]), None)
             cliff[c] = (last, nxt)
+    probe_seeds = ", ".join(f"{name(c)}: {len([nm for nm in runs_of(c) if nm in length])}" for c in cfgs)  # models behind the probe figures
     dens_rates = sorted({r["query_rate"] for rr in dens.values() for r in rr if r["N"] == 256 and r["query_rate"] > 0})
     dens_series = []
     for c in cfgs:  # longest reach first = darkest
@@ -304,12 +308,13 @@ def swa_data() -> tuple[dict, str, str]:
            "<p><b>3. Still open from before:</b> several passkeys at unknown positions, so that persistence has to be selected at run time.</p>")
     data = {
         "ns": NS, "rows": rows, "results": results, "scatter_ns": [32, 64, 256, 16384], "label_w": 124, "row_name": "configuration", "row_prefix": "",
-        "meta": f"Phase 1, 2 Oct 2026. <span class='status'><span>runs finished: <b>{n_runs}/18</b></span><span>·</span><span>{n_seeds} seeds per configuration</span></span>",
+        "meta": f"Phase 1, 2 Oct 2026. <span class='status'><span>runs finished: <b>{n_runs}/18</b></span>"
+                + (("<span>·</span><span><b>intermediate</b>, seeds so far: " + ", ".join(f"{name(c)}: {seed_counts[c]}" for c in cfgs) + "</span>") if partial_seeds else "<span>·</span><span>3 seeds per configuration</span>") + "</span>",
         "tldr": tldr, "tested": tested,
         "results_intro": "<b>SWA has no decay.</b> It keeps no recurrent state and has no multiplier like GDN’s α: each layer attends exactly to the last W tokens, and anything older has weight zero. "
                          "Forgetting is a hard cutoff, and the only memory-length knob is the reach R = L·(W−1) tokens, the farthest distance information can travel through L layers. "
                          "α appears in this report only on the dashed GDN line in figure 4, for contrast. "
-                         "Rows are (window W, layers L, reach R). All numbers are from the <b>test</b> split (1,000 examples per N), as the mean over seeds, after 30k training steps on N ≤ 256. Hover a cell for the individual seeds.",
+                         "Rows are (window W, layers L, reach R). All numbers are from the <b>test</b> split (1,000 examples per N), as the mean over the seeds finished so far (hover a cell for the individual seeds), after 30k training steps on N ≤ 256." + (" This is an intermediate version: the 4-layer configurations still have fewer than 3 seeds." if partial_seeds else ""),
         "fig1_sub": "Columns: number of AR writes N (a write is about 3.75 tokens, so 16384 is about 61k tokens). Darker is higher.",
         "fig2_sub": "One point per configuration (mean over seeds, faint dots = seeds). Ideal is the top-right corner.",
         "valid_title": "AR valid accuracy (key written within the last 16 writes)",
@@ -317,12 +322,12 @@ def swa_data() -> tuple[dict, str, str]:
         "cap1": cap1, "cap2": cap2,
         "extra_figs": [
             {"title": "3. Where the passkey stops: accuracy against stream length",
-             "sub": "Fresh streams, 200 per point and model. Stream length is measured in tokens (N writes is about 3.75 N tokens).", "caption": cap3,
+             "sub": f"Fresh streams, 200 per point and model. Stream length is measured in tokens (N writes is about 3.75 N tokens). Models (seeds) per configuration: {probe_seeds}.", "caption": cap3,
              "spec": {"series": len_series, "xTicks": [32, 64, 128, 256, 512, 1024], "x0": 24, "x1": 1300, "xLabel": "tokens in the stream (log scale)", "yLabel": "passkey exact match", "ordReverse": True,
                       "vlines": [{"x": 62, "label": "R 62"}, {"x": 125, "label": "R 124–126", "dy": 12}, {"x": 253, "label": "R 252–254"}, {"x": 508, "label": "R 508", "dy": 12}],
                       "aria": "Passkey exact match versus stream length for six window configurations"}},
             {"title": "4. What expiry depends on: valid accuracy against query density",
-             "sub": "Fresh streams at N = 256 writes with a different number of queries per write; training used 0.25.", "caption": cap4,
+             "sub": f"Fresh streams at N = 256 writes with a different number of queries per write; training used 0.25. Models (seeds) per configuration: {probe_seeds}.", "caption": cap4,
              "spec": {"series": dens_series, "xTicks": dens_rates, "x0": min(dens_rates), "x1": max(dens_rates), "yMin": 0.8, "yMax": 1.0, "xLabel": "queries per write (log scale)",
                       "yLabel": "AR valid accuracy", "vlines": [{"x": 0.25, "label": "training density", "dy": 238}], "rightPad": 118, "aria": "AR valid accuracy versus query density"}},
         ],
