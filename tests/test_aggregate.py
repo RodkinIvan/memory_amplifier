@@ -15,11 +15,12 @@ import aggregate as A
 import config as C
 
 EXP1 = _paths.ROOT / "configs" / "exp1.yaml"
+SWA = _paths.ROOT / "configs" / "swa.yaml"
 NS = [32, 256, 1024, 4096, 16384]
 
 
-def fake_run(raw: Path, overrides, passkey=0.5):
-    cfg, keys = C.load_config(EXP1, overrides)
+def fake_run(raw: Path, overrides, passkey=0.5, config=EXP1):
+    cfg, keys = C.load_config(config, overrides)
     rows = [{"split": sp, "N": n, "passkey_acc": passkey, "ar_valid_acc": 0.9, "ar_expired_acc": 0.7,
              "ar_expired_stale_acc": 0.6, "ar_expired_never_acc": 0.8, "n_examples": 10, "n_valid": 5,
              "n_expired_stale": 3, "n_expired_never": 2} for sp in ("validation", "test") for n in NS]
@@ -38,6 +39,7 @@ class Aggregate(unittest.TestCase):
             for s in (0, 1):
                 fake_run(cls.raw, [f"model.alpha={a}", f"seed={s}"], passkey=a)
         fake_run(cls.raw, ["model.alpha=0.95", "model.norm_eps=1e-2", "seed=0"])  # a variant model
+        fake_run(cls.raw, ["model.window=64", "model.n_layers=2", "seed=0"], config=SWA)  # a model without decay
         cls.df = A.to_frame(A.load_runs(cls.raw))
 
     @classmethod
@@ -50,8 +52,9 @@ class Aggregate(unittest.TestCase):
             t = pd.read_csv(self.tmp / "out" / f)
             self.assertEqual(list(t.columns), ["model", "alpha", "seed", "N", "passkey_acc", "ar_valid_acc", "ar_expired_acc"])
         test = pd.read_csv(self.tmp / "out" / "summary.csv")
-        self.assertEqual(len(test), 7 * len(NS))  # 6 base runs + 1 variant, test split only
-        self.assertEqual(set(test.model), {"gdn_fixed", "gdn_fixed_eps0.01"})  # variants are not mixed into the base model
+        self.assertEqual(len(test), 8 * len(NS))  # 6 base runs + 1 variant + 1 swa run, test split only
+        self.assertEqual(set(test.model), {"gdn_fixed", "gdn_fixed_eps0.01", "swa_w64_L2"})  # variants are not mixed into the base model
+        self.assertTrue(test[test.model == "swa_w64_L2"].alpha.isna().all())  # SWA has no decay: alpha stays blank
         extra = pd.read_csv(self.tmp / "out" / "summary_extra.csv")
         self.assertIn("ar_expired_stale_acc", extra.columns)
         self.assertEqual(set(extra.split), {"validation", "test"})
@@ -75,6 +78,14 @@ class Aggregate(unittest.TestCase):
             for ext in ("png", "pdf"):
                 self.assertGreater(Path(f"{out}{suffix}.{ext}").stat().st_size, 1000)
 
+
+    def test_swa_rows_carry_their_hyperparameters_in_the_extra_table(self):
+        A.write_tables(self.df, self.tmp / "out2")
+        extra = pd.read_csv(self.tmp / "out2" / "summary_extra.csv")
+        swa = extra[extra.model == "swa_w64_L2"]
+        self.assertEqual(set(swa.window), {64})
+        self.assertEqual(set(swa.reach), {126})  # n_layers * (window - 1)
+        self.assertTrue(extra[extra.model == "gdn_fixed"].window.isna().all())
 
     def test_cluster_points_labels_every_alpha_once(self):
         pts = {1.0: (1.0, 1.0), 0.999: (1.0, 0.995), 0.95: (1.0, 0.0), 0.9: (1.0, 0.0), 0.8: (1.0, 0.01)}

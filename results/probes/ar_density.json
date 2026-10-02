@@ -1,0 +1,989 @@
+{
+ "swa_w128_L2_s0": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.999150775882035,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.989364179799705,
+   "ar_expired_acc": 0.9996870599280238,
+   "ar_expired_stale_acc": 0.9999279331219372
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9613693346190936,
+   "ar_expired_acc": 0.9934059577749927,
+   "ar_expired_stale_acc": 0.9929928149676318
+  }
+ ],
+ "swa_w128_L2_s1": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.998841967111866,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9724012110860958,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8509739633558341,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w128_L2_s2": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.999619916381604,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9996932044792146,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9979155408013588,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9682478068472945,
+   "ar_expired_acc": 0.9999217649820059,
+   "ar_expired_stale_acc": 0.9999279331219372
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8804243008678881,
+   "ar_expired_acc": 0.9999614383495614,
+   "ar_expired_stale_acc": 0.9999644305328306
+  }
+ ],
+ "swa_w128_L4_s0": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9993823824596618,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9785730921512305,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8830472516875603,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w128_L4_s1": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 0.9996131528046421,
+   "ar_expired_stale_acc": 0.9992481203007518
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9998466022396073,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9983015517640701,
+   "ar_expired_acc": 0.9999226305609284,
+   "ar_expired_stale_acc": 0.9998585172608941
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9790777113578139,
+   "ar_expired_acc": 0.9998435299640119,
+   "ar_expired_stale_acc": 0.9997837993658115
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9350048216007715,
+   "ar_expired_acc": 0.9995565410199556,
+   "ar_expired_stale_acc": 0.9995731663939674
+  }
+ ],
+ "swa_w128_L4_s2": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.999150775882035,
+   "ar_expired_acc": 0.9999226305609284,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9760111792562689,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8957762777242044,
+   "ar_expired_acc": 0.9999807191747807,
+   "ar_expired_stale_acc": 0.9999644305328306
+  }
+ ],
+ "swa_w32_L2_s0": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9847966552641582,
+   "ar_expired_acc": 0.9992263056092844,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9604233778186838,
+   "ar_expired_acc": 0.9987583423870867,
+   "ar_expired_stale_acc": 0.9979850316637882
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9236470315756967,
+   "ar_expired_acc": 0.998762088974855,
+   "ar_expired_stale_acc": 0.9984436898698359
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8826954429003959,
+   "ar_expired_acc": 0.9982397120951337,
+   "ar_expired_stale_acc": 0.9987027961948688
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8356798457087753,
+   "ar_expired_acc": 0.9982840065554806,
+   "ar_expired_stale_acc": 0.998328235043039
+  }
+ ],
+ "swa_w32_L2_s1": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9939186621056633,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9717748120877435,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9358449779973751,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8964366120642807,
+   "ar_expired_acc": 0.9999217649820059,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8529218900675024,
+   "ar_expired_acc": 0.9998650342234647,
+   "ar_expired_stale_acc": 0.9998932915984918
+  }
+ ],
+ "swa_w32_L2_s2": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9992398327632079,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9901825433348673,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9625569366169999,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9227544445307041,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8820443587270974,
+   "ar_expired_acc": 0.9989973970885954,
+   "ar_expired_stale_acc": 0.9991107633207654
+  }
+ ],
+ "swa_w32_L4_s0": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9985331583416969,
+   "ar_expired_acc": 0.9999226305609284,
+   "ar_expired_stale_acc": 0.9998585172608941
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9822995109075382,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9381099324975892,
+   "ar_expired_acc": 0.9999228766991227,
+   "ar_expired_stale_acc": 0.9998932915984918
+  }
+ ],
+ "swa_w32_L4_s1": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 0.9998447927983859,
+   "ar_expired_stale_acc": 0.9997121473805411
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9944414421369567,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9577284372331341,
+   "ar_expired_acc": 0.9997652949460178,
+   "ar_expired_stale_acc": 0.9997837993658115
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8872131147540984,
+   "ar_expired_acc": 0.9978791092258749,
+   "ar_expired_stale_acc": 0.9980081098385146
+  }
+ ],
+ "swa_w32_L4_s2": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9986103605342391,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9788059933234997,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9235872709739633,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w64_L2_s0": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.999619916381604,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9728248282251216,
+   "ar_expired_acc": 0.9999226305609284,
+   "ar_expired_stale_acc": 0.9998585172608941
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9328468286623709,
+   "ar_expired_acc": 0.9994914723830386,
+   "ar_expired_stale_acc": 0.9994955318535601
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8740983606557376,
+   "ar_expired_acc": 0.994447122336836,
+   "ar_expired_stale_acc": 0.9944511631215764
+  }
+ ],
+ "swa_w64_L2_s1": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.999619916381604,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9727476260325794,
+   "ar_expired_acc": 0.9999226305609284,
+   "ar_expired_stale_acc": 0.9998585172608941
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9328856455244158,
+   "ar_expired_acc": 0.9998435299640119,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8874445515911282,
+   "ar_expired_acc": 0.9969343487901282,
+   "ar_expired_stale_acc": 0.9967987479547556
+  }
+ ],
+ "swa_w64_L2_s2": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.999619916381604,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9726704238400371,
+   "ar_expired_acc": 0.9999226305609284,
+   "ar_expired_stale_acc": 0.9998585172608941
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9335843490412236,
+   "ar_expired_acc": 0.9995305898920357,
+   "ar_expired_stale_acc": 0.9997117324877486
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8937126325940212,
+   "ar_expired_acc": 0.9975513351971464,
+   "ar_expired_stale_acc": 0.9973678594294657
+  }
+ ],
+ "swa_w64_L4_s0": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.999619916381604,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9728248282251216,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9335455321791787,
+   "ar_expired_acc": 0.999960882491003,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8935583413693347,
+   "ar_expired_acc": 0.9999228766991227,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w64_L4_s1": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.999619916381604,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9728248282251216,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9336231659032683,
+   "ar_expired_acc": 0.9997261774370209,
+   "ar_expired_stale_acc": 0.9996396656096858
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8940983606557377,
+   "ar_expired_acc": 0.9982647257302613,
+   "ar_expired_stale_acc": 0.998328235043039
+  }
+ ],
+ "swa_w64_L4_s2": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.999619916381604,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9729020304176639,
+   "ar_expired_acc": 0.9997678916827853,
+   "ar_expired_stale_acc": 0.9998585172608941
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9331961804207748,
+   "ar_expired_acc": 0.9964794241902676,
+   "ar_expired_stale_acc": 0.9961804554626693
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.8707232401157184,
+   "ar_expired_acc": 0.986657668948231,
+   "ar_expired_stale_acc": 0.9856655047307391
+  }
+ ],
+ "gdn_fixed_a1_s0": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 0.9999035679845709,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "gdn_fixed_a1_s1": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 0.9996131528046421,
+   "ar_expired_stale_acc": 0.9992481203007518
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 0.9998452611218569,
+   "ar_expired_stale_acc": 0.9997170345217884
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 0.9999223662759102,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 0.985,
+   "ar_valid_acc": 0.9997492767598842,
+   "ar_expired_acc": 0.9999228766991227,
+   "ar_expired_stale_acc": 0.9998577221313225
+  }
+ ],
+ "gdn_fixed_a1_s2": [
+  {
+   "N": 256,
+   "query_rate": 0.1,
+   "tokens": 858.24,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.25,
+   "tokens": 974.43,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 0.5,
+   "tokens": 1168.17,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 0.9999227978074577,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 1.0,
+   "tokens": 1549.89,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 0.9998835494138654,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "query_rate": 2.0,
+   "tokens": 2335.725,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 0.9995371263259402,
+   "ar_expired_acc": 0.9998071917478069,
+   "ar_expired_stale_acc": 0.9996443053283062
+  }
+ ]
+}

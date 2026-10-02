@@ -53,5 +53,34 @@ class GdnReport(unittest.TestCase):
         self.assertEqual(self.title, "passkey_swar Intermediate Report")
 
 
+DATASET = _paths.ROOT / "data_cache" / "passkey_swar" / "n1024" / "validation.parquet"
+
+
+@unittest.skipUnless(DATASET.exists(), "needs the generated dataset (data_cache/passkey_swar)")
+class SwaReport(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data, cls.title, cls.h1 = R.swa_data()
+
+    def test_rows_are_ordered_by_reach_and_have_three_seeds(self):
+        self.assertEqual([r["key"] for r in self.data["rows"]], ["w128_L4", "w128_L2", "w64_L4", "w64_L2", "w32_L4", "w32_L2"])
+        self.assertEqual(self.data["rows"][0]["label"], "W128 \u00b7 L4 \u00b7 R508")  # reach = layers * (window - 1)
+        for key in ("w128_L4", "w32_L2"):
+            self.assertEqual(len(self.data["results"][key]["256"]["per"]["passkey"]), 3)
+
+    def test_ar_half_is_solved_and_swa_is_not_given_a_decay(self):
+        for key, cells in self.data["results"].items():
+            for n in R.NS[1:]:
+                self.assertGreaterEqual(min(cells[str(n)]["per"]["stale"]), 0.99, (key, n))
+        self.assertIn("SWA has no decay", self.data["results_intro"])
+        self.assertEqual(self.title, "SWA Baseline Report")
+
+    def test_probe_figures_have_one_series_per_configuration(self):
+        len_fig, dens_fig = self.data["extra_figs"]
+        self.assertEqual(len(len_fig["spec"]["series"]), 6)
+        self.assertEqual(len(dens_fig["spec"]["series"]), 7)  # 6 configurations + GDN alpha = 1 for contrast
+        self.assertTrue(dens_fig["spec"]["series"][-1]["dashed"])
+
+
 if __name__ == "__main__":
     unittest.main()

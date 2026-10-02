@@ -55,7 +55,11 @@ def to_frame(runs: list[dict]) -> pd.DataFrame:
         mc, tc = r["cfg"]["model"], r["cfg"]["train"]
         for row in r["rows"]:
             recs.append({"split": row["split"], "model": r["model"], "alpha": r["alpha"], "seed": r["seed"], "N": row["N"],
-                         **{k: row[k] for k in METRICS + COUNTS}, "norm_eps": mc["norm_eps"], "head_dim": mc["head_dim"],
+                         **{k: row[k] for k in METRICS + COUNTS},
+                         # model-specific hyperparameters; blank for the model family that does not have them
+                         "norm_eps": mc.get("norm_eps"), "head_dim": mc.get("head_dim"), "window": mc.get("window"),
+                         "n_layers": mc["n_layers"], "num_heads": mc["num_heads"],
+                         "reach": mc["n_layers"] * (mc["window"] - 1) if mc.get("window") else None,
                          "d_model": mc["d_model"], "steps": tc["steps"], "final_train_loss": r["final_train_loss"], "run": r["name"]})
     df = pd.DataFrame(recs)
     return df.sort_values(["split", "model", "alpha", "seed", "N"], ascending=[True, True, False, True, True]).reset_index(drop=True)

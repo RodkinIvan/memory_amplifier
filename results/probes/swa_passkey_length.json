@@ -1,0 +1,2486 @@
+{
+ "swa_w128_L2_s0": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.015,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.08,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.005,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.01,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.235,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.845,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.98,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.325,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.005,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9996963255390222,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w128_L2_s1": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.04,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.025,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.04,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.07,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.19,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.73,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.965,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.685,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w128_L2_s2": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.01,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.01,
+   "ar_valid_acc": 0.9965397923875432,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.01,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.19,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.745,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.965,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.685,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9990253411306043,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9992957746478873,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9994997498749375,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9995793016407236,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9997883597883598,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9996932044792146,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w128_L4_s0": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.165,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.185,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.37,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.655,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.905,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.99,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.995,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.795,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.01,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w128_L4_s1": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.01,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.005,
+   "ar_valid_acc": 0.9953051643192489,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.07,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.305,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.655,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.935,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.985,
+   "ar_valid_acc": 0.99860529986053,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.685,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9990253411306043,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.03,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.005,
+   "ar_valid_acc": 0.9992957746478873,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.005,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 0.9995037220843672,
+   "ar_expired_stale_acc": 0.9966101694915255
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 0.9995884773662551,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 0.9996850393700787,
+   "ar_expired_stale_acc": 0.9988558352402745
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9995767195767196,
+   "ar_expired_acc": 0.9997905320485966,
+   "ar_expired_stale_acc": 0.9995105237395986
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9998466022396073,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w128_L4_s2": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.035,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.31,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.935,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.98,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.995,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 1.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.42,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w32_L2_s0": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9955156950672646,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9876543209876543,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9863247863247864,
+   "ar_expired_acc": 0.9984025559105432,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9790794979079498,
+   "ar_expired_acc": 0.9985549132947977,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.968944099378882,
+   "ar_expired_acc": 0.9987623762376238,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9649122807017544,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9724137931034482,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9746478873239437,
+   "ar_expired_acc": 0.9993036211699164,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9651457541191382,
+   "ar_expired_acc": 0.9993593850096092,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9654827413706853,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9671855279764409,
+   "ar_expired_acc": 0.9995884773662551,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9590039477679927,
+   "ar_expired_acc": 0.9981102362204725,
+   "ar_expired_stale_acc": 0.9977116704805492
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9648677248677249,
+   "ar_expired_acc": 0.9981147884373691,
+   "ar_expired_stale_acc": 0.9980420949583945
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9604233778186838,
+   "ar_expired_acc": 0.9987583423870867,
+   "ar_expired_stale_acc": 0.9979850316637882
+  }
+ ],
+ "swa_w32_L2_s1": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9977578475336323,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9938271604938271,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9948717948717949,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9846582984658299,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9763975155279503,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9717348927875243,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.975,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9816901408450704,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9771863117870723,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9734867433716858,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9747580984434161,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9699362283631947,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9733333333333334,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9717748120877435,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w32_L2_s2": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.005,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9979423868312757,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9965811965811966,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9902370990237099,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.991304347826087,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9892787524366472,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9922413793103448,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9950704225352113,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9923954372623575,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9909954977488744,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.991586032814472,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9896750683267537,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9917460317460317,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9901825433348673,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w32_L4_s0": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w32_L4_s1": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 0.9998447927983859,
+   "ar_expired_stale_acc": 0.9997121473805411
+  }
+ ],
+ "swa_w32_L4_s2": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w64_L2_s0": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9944211994421199,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9975155279503105,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.99317738791423,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9956896551724138,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9964788732394366,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9936628643852978,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9934967483741871,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9953723180479596,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9942301852414211,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9961904761904762,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w64_L2_s1": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9944211994421199,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9975155279503105,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.99317738791423,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9956896551724138,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9964788732394366,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9936628643852978,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9934967483741871,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9953723180479596,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9942301852414211,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9961904761904762,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w64_L2_s2": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9944211994421199,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9975155279503105,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.99317738791423,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9956896551724138,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9964788732394366,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9936628643852978,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9934967483741871,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9953723180479596,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9942301852414211,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9961904761904762,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w64_L4_s0": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9944211994421199,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9975155279503105,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.99317738791423,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9956896551724138,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9964788732394366,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9936628643852978,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9934967483741871,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9953723180479596,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9942301852414211,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9961904761904762,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w64_L4_s1": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9944211994421199,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9975155279503105,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.99317738791423,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9956896551724138,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9964788732394366,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9936628643852978,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9934967483741871,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9953723180479596,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9942301852414211,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9961904761904762,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ],
+ "swa_w64_L4_s2": [
+  {
+   "N": 4,
+   "tokens": 26.82,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 8,
+   "tokens": 42.675,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 12,
+   "tokens": 57.255,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 16,
+   "tokens": 72.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 20,
+   "tokens": 87.285,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 24,
+   "tokens": 102.165,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 1.0,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 28,
+   "tokens": 117.135,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9944211994421199,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 32,
+   "tokens": 132.195,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9975155279503105,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": NaN
+  },
+  {
+   "N": 40,
+   "tokens": 162.66,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.99317738791423,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 48,
+   "tokens": 191.46,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9956896551724138,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 56,
+   "tokens": 222.84,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9964788732394366,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 64,
+   "tokens": 251.085,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9936628643852978,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 80,
+   "tokens": 312.21,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9934967483741871,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 96,
+   "tokens": 372.105,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9953723180479596,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 128,
+   "tokens": 493.02,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9942301852414211,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 192,
+   "tokens": 730.485,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9961904761904762,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  },
+  {
+   "N": 256,
+   "tokens": 974.43,
+   "passkey_acc": 0.0,
+   "ar_valid_acc": 0.9949378739070409,
+   "ar_expired_acc": 1.0,
+   "ar_expired_stale_acc": 1.0
+  }
+ ]
+}
