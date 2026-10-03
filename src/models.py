@@ -128,9 +128,11 @@ class SegmentFeedback(nn.Module):
 
     y are the layer's outputs for the segment (the residual stream after the block, so the memory can ride along the
     residual path). `tanh` keeps m bounded (fixed points, no blow-up over hundreds of hops); `none` is the linear
-    control; `gelu` is unbounded. The injection gain is a learned per-channel scale. It starts at `gain_init` = 0 by
-    default: a loop that injects structured noise from the first step stalls the learning of the AR task (loss stuck at
-    2.1 vs 1.2 after 600 steps), whereas with gain 0 the model starts as exactly plain SWA and the loop can grow."""
+    control; `gelu` is unbounded. The injection gain is a learned per-channel scale. With `gain_init` = 0 (the constructor
+    default) the model starts as exactly plain SWA. The training recipe (configs/swa_fb.yaml) uses 0.1, which the loop needs
+    to start learning at all, and it costs time: the injected memory is a few times the token signal, so the AR task is learned
+    later the smaller the segment (AR valid accuracy at step 2000: 0.62 / 0.17 / 0.00 for segments 64 / 32 / 16). Gain 1 stalls
+    AR learning for good (loss stuck at 2.1 vs 1.2 after 600 steps)."""
 
     def __init__(self, d_model: int, nonlin: str = "tanh", gain_init: float = 0.0, proj_std: float = 0.02):
         super().__init__()

@@ -36,6 +36,15 @@ def build_jobs(config: str, base: list[str], sweep: list[str]) -> list[dict]:
     return jobs
 
 
+def worker_header(gpu: int) -> list[str]:
+    """First lines of a worker script. expandable_segments lets the CUDA allocator return and reuse memory in pieces, which keeps
+    many processes on one GPU from each holding on to a large cache."""
+    return ["#!/usr/bin/env bash", f"cd {shlex.quote(str(C.ROOT))}", f"export CUDA_VISIBLE_DEVICES={gpu}",
+            "export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True",
+            # the token is read by the shell here and never written to a log or a command line
+            '[ -f wandb_token ] && export WANDB_API_KEY="$(cat wandb_token)"']
+
+
 def is_done(job: dict) -> bool:
     f = C.ROOT / "results" / "raw" / f"{job['name']}.json"
     return f.exists() and json.loads(f.read_text())["config"] == job["config"]
@@ -74,9 +83,7 @@ def main() -> None:
         mine = todo[w::len(workers)]
         if not mine:
             continue
-        lines = ["#!/usr/bin/env bash", f"cd {shlex.quote(str(C.ROOT))}", f"export CUDA_VISIBLE_DEVICES={gpu}",
-                 # the token is read by the shell here and never written to a log or a command line
-                 '[ -f wandb_token ] && export WANDB_API_KEY="$(cat wandb_token)"']
+        lines = worker_header(gpu)
         for j in mine:
             cmd = [sys.executable, "src/train.py", "--config", args.config, *(["--no-wandb"] if args.no_wandb else []), "--set", *j["overrides"]]
             log = logdir / f"{j['name']}.log"

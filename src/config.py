@@ -54,6 +54,8 @@ def load_config(path: str | Path, overrides: list[str]) -> tuple[dict, list[str]
 
 
 def fmt(v) -> str:
+    if isinstance(v, (list, tuple)):  # [32, 64] -> "32-64": no brackets or spaces in run names and file names
+        return "-".join(fmt(x) for x in v)
     return f"{v:g}" if isinstance(v, float) else str(v)
 
 

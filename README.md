@@ -67,7 +67,7 @@ data/    make_passkey_swar.py  generator (deterministic, per-example seeds)
          sanity_checks.py      oracle, mutation test, determinism, leakage, statistics
          upload_passkey_swar.py, tune_drift.py, vocab.json
 src/     models.py (fixed-decay GDN, sliding-window attention, segment-feedback SWA), data.py, evaluate.py, train.py, launch.py,
-         run_queue.py (unattended queue of sweeps), eval_gate.py (serialise final evaluations on a shared GPU), aggregate.py, probes.py (checkpoint probes on fresh streams), report.py (HTML reports), config.py
+         run_queue.py (unattended queue of sweeps), aggregate.py, probes.py (checkpoint probes on fresh streams), report.py (HTML reports), config.py
 configs/ experiment YAMLs      reports/ statistics + plans      results/ summary tables, plots, raw per-run json
 tests/   python -m unittest discover -s tests -t .
 ```

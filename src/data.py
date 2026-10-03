@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
@@ -109,7 +110,7 @@ def prepare_kinds(data_dir: Path, params: dict, splits=("validation", "test"), w
         for f in todo:
             nrg = pq.ParquetFile(f).num_row_groups
             kinds = np.concatenate(list(pool.map(_kinds_group, [(str(f), g, params) for g in range(nrg)])))
-            tmp = kinds_path(f).with_name(kinds_path(f).name + ".tmp.npy")
+            tmp = kinds_path(f).with_name(kinds_path(f).name + f".tmp{os.getpid()}.npy")  # unique per process, so two writers never share a file
             np.save(tmp, kinds.astype(np.int8))
             tmp.rename(kinds_path(f))  # atomic: concurrent readers never see a partial file
             print(f"kinds cached: {kinds_path(f)} ({len(kinds)} positions)", flush=True)

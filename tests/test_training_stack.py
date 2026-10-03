@@ -245,7 +245,21 @@ class DataAndEvaluation(unittest.TestCase):
         self.assertEqual(m, ref)  # counts (n_valid, ...) must not include the filler rows
 
 
+class WorkerScript(unittest.TestCase):
+    def test_header_pins_the_gpu_and_enables_expandable_segments(self):
+        head = L.worker_header(3)
+        self.assertIn("export CUDA_VISIBLE_DEVICES=3", head)
+        self.assertIn("export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True", head)
+        self.assertNotIn("wandb_token", " ".join(h for h in head if "export" in h and "cat" not in h))  # the key is read from the file, never written out
+
+
 class NameKeys(unittest.TestCase):
+    def test_list_values_do_not_put_brackets_or_spaces_in_names(self):
+        cfg, keys = C.load_config(Path(__file__).resolve().parents[1] / "configs" / "swa_fb.yaml", ["train.train_ns=[32, 64]", "seed=1"])
+        name = C.run_name(cfg, keys)
+        self.assertIn("train_ns32-64", name)
+        self.assertTrue(all(ch not in name for ch in "[], "))
+
     def test_only_model_describing_overrides_name_a_run(self):
         keys = ["seed", "experiment", "model.segment", "eval.ns", "eval.splits", "train.eval_ns", "train.eval_every", "model.nonlin"]
         self.assertEqual(C.name_keys(keys), ["model.segment", "model.nonlin"])

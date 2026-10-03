@@ -44,6 +44,20 @@ class ParseQueue(unittest.TestCase):
             self.assertEqual(len({j["name"] for j in jobs}), len(jobs), session)
 
 
+class GpuGate(unittest.TestCase):
+    def test_stage_gpus_reads_the_gpus_flag(self):
+        self.assertEqual(Q.stage_gpus(["--config", "a.yaml", "--gpus", "0", "--procs-per-gpu", "2"]), [0])
+        self.assertEqual(Q.stage_gpus(["--gpus", "0", "1", "--sweep", "a=1,2"]), [0, 1])
+        self.assertEqual(Q.stage_gpus(["--config", "a.yaml"]), [0, 1])  # launch.py's default
+
+    def test_a_stage_waits_for_workers_and_for_free_memory(self):
+        self.assertTrue(Q.can_start(5, 5, {0: 20.0}, 12.0))
+        self.assertFalse(Q.can_start(6, 5, {0: 20.0}, 12.0))        # too many workers alive
+        self.assertFalse(Q.can_start(2, 5, {0: 8.0}, 12.0))         # GPU nearly full
+        self.assertFalse(Q.can_start(2, 5, {0: 30.0, 1: 8.0}, 12.0))  # every GPU of the stage must have room
+        self.assertTrue(Q.can_start(2, 5, {0: None}, 12.0))         # no reading: do not block the queue
+
+
 class SweepProgress(unittest.TestCase):
     LINE = ("[swa_fb_nltanh_seg16_s2] step 4000 loss 0.1660 | n32: pk 0.96 v 0.92 e 0.99 n256: pk 0.10 v 0.86 e 0.98 n1024: pk 0.05 v 0.85 e 0.97")
 

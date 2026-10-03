@@ -46,4 +46,5 @@ train:
 eval:
   splits: [validation, test]
   ns: [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
-  tokens_per_batch: 2097152  # the loop runs one segment at a time, so large batches amortise its sequential depth
+  tokens_per_batch: 524288  # = 8 streams at N = 16384. Measured on N = 16384 (peak GiB / s per 1000 streams): segment 16: 8.3 / 533 at 2097152, 2.3 / 833 at 524288, 1.3 / 1614 at 262144;
+                            # segment 64: 5.1 / 46, 1.3 / 187, 0.7 / 371. The large batch caused out-of-memory losses on a shared GPU; this keeps the peak near 2 GiB at 1.6-4x the time.

@@ -378,7 +378,12 @@ def _fb_label(k, n_seeds):
 def fb_data() -> tuple[dict, str, str]:
     raw = A.load_runs(C.ROOT / "results" / "raw")
     fb = [r for r in raw if r["cfg"]["model"]["kind"] == "swa_fb"]
-    ref_runs = [r for r in raw if r["cfg"]["model"]["kind"] == "swa" and r["cfg"]["model"]["window"] == 64 and r["cfg"]["model"]["n_layers"] == 2]
+    swa64 = [r for r in raw if r["cfg"]["model"]["kind"] == "swa" and r["cfg"]["model"]["window"] == 64 and r["cfg"]["model"]["n_layers"] == 2]
+    cur_of = lambda r: r["cfg"]["train"].get("curriculum_stage_steps", 0)
+    same_recipe = [r for r in swa64 if cur_of(r) > 0 and r["cfg"]["train"]["steps"] == 20000]  # control trained like the loop models
+    ref_runs = same_recipe or [r for r in swa64 if not cur_of(r)]
+    ref_desc = (f"no loop, 20k steps with the same curriculum as the loop models, {len(ref_runs)} seeds" if same_recipe
+                else f"no loop, {ref_runs[0]['cfg']['train']['steps'] // 1000}k steps, no curriculum, {len(ref_runs)} seeds")
     gdn1 = [r for r in raw if r["model"] == "gdn_fixed" and r["alpha"] == 1.0]
     explore = [r for r in A.load_runs(C.ROOT / "results" / "explore") if r["cfg"]["model"]["kind"] == "swa_fb"]
     groups: dict = {}
@@ -391,7 +396,7 @@ def fb_data() -> tuple[dict, str, str]:
     sk = lambda k: f"{k[0]}_{k[1]}_{k[2]:g}_{k[3]}"
     fam_color = lambda k: "--s1" if k[1] == "tanh" else "--s2"
     highlight = {(64, "tanh", 0.0, 20000), (32, "tanh", 0.3, 20000)}  # labelled in the scatter; the other points are told apart by colour and tooltip
-    rows = [{"key": "ref", "label": "SWA, no loop", "color": "--muted", "long": f"plain sliding window, W = 64, 2 layers, no loop ({len(ref_runs)} seeds, 30k steps)"}]
+    rows = [{"key": "ref", "label": "SWA, no loop", "color": "--muted", "long": f"plain sliding window, W = 64, 2 layers, {ref_desc}"}]
     results = {"ref": cells_for_row(ref_runs, "test")}
     for k in order:
         rows.append({"key": sk(k), "label": _fb_label(k, len(groups[k])), "color": fam_color(k), "nolabel": k not in highlight,
@@ -429,8 +434,11 @@ def fb_data() -> tuple[dict, str, str]:
     at1k = {nl: [cell(main(s, nl), 1024) if has(main(s, nl)) else None for s in segs] for nl in ("none", "tanh")}
     at4k = {nl: [cell(main(s, nl), 4096) if has(main(s, nl)) else None for s in segs] for nl in ("none", "tanh")}
     mono = {nl: all(v is not None for v in at1k[nl]) and all(a < b for a, b in zip(at1k[nl], at1k[nl][1:])) for nl in at1k}
+    best_seg = {nl: segs[max(range(len(segs)), key=lambda i: at1k[nl][i] if at1k[nl][i] is not None else -1)] for nl in at1k}
+    spread_best = lambda nl: ", ".join(f2(x) for x in per(main(best_seg[nl], nl), 1024))
     verdict = ("The hypothesis that a smaller segment extrapolates better holds for both loops." if all(mono.values()) else
-               "The hypothesis that a smaller segment extrapolates better is not supported by these runs: there is no monotone trend for either loop, and segment 64 (one segment per window) is the best or close to the best.")
+               f"The hypothesis that a smaller segment extrapolates better is not supported by these runs: neither loop shows a monotone trend. The best segment at N = 1024 is {best_seg['none']} for the linear loop "
+               f"(seeds {spread_best('none')}) and {best_seg['tanh']} for the tanh loop (seeds {spread_best('tanh')}).")
     seq = lambda xs: " / ".join("–" if x is None else f2(x) for x in xs)
     in256 = {nl: [cell(main(s, nl), 256) if has(main(s, nl)) else None for s in segs] for nl in ("none", "tanh")}
     conv = {}  # share of runs that did not converge (final training loss above 0.1) by segment, main grid + segment 8
@@ -524,14 +532,16 @@ def fb_data() -> tuple[dict, str, str]:
         tldr.append(f"<b>Twice the training helps a little and changes no horizon</b> (one seed each). At N = 1024: segment-64 tanh {f2(cell((64, 'tanh', 0.0, 40000), 1024))} (20k steps: {f2(cell(main(64, 'tanh'), 1024))}), "
                     f"segment-32 linear {f2(cell((32, 'none', 0.0, 40000), 1024))} ({f2(cell(main(32, 'none'), 1024))}); the linear loops are still at 0 by N = 4096.")
     tldr.append("<b>What these results do not show.</b> The passkey is always the first item and the only long-range one, so a loop that simply holds whatever the first segment said is enough; "
-                "nothing here tests selecting or replacing content. The AR accuracy of the loop models is compared with a plain window trained differently (30k steps, no curriculum); the passkey comparison is unaffected, "
-                "since a plain window cannot reach that far. The noise and 40k-step results are single seeds.")
+                "nothing here tests selecting or replacing content. "
+                + ("" if same_recipe else "The AR accuracy of the loop models is compared with a plain window trained differently (30k steps, no curriculum); the passkey comparison is unaffected, "
+                                         "since a plain window cannot reach that far. ")
+                + "The noise and 40k-step results are single seeds.")
     tldr.append("<b>Seed-to-seed spread is large, so small differences are not conclusions.</b> "
                 f"Segment-32 linear: N = 256 passkey {', '.join(f2(x) for x in per(main(32, 'none'), 256))} across seeds (one seed never started the loop; its training loss stayed at 0.18 against 0.02). "
                 f"Segment-32 tanh: {', '.join(f2(x) for x in per(main(32, 'tanh'), 256))}." + rerun_note)
     tested = [
         {"title": "Main sweep", "tag": f"{n_main}/18 runs", "ok": n_main == 18,
-         "body": "Loop type (tanh, linear) × segment (64, 32, 16) × 3 seeds, window 64, 2 layers, 20k steps, stream-length curriculum (n32, then n64, n128, n256 every 2,000 steps), no loss re-weighting. Evaluated on the test split up to N = 16,384 (about 61k tokens)."},
+         "body": "Loop type (tanh, linear) × segment (64, 32, 16) × 3 seeds, window 64, 2 layers, 20k steps, stream-length curriculum (n32, then n64, n128, n256 every 2,000 steps), no loss re-weighting. Evaluated on the test split up to N = 16,384 (about 61k tokens). Four runs crashed with GPU out-of-memory errors (three in the final evaluation) and were rerun with identical settings."},
         {"title": "Extra runs", "tag": f"{n_extra} runs", "ok": True,
          "body": "Segment 8 (2 seeds per loop), Gaussian noise (std 0.1 and 0.3) added to the loop vector during training at segment 32, and 40k-step training at segments 64 and 32 (one seed each). They share the recipe and the evaluation of the main sweep."},
         {"title": "Token profile", "tag": "probe", "ok": True,
@@ -556,7 +566,7 @@ def fb_data() -> tuple[dict, str, str]:
                 + (f"<span>·</span><span><b>{len(running)} reruns in progress</b></span>" if running else "") + "</span>",
         "tldr": tldr, "tested": tested,
         "results_intro": "All numbers are from the <b>test</b> split (1,000 examples per N), the mean over the seeds that finished; the number of seeds is in brackets when it is not 3. N counts AR writes, one write is about 3.75 tokens, "
-                         "so N = 16,384 is about 61k tokens and, at segment 64, about 960 loop hops. Training: 20k steps on N ≤ 256 with the curriculum unless a row says otherwise. The reference is the plain window (W = 64, 2 layers, no loop, 30k steps, 3 seeds).",
+                         f"so N = 16,384 is about 61k tokens and, at segment 64, about 960 loop hops. Training: 20k steps on N ≤ 256 with the curriculum unless a row says otherwise. The reference is the plain window (W = 64, 2 layers, {ref_desc}).",
         "fig1_sub": "Rows: segment length, loop type and extra settings. Columns: stream length N. Darker is higher.",
         "fig2_sub": "One point per configuration. Ideal is the top-right corner. Blue = tanh, orange = linear, hollow = AR valid accuracy below 0.90.",
         "valid_title": "AR valid accuracy (key written within the last 16 writes)",
@@ -570,12 +580,13 @@ def fb_data() -> tuple[dict, str, str]:
              "spec": curves("tanh")},
             {"title": "4. Passkey against stream length, linear loops",
              "sub": "Same layout. Linear loops fit the training range best and have no tail.",
-             "caption": f"<p>Every linear loop is at {max(cell(k, 4096) for k in groups if k[1] == 'none'):.2f} or less by N = 4096, whatever the segment, noise or training length. Segment 64 is the most consistent across seeds ({', '.join(f2(x) for x in per(main(64, 'none'), 1024))} at N = 1024). "
+             "caption": f"<p>Every linear loop is at {max(cell(k, 4096) for k in groups if k[1] == 'none'):.2f} or less by N = 4096, whatever the segment, noise or training length. Seeds at N = 1024: segment 64 {', '.join(f2(x) for x in per(main(64, 'none'), 1024))}, segment 32 {', '.join(f2(x) for x in per(main(32, 'none'), 1024))}. "
                         f"Training twice as long moves the curve to the right a little (segment 32, 40k steps: {f2(cell((32, 'none', 0.0, 40000), 512))} at N = 512) and the horizon stays at about N = 2048.</p>" if has((32, 'none', 0.0, 40000)) else "",
              "spec": curves("none")},
         ] + ([{"title": "5. What a lost passkey looks like: tokens right per stream",
                "sub": "Test streams of finished models, each bar splits the 1,000 streams by how many of the 4 passkey tokens are right (exact match is the darkest part).",
-               "caption": "<p>Chance for a single token is 1 in 16. A graded memory leaves many streams with 1 to 3 tokens right; the noise-trained tanh loop at N = 4096 is split into streams that are fully right and streams with nothing right.</p>",
+               "caption": "<p>Chance for a single token is 1 in 16. A graded memory leaves many streams with 1 to 3 tokens right; the noise-trained tanh loop at N = 4096 is split into streams that are fully right and streams with nothing right. "
+                          "Each token is scored given the true earlier tokens (teacher forcing), so the middle bars slightly overstate how much of a partly lost passkey a model could actually write out; the all-four bar is the exact-match accuracy.</p>",
                "spec": None, "html": pbars}] if pbars else []),
         "next": ("<p><b>1. Replicate the noise result before building on it.</b> Segment-32 tanh with noise 0.3 is one seed. Run 3 seeds, add segment 64 and noise 0.2, 0.5 and 1.0, and profile the tokens at N = 16,384.</p>"
                  "<p><b>2. Find what wipes the passkey in the lost streams.</b> If the loss is all-or-nothing, a specific event destroys the memory. Compare lost and kept streams by passkey position, number of overwrites and query positions.</p>"

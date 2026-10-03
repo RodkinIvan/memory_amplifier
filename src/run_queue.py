@@ -6,7 +6,7 @@
 Each queue line is `<tmux session> | <arguments of src/launch.py>`; `#` starts a comment. The file is re-read on every
 poll, so lines can be appended while the driver runs. A line is started once (the session name is the key, recorded in
 logs/queue/launched.txt) when at most `--start-below` workers are still alive in the watched + already launched
-sessions. launch.py skips runs whose result already exists, so restarting the driver is safe.
+sessions and every GPU the stage uses has at least `--min-free-gb` of free memory. launch.py skips runs whose result already exists, so restarting the driver is safe.
 """
 from __future__ import annotations
 
@@ -37,6 +37,32 @@ def parse_queue(text: str) -> list[tuple[str, list[str]]]:
     return stages
 
 
+def stage_gpus(args: list[str]) -> list[int]:
+    """GPU ids a stage will use: the values after `--gpus` in its launch.py arguments (launch.py defaults to GPUs 0 and 1)."""
+    if "--gpus" not in args:
+        return [0, 1]
+    out = []
+    for a in args[args.index("--gpus") + 1:]:
+        if a.startswith("--"):
+            break
+        out.append(int(a))
+    return out
+
+
+def free_gb(gpu: int) -> float | None:
+    """Free memory of a GPU in GiB, None if nvidia-smi does not answer."""
+    r = subprocess.run(["nvidia-smi", "-i", str(gpu), "--query-gpu=memory.free", "--format=csv,noheader,nounits"], capture_output=True, text=True)
+    try:
+        return float(r.stdout.strip()) / 1024 if r.returncode == 0 else None
+    except ValueError:
+        return None
+
+
+def can_start(live: int, start_below: int, free: dict[int, float | None], min_free_gb: float) -> bool:
+    """Few enough workers alive, and enough free memory on every GPU of the stage (an unknown reading does not block)."""
+    return live <= start_below and all(f is None or f >= min_free_gb for f in free.values())
+
+
 def live_workers(session: str) -> int:
     """Worker windows of a tmux session whose script is still running (finished ones stay as dead panes)."""
     r = subprocess.run(["tmux", "list-panes", "-s", "-t", session, "-F", "#{pane_dead}"], capture_output=True, text=True)
@@ -48,6 +74,7 @@ def main() -> None:
     ap.add_argument("--queue", default="configs/queue.txt")
     ap.add_argument("--watch", nargs="*", default=[], help="already running tmux sessions whose workers count as busy")
     ap.add_argument("--start-below", type=int, default=6, help="start the next stage when at most this many workers are alive")
+    ap.add_argument("--min-free-gb", type=float, default=12.0, help="start a stage only when each of its GPUs has this much free memory")
     ap.add_argument("--poll", type=int, default=60, help="seconds between checks")
     ap.add_argument("--dry-run", action="store_true", help="print the stages and exit")
     args = ap.parse_args()
@@ -68,7 +95,7 @@ def main() -> None:
         if not pending and live == 0:
             print(f"{stamp()} queue empty and nothing running: done", flush=True)
             return
-        if pending and live <= args.start_below:
+        if pending and can_start(live, args.start_below, {g: free_gb(g) for g in stage_gpus(pending[0][1])}, args.min_free_gb):
             session, a = pending[0]
             print(f"{stamp()} {live} workers alive -> starting {session}", flush=True)
             r = subprocess.run([sys.executable, str(ROOT / "src" / "launch.py"), "--session", session, *a], cwd=ROOT)
