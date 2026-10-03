@@ -15,3 +15,13 @@ fbnoise | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --set experime
 
 # 3. Twice the training steps (40k) for segment 64 and 32: is the extrapolation gap an optimisation-time effect?
 fblong | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --set experiment=swa_fb_extra train.steps=40000 --sweep model.segment=64,32 model.nonlin=tanh,none
+
+# ---- Review H2: the segment comparison again with loop gain 0 at initialisation (the recipe's 0.1 stalls the AR task, more so for small segments).
+# Pilot (running, session fbg0): tanh, segments 64 and 16, seed 0, gain 0 and 0.01: AR valid at step 2000 is 0.96-0.98 (recipe: 0.64 / 0.00). The two gain-0 pilot runs are not repeated below.
+# Order: quick runs first so the segment-16 pilot can show whether the loop still switches on before the long segment-16 and segment-8 runs start.
+fbg0_a | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --set experiment=swa_fb_g0 model.gain_init=0 seed=0 --sweep model.segment=64,32 model.nonlin=none
+fbg0_b | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 1 --set experiment=swa_fb_g0 model.gain_init=0 seed=0 model.segment=32 model.nonlin=tanh
+fbg0_c | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --set experiment=swa_fb_g0 model.gain_init=0 seed=0 --sweep model.segment=16,8 model.nonlin=none
+fbg0_d | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 1 --set experiment=swa_fb_g0 model.gain_init=0 seed=0 model.segment=8 model.nonlin=tanh
+fbg0_s1 | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 4 --set experiment=swa_fb_g0 model.gain_init=0 --sweep model.segment=64,32,16,8 model.nonlin=tanh,none seed=1
+fbg0_s2 | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 4 --set experiment=swa_fb_g0 model.gain_init=0 --sweep model.segment=64,32,16,8 model.nonlin=tanh,none seed=2
