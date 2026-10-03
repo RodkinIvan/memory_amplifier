@@ -245,6 +245,12 @@ class DataAndEvaluation(unittest.TestCase):
         self.assertEqual(m, ref)  # counts (n_valid, ...) must not include the filler rows
 
 
+class NameKeys(unittest.TestCase):
+    def test_only_model_describing_overrides_name_a_run(self):
+        keys = ["seed", "experiment", "model.segment", "eval.ns", "eval.splits", "train.eval_ns", "train.eval_every", "model.nonlin"]
+        self.assertEqual(C.name_keys(keys), ["model.segment", "model.nonlin"])
+
+
 class EvaluateWithBackoff(unittest.TestCase):
     """A shared GPU can run out of memory on a long-stream batch; the final evaluation must retry smaller, not die."""
 

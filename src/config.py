@@ -57,11 +57,16 @@ def fmt(v) -> str:
     return f"{v:g}" if isinstance(v, float) else str(v)
 
 
+def name_keys(explicit_keys: list[str]) -> list[str]:
+    """The overridden keys that describe a run. Evaluation / logging settings, the wandb group and the seed do not, so they stay
+    out of run names and of the labels in the summary tables."""
+    skip = ("seed", "model.kind", "experiment", "train.eval_every", "train.log_every", "train.eval_examples", "train.eval_ns")
+    return [k for k in explicit_keys if k not in skip and not k.startswith("eval.")]
+
+
 def run_name(cfg: dict, explicit_keys: list[str]) -> str:
     """model kind + every hyperparameter that was overridden for this run (sweep axes, --set) + seed."""
-    # evaluation / logging settings and the wandb group do not describe the model, so they stay out of the name
-    skip = ("seed", "model.kind", "experiment", "train.eval_every", "train.log_every", "train.eval_examples", "train.eval_ns")
-    keys = [k for k in explicit_keys if k not in skip and not k.startswith("eval.")]
+    keys = name_keys(explicit_keys)
     parts = [f"{SHORT.get(k, k.split('.')[-1])}{fmt(get_nested(cfg, k))}" for k in keys]
     parts.append(f"s{cfg['seed']}")
     return "_".join([cfg["model"]["kind"], *parts])

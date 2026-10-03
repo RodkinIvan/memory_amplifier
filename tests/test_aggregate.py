@@ -29,6 +29,15 @@ def fake_run(raw: Path, overrides, passkey=0.5, config=EXP1):
                                                   "final_train_loss": 0.1, "train_time_s": 1.0, "rows": rows}))
 
 
+class Labels(unittest.TestCase):
+    def test_wandb_group_and_eval_overrides_stay_out_of_summary_labels(self):
+        with tempfile.TemporaryDirectory() as d:
+            raw = Path(d)
+            fake_run(raw, ["model.alpha=0.95", "seed=0", "experiment=other_group", "eval.splits=[test]"])
+            (run,) = A.load_runs(raw)
+        self.assertEqual(run["model"], "gdn_fixed")  # alpha has its own column; nothing else was overridden that describes the model
+
+
 class Aggregate(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -42,7 +42,7 @@ def load_runs(raw_dir: Path) -> list[dict]:
     for f in sorted(Path(raw_dir).glob("*.json")):
         r = json.loads(f.read_text())
         cfg, kind = r["config"], r["config"]["model"]["kind"]
-        variant = [k for k in r["explicit_keys"] if k not in ("seed", "model.kind", "model.alpha")]
+        variant = [k for k in C.name_keys(r["explicit_keys"]) if k != "model.alpha"]  # alpha has its own column
         label = kind + "".join(f"_{C.SHORT.get(k, k.split('.')[-1])}{C.fmt(C.get_nested(cfg, k))}" for k in variant)
         runs.append({"name": r["name"], "model": label, "alpha": cfg["model"]["alpha"] if kind == "gdn_fixed" else np.nan,
                      "seed": cfg["seed"], "cfg": cfg, "rows": r["rows"], "final_train_loss": r["final_train_loss"]})

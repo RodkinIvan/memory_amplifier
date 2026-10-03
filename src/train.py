@@ -83,11 +83,12 @@ def evaluate_with_backoff(model, packed, dev, tokens_per_batch: int, amp, min_to
         try:
             return E.evaluate_packed(model, packed, dev, tokens_per_batch, amp_dtype=amp)
         except torch.cuda.OutOfMemoryError:
-            torch.cuda.empty_cache()
             if tokens_per_batch // 2 < min_tokens:
                 raise
-            tokens_per_batch //= 2
-            print(f"evaluation ran out of memory, retrying with tokens_per_batch={tokens_per_batch}", flush=True)
+        # outside the except block, so the traceback no longer pins the failed batch and empty_cache can release it
+        torch.cuda.empty_cache()
+        tokens_per_batch //= 2
+        print(f"evaluation ran out of memory, retrying with tokens_per_batch={tokens_per_batch}", flush=True)
 
 
 def make_optimizer(model, tc: dict):

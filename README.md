@@ -38,7 +38,7 @@ Plan and rationale: `reports/exp1_plan.md`.
 |---|---|---|
 | 1 | GDN, decay **fixed** to α ∈ {1, .999, .995, .99, .98, .95, .9, .8}, 3 seeds; plot passkey vs expired-AR accuracy | done, `reports/gdn_report.html` |
 | 1b | Sliding-window attention (SWA), window ∈ {32, 64, 128} × layers ∈ {2, 4}, 3 seeds. No decay: forgetting is a hard cutoff, reach R = layers·(window−1) tokens | done, `reports/swa_report.html` |
-| 1c | SWA + **segment feedback loop** (memory amplification): once per segment each layer turns its output into one vector that is added to its input in the next segment. Window 64, segment ∈ {64, 32, 16}, tanh or linear loop, 3 seeds, stream-length curriculum | running; intermediate report `reports/fb_report.html`, exploration runs in `results/explore/` |
+| 1c | SWA + **segment feedback loop** (memory amplification): once per segment each layer turns its output into one vector that is added to its input in the next segment. Window 64, segment ∈ {64, 32, 16, 8}, tanh or linear loop, stream-length curriculum; extras: loop noise, 40k steps | done except 4 reruns after GPU out-of-memory failures; `reports/fb_report.html`, exploration in `results/explore/` |
 | 2 | GDN (learned decay), GDN with eigenvalues in [−1, 1], Mamba-2 | not started |
 | 3 | GDN, 2 heads, per-head α statistics | not started |
 | 4 | attractor cleanup in isolation (numpy/torch) | not started |
@@ -53,6 +53,7 @@ python src/launch.py --config configs/swa_fb.yaml --session fbsweep --gpus 0 1 -
 tmux new -d -s fbqueue 'python src/run_queue.py --queue configs/queue.txt --watch fbsweep'   # unattended queue of further sweeps
 python src/aggregate.py                                                          # results/summary*.csv + plots
 python src/probes.py passkey-length --runs swa_w128_L4_s0 --out results/probes/x.json   # probes on checkpoints (see --help)
+python src/probes.py profile --runs swa_fb_nltanh_seg64_s2 --ns 256 1024 4096 --out results/probes/passkey_profile.json   # tokens right per stream
 python src/report.py swa --out reports/swa_report.html                          # self-contained HTML report (gdn | swa | fb)
 ```
 
@@ -66,7 +67,7 @@ data/    make_passkey_swar.py  generator (deterministic, per-example seeds)
          sanity_checks.py      oracle, mutation test, determinism, leakage, statistics
          upload_passkey_swar.py, tune_drift.py, vocab.json
 src/     models.py (fixed-decay GDN, sliding-window attention, segment-feedback SWA), data.py, evaluate.py, train.py, launch.py,
-         run_queue.py (unattended queue of sweeps), aggregate.py, probes.py (checkpoint probes on fresh streams), report.py (HTML reports), config.py
+         run_queue.py (unattended queue of sweeps), eval_gate.py (serialise final evaluations on a shared GPU), aggregate.py, probes.py (checkpoint probes on fresh streams), report.py (HTML reports), config.py
 configs/ experiment YAMLs      reports/ statistics + plans      results/ summary tables, plots, raw per-run json
 tests/   python -m unittest discover -s tests -t .
 ```

@@ -62,6 +62,9 @@ figcaption p { max-width: 82ch; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .legend i.line { width: 18px; height: 0; border-radius: 0; border-top: 2px solid; vertical-align: 3px; }
 .legend i.dash { width: 18px; height: 0; border-radius: 0; border-top: 2px dashed; vertical-align: 3px; }
+.pbar { display: grid; grid-template-columns: minmax(150px, 290px) minmax(0, 1fr); gap: 2px 12px; align-items: center; margin: 5px 0; font-size: .8rem; color: var(--ink-2); }
+.pbar .stack { display: flex; height: 22px; border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
+.pbar .stack i { display: block; min-width: 0; font: 10.5px/22px var(--mono); text-align: center; font-style: normal; overflow: hidden; }
 details { margin-top: 8px; font-size: .86rem; }
 summary { cursor: pointer; color: var(--ink-2); }
 summary:focus-visible, a:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
@@ -77,7 +80,7 @@ ul.tight { margin: 4px 0 10px; padding-left: 1.2em; display: grid; gap: 4px; max
 .tag { font-family: var(--mono); font-size: .75rem; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); color: var(--ink-2); white-space: nowrap; }
 .tag.ok { color: var(--good); border-color: var(--good); }
 #tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--page); font: 12px/1.45 var(--mono); padding: 6px 9px; border-radius: 5px; max-width: 300px; display: none; }
-@media (max-width: 520px) { h1 { font-size: 1.5rem; } .wrap { padding-block: 20px 48px; } }
+@media (max-width: 520px) { h1 { font-size: 1.5rem; } .wrap { padding-block: 20px 48px; } .pbar { grid-template-columns: 1fr; } }
 </style>
 
 <div class="wrap">
@@ -278,7 +281,7 @@ function renderCharts() {
   heatmap($('#hm-stale'), 'stale', DATA.stale_title, r => `${r.n_stale.toLocaleString()} queries per seed`);
   $('#scatter').innerHTML = '';
   DATA.scatter_ns.forEach(n => scatter($('#scatter'), n));
-  DATA.extra_figs.forEach((f, i) => lineChart($('#ch-' + i), $('#lg-' + i), f.spec));
+  DATA.extra_figs.forEach((f, i) => { if (f.spec) lineChart($('#ch-' + i), $('#lg-' + i), f.spec); });  // a figure may carry html instead of a line chart
 }
 
 function fillText() {
@@ -299,12 +302,12 @@ function fillText() {
     <figure>
       <div class="fig-title">${f.title}</div>
       <p class="fig-sub">${f.sub}</p>
-      <div class="legend" id="lg-${i}"></div>
-      <div class="chart" id="ch-${i}"></div>
+      ${f.spec ? `<div class="legend" id="lg-${i}"></div><div class="chart" id="ch-${i}"></div>` : ''}${f.html || ''}
       <figcaption>${f.caption}</figcaption>
-      <details><summary>Table view</summary><div class="tbl" id="tb-${i}"></div></details>
+      ${f.spec ? `<details><summary>Table view</summary><div class="tbl" id="tb-${i}"></div></details>` : ''}
     </figure>`).join('');
   DATA.extra_figs.forEach((f, i) => {
+    if (!f.spec) return;
     const rws = []; f.spec.series.forEach(sr => sr.points.forEach(p => rws.push([sr.label, p.x, p.y == null ? '–' : p.y.toFixed(3), p.lo != null ? `${p.lo.toFixed(3)} to ${p.hi.toFixed(3)}` : ''])));
     $('#tb-' + i).innerHTML = table(['series', f.spec.xLabel, f.spec.yLabel, 'range over seeds'], rws);
   });

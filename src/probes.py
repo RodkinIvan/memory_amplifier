@@ -5,6 +5,8 @@
     python src/probes.py passkey-length --runs swa_w64_L2_s0 swa_w128_L2_s0 --out results/probes/swa_passkey_length.json
     # passkey accuracy vs query density at fixed N (is the leak of a model driven by writes or by tokens?)
     python src/probes.py density --runs gdn_fixed_a1_s0 --out results/probes/gdn_leak_density.json
+    # how many of the 4 passkey tokens survive per stream (graded decay or all-or-nothing retention?), on the dataset's test split
+    python src/probes.py profile --runs swa_fb_nltanh_seg64_s2 --ns 256 1024 4096 --out results/probes/passkey_profile.json
 
 Probe streams use their own seed (77), distinct from the train/validation/test seeds of the dataset.
 """
@@ -89,6 +91,52 @@ def load_run(name: str, device="cuda"):
     return model.eval(), cfg
 
 
+def token_profile(hits: np.ndarray) -> dict:
+    """hits: [examples, 4] bool, is each passkey token right. Exact match = all 4; `hist[k]` = share of examples with exactly k right.
+    A memory that decays gradually leaves many examples with 1 to 3 right tokens; one that retains or loses the whole passkey
+    puts almost all examples at 0 or 4."""
+    return {"exact": float(hits.all(1).mean()), "per_token": [float(x) for x in hits.mean(0)],
+            "hist": [float(x) for x in np.bincount(hits.sum(1), minlength=hits.shape[1] + 1) / len(hits)]}
+
+
+def passkey_token_hits(model, p: D.Packed, device, tokens_per_batch: int = 1 << 20, amp_dtype=None) -> np.ndarray:
+    """[examples, 4] bool: is each of the 4 passkey tokens predicted correctly under teacher forcing (same batching as the evaluator)."""
+    import torch
+    import evaluate as E
+    L, B = E.eval_plan(p.lengths(), tokens_per_batch)
+    rows = []
+    with torch.no_grad():
+        for start in range(0, len(p), B):
+            idx = np.arange(start, min(start + B, len(p)))
+            n_real = len(idx)
+            if n_real < B <= len(p):
+                idx = np.concatenate([idx, np.full(B - n_real, idx[-1])])
+            ids, labs = D.pad_batch(p, idx, L)
+            with torch.autocast(device.type, dtype=amp_dtype or torch.float32, enabled=amp_dtype is not None):
+                logits = model(input_ids=torch.from_numpy(ids).to(device)).logits
+            tgt = torch.from_numpy(labs[:, 1:]).to(device)
+            mask = tgt != D.IGNORE
+            correct, mask = ((logits[:, :-1].argmax(-1) == tgt) & mask).cpu().numpy(), mask.cpu().numpy()
+            for j in range(n_real):
+                kinds = p.kinds[p.toffs[idx[j]]:p.toffs[idx[j] + 1]]
+                rows.append(correct[j][mask[j]][kinds == E.PASSKEY])
+    return np.array(rows)
+
+
+def passkey_profile(name: str, ns: list[int], split: str = "test") -> list[dict]:
+    """token_profile of a finished run on the dataset's `split` for each N in `ns` (writes)."""
+    import torch
+    model, cfg = load_run(name)
+    amp = torch.bfloat16 if cfg["train"].get("precision", "fp32") == "bf16" else None
+    data_dir = Path(cfg["data_dir"])
+    data_dir = data_dir if data_dir.is_absolute() else C.ROOT / data_dir
+    out = []
+    for n in ns:
+        p = D.load_packed(data_dir / f"n{n}" / f"{split}.parquet", kinds=True)
+        out.append({"N": n, "split": split, **token_profile(passkey_token_hits(model, p, torch.device("cuda"), amp_dtype=amp))})
+    return out
+
+
 def passkey_vs_length(name: str, ns: list[int], n_examples: int = 200) -> list[dict]:
     """Passkey exact match (and AR accuracies) of a finished run on fresh streams of each length in `ns` (writes)."""
     import torch
@@ -135,10 +183,18 @@ def main() -> None:
     de.add_argument("--rates", type=float, nargs="+", default=[0.0, 0.25, 1.0, 2.0])
     de.add_argument("--examples", type=int, default=200)
     de.add_argument("--out", type=Path, required=True)
+    pr = sub.add_parser("profile")
+    pr.add_argument("--runs", nargs="+", required=True)
+    pr.add_argument("--ns", type=int, nargs="+", default=[256, 1024, 4096])
+    pr.add_argument("--split", default="test")
+    pr.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
     res = {}
     for name in a.runs:
-        if a.cmd == "density":
+        if a.cmd == "profile":
+            res[name] = passkey_profile(name, a.ns, a.split)
+            print(f"{name}: " + " ".join(f"N{r['N']}: exact {r['exact']:.2f} hist {[round(h, 2) for h in r['hist']]}" for r in res[name]), flush=True)
+        elif a.cmd == "density":
             res[name] = passkey_vs_density(name, a.ns, a.rates, a.examples)
             print(f"{name}: " + " ".join(f"q{r['query_rate']:g}/N{r['N']}:{r['passkey_acc']:.2f}" for r in res[name]), flush=True)
         else:

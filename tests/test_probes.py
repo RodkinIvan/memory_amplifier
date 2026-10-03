@@ -48,5 +48,16 @@ class Probes(unittest.TestCase):
         self.assertTrue(all(0 <= v <= 1 for v in vr + sv))
 
 
+class TokenProfile(unittest.TestCase):
+    def test_histogram_and_per_token_accuracy(self):
+        import numpy as np
+        hits = np.array([[1, 1, 1, 1], [1, 1, 1, 1], [0, 0, 0, 0], [1, 0, 0, 0]], dtype=bool)
+        r = P.token_profile(hits)
+        self.assertEqual(r["exact"], 0.5)
+        self.assertEqual(r["per_token"], [0.75, 0.5, 0.5, 0.5])
+        self.assertEqual(r["hist"], [0.25, 0.25, 0.0, 0.0, 0.5])  # shares of examples with 0..4 right tokens
+        self.assertAlmostEqual(sum(r["hist"]), 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,37 @@ from tests import _paths  # noqa: F401
 import report as R
 
 
+class FbReport(unittest.TestCase):
+    """The feedback-loop report builder on the committed results (CPU only)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.data, cls.title, cls.h1 = R.fb_data()
+
+    def test_rows_have_every_stream_length_and_the_reference_comes_first(self):
+        self.assertEqual(self.data["rows"][0]["label"], "SWA, no loop")
+        for row in self.data["rows"]:
+            self.assertEqual(sorted(map(int, self.data["results"][row["key"]])), R.NS, row["label"])
+
+    def test_figures_have_a_chart_or_html_and_every_series_covers_all_n(self):
+        for f in self.data["extra_figs"]:
+            self.assertTrue(f["spec"] or f.get("html"), f["title"])
+            for s in (f["spec"] or {"series": []})["series"]:
+                self.assertEqual([p["x"] for p in s["points"]], R.NS, s["label"])
+
+    def test_text_is_derived_without_placeholders(self):
+        text = " ".join(self.data["tldr"]) + self.data["cap1"] + self.data["cap2"]
+        for bad in ("NaN", "None", "nan"):
+            self.assertNotIn(bad, text.replace("finance", ""), bad)
+        self.assertGreaterEqual(len(self.data["tldr"]), 6)
+
+    def test_renders_to_a_page(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "r.html"
+            R.render(self.data, self.title, self.h1, out)
+            self.assertIn("SWA Feedback Loop Report", out.read_text())
+
+
 class GdnReport(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
