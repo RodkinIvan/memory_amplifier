@@ -377,7 +377,8 @@ def _fb_label(k, n_seeds):
 
 def fb_data() -> tuple[dict, str, str]:
     raw = A.load_runs(C.ROOT / "results" / "raw")
-    fb = [r for r in raw if r["cfg"]["model"]["kind"] == "swa_fb"]
+    # runs of the recipe (loop gain 0.1 at initialisation); the gain-0 runs of the review follow-up are a separate comparison and must not merge into these rows
+    fb = [r for r in raw if r["cfg"]["model"]["kind"] == "swa_fb" and r["cfg"]["model"]["gain_init"] == 0.1]
     swa64 = [r for r in raw if r["cfg"]["model"]["kind"] == "swa" and r["cfg"]["model"]["window"] == 64 and r["cfg"]["model"]["n_layers"] == 2]
     cur_of = lambda r: r["cfg"]["train"].get("curriculum_stage_steps", 0)
     same_recipe = [r for r in swa64 if cur_of(r) > 0 and r["cfg"]["train"]["steps"] == 20000]  # control trained like the loop models

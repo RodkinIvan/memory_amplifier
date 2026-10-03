@@ -36,6 +36,15 @@ class FbReport(unittest.TestCase):
             self.assertNotIn(bad, text.replace("finance", ""), bad)
         self.assertGreaterEqual(len(self.data["tldr"]), 6)
 
+    def test_only_runs_of_the_recipe_gain_are_in_the_report(self):
+        for row in self.data["rows"][1:]:
+            self.assertNotIn("gi0", row["key"])
+        raw = R.A.load_runs(R.C.ROOT / "results" / "raw")
+        n_recipe = sum(1 for r in raw if r["cfg"]["model"]["kind"] == "swa_fb" and r["cfg"]["model"]["gain_init"] == 0.1)
+        n_in_rows = sum(int(self.data["results"][row["key"]]["32"]["n_examples"] > 0) for row in self.data["rows"][1:])
+        self.assertGreater(n_in_rows, 0)
+        self.assertGreaterEqual(n_recipe, 30)
+
     def test_renders_to_a_page(self):
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "r.html"
