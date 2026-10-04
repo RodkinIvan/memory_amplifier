@@ -28,7 +28,10 @@ class FbReport(unittest.TestCase):
         for f in self.data["extra_figs"]:
             self.assertTrue(f["spec"] or f.get("html"), f["title"])
             for s in (f["spec"] or {"series": []})["series"]:
-                self.assertEqual([p["x"] for p in s["points"]], R.NS, s["label"])
+                xs = [p["x"] for p in s["points"]]
+                self.assertTrue(xs and set(xs) <= set(f["spec"]["xTicks"]), (f["title"], s["label"]))  # every point sits on a tick of its own chart
+                if f["spec"]["xTicks"] == R.NS:  # the charts over stream length cover every N
+                    self.assertEqual(xs, R.NS, s["label"])
 
     def test_text_is_derived_without_placeholders(self):
         text = " ".join(self.data["tldr"]) + self.data["cap1"] + self.data["cap2"]
@@ -36,14 +39,28 @@ class FbReport(unittest.TestCase):
             self.assertNotIn(bad, text.replace("finance", ""), bad)
         self.assertGreaterEqual(len(self.data["tldr"]), 6)
 
-    def test_only_runs_of_the_recipe_gain_are_in_the_report(self):
-        for row in self.data["rows"][1:]:
-            self.assertNotIn("gi0", row["key"])
+    def test_only_runs_of_the_recipe_gain_are_in_the_rows(self):
+        """Assert on the runs that went into each row: all have the recipe's loop gain (read from configs/swa_fb.yaml), and the per-seed
+        lists of the row have one entry per run. The control row is plain SWA (no loop)."""
+        raw = {r["name"]: r for r in R.A.load_runs(R.C.ROOT / "results" / "raw")}
+        gain = self.data["recipe_gain"]
+        for row in self.data["rows"]:
+            names = self.data["row_runs"][row["key"]]
+            self.assertTrue(names, row["label"])
+            for nm in names:
+                cfg = raw[nm]["cfg"]["model"]
+                if row["key"] == "ref":
+                    self.assertEqual(cfg["kind"], "swa", nm)
+                else:
+                    self.assertEqual((cfg["kind"], cfg["gain_init"]), ("swa_fb", gain), nm)
+            self.assertEqual(len(self.data["results"][row["key"]]["32"]["per"]["passkey"]), len(names), row["label"])
+
+    def test_every_recipe_run_is_in_some_row(self):
         raw = R.A.load_runs(R.C.ROOT / "results" / "raw")
-        n_recipe = sum(1 for r in raw if r["cfg"]["model"]["kind"] == "swa_fb" and r["cfg"]["model"]["gain_init"] == 0.1)
-        n_in_rows = sum(int(self.data["results"][row["key"]]["32"]["n_examples"] > 0) for row in self.data["rows"][1:])
-        self.assertGreater(n_in_rows, 0)
-        self.assertGreaterEqual(n_recipe, 30)
+        gain = self.data["recipe_gain"]
+        recipe = {r["name"] for r in raw if r["cfg"]["model"]["kind"] == "swa_fb" and r["cfg"]["model"]["gain_init"] == gain}
+        in_rows = {nm for k, names in self.data["row_runs"].items() if k != "ref" for nm in names}
+        self.assertEqual(in_rows, recipe)  # nothing dropped, nothing from another gain mixed in
 
     def test_renders_to_a_page(self):
         with tempfile.TemporaryDirectory() as d:

@@ -7,6 +7,9 @@
     python src/probes.py density --runs gdn_fixed_a1_s0 --out results/probes/gdn_leak_density.json
     # how many of the 4 passkey tokens survive per stream (graded decay or all-or-nothing retention?), on the dataset's test split
     python src/probes.py profile --runs swa_fb_nltanh_seg64_s2 --ns 256 1024 4096 --out results/probes/passkey_profile.json
+    # is the loop an attractor? perturb m mid-stream (does the passkey survive, does the perturbation die out over later hops?),
+    # Jacobian of m(s) -> m(s+1), and the size and drift of m over a long stream
+    python src/probes.py attractor --runs swa_fb_seg32_noise0.3_nltanh_s0 --out results/probes/attractor_probe.json
 
 Probe streams use their own seed (77), distinct from the train/validation/test seeds of the dataset.
 """
@@ -137,6 +140,122 @@ def passkey_profile(name: str, ns: list[int], split: str = "test") -> list[dict]
     return out
 
 
+class LoopHook:
+    """Probe hook for `FeedbackSWA.probe_hook`: records every loop vector m (detached, per segment and layer) and, if `eps` > 0, adds
+    Gaussian noise of `eps` times the vector's own RMS to the vectors of segment `s_star` (all layers, each example)."""
+
+    def __init__(self, s_star: int | None = None, eps: float = 0.0, seed: int = 0, record: bool = False):
+        self.s_star, self.eps, self.seed, self.record, self.m, self.gen = s_star, eps, seed, record, {}, None
+
+    def __call__(self, s: int, i: int, m):
+        import torch
+        if self.eps > 0 and s == self.s_star:
+            if self.gen is None:
+                self.gen = torch.Generator(device=m.device)
+                self.gen.manual_seed(self.seed)
+            rms = m.detach().float().pow(2).mean(-1, keepdim=True).sqrt()
+            m = m + (self.eps * rms * torch.randn(m.shape, generator=self.gen, device=m.device)).to(m.dtype)
+        if self.record:
+            self.m[(s, i)] = m.detach().float()
+        return m
+
+    def states(self, n_layers: int) -> np.ndarray:
+        """[segments, examples, n_layers * d] array of the recorded vectors."""
+        import torch
+        segs = sorted({s for s, _ in self.m})
+        return torch.stack([torch.cat([self.m[(s, i)] for i in range(n_layers)], dim=-1) for s in segs]).cpu().numpy()
+
+
+def contraction_profile(clean: np.ndarray, perturbed: np.ndarray, s_star: int, offsets=(1, 4, 16, 64, 256)) -> dict:
+    """clean, perturbed: [segments, examples, D] loop states of the same streams with and without a perturbation at segment `s_star`.
+    Returns {offset: median over examples of ||difference at s_star + offset|| / ||difference at s_star||}. A ratio far below 1 means
+    the loop pulls the state back (an attractor), around 1 that the perturbation is carried along, above 1 that it grows."""
+    d = np.linalg.norm(perturbed - clean, axis=-1)  # [segments, examples]
+    base = np.maximum(d[s_star], 1e-12)
+    return {int(k): float(np.median(d[s_star + k] / base)) for k in offsets if s_star + k < len(d)}
+
+
+def drift_profile(clean: np.ndarray, fractions=(0.1, 0.5, 0.9)) -> dict:
+    """RMS of the loop state (per coordinate) and the RMS step ||m_s - m_(s-1)|| / sqrt(D) at fractions of the stream (mean over examples)."""
+    rms = np.sqrt((clean ** 2).mean(-1)).mean(-1)  # [segments]
+    step = np.sqrt(((clean[1:] - clean[:-1]) ** 2).mean(-1)).mean(-1)
+    pick = lambda a, f: float(a[min(len(a) - 1, int(f * len(a)))])
+    return {"rms": {f: pick(rms, f) for f in fractions}, "step": {f: pick(step, f) for f in fractions}}
+
+
+def loop_jacobian(model, ids, s_star: int, amp_dtype=None) -> np.ndarray:
+    """Jacobian of the map m(s_star) -> m(s_star + 1) (all layers stacked: [L*d, L*d]) for one stream `ids` (1-D tensor): the loop vectors of
+    segment s_star are replaced by leaf tensors, and the vectors of the next segment are differentiated with respect to them."""
+    import torch
+    L, C = len(model.loops), model.segment
+    zs, outs = [None] * L, {}
+
+    def hook(s, i, m):
+        if s == s_star:
+            zs[i] = m.detach().clone().requires_grad_(True)
+            return zs[i]
+        if s == s_star + 1:
+            outs[i] = m
+        return m
+
+    model.probe_hook = hook
+    try:
+        with torch.enable_grad(), torch.autocast(ids.device.type, dtype=amp_dtype or torch.float32, enabled=amp_dtype is not None):
+            model(input_ids=ids[: (s_star + 2) * C][None])
+        y = torch.cat([outs[i][0] for i in range(L)])
+        rows = [torch.cat([g.flatten() for g in torch.autograd.grad(y[k], zs, retain_graph=True)]) for k in range(len(y))]
+    finally:
+        model.probe_hook = None
+    return torch.stack(rows).float().cpu().numpy()
+
+
+def attractor_probe(name: str, n_writes: int = 4096, n_exact: int = 200, n_traj: int = 16, eps=(0.1, 0.3, 1.0, 3.0), frac: float = 0.25,
+                    n_jac: int = 4, eps_traj: float = 0.3) -> dict:
+    """The M2 probe of one finished run: (a) passkey exact match when m is perturbed at `frac` of the stream by `eps` times its RMS;
+    (b) how the difference between a perturbed and a clean run evolves over later hops, and the size and drift of m; (c) singular
+    values and spectral radius of the Jacobian m(s) -> m(s+1) at three positions of a few streams. Fresh streams of `n_writes` writes."""
+    import torch
+    import evaluate as E
+    model, cfg = load_run(name)
+    model.kv_cache = True  # same result as recomputing the tail, much less memory on long streams
+    dev, C_ = torch.device("cuda"), model.segment
+    amp = torch.bfloat16 if cfg["train"].get("precision", "fp32") == "bf16" else None
+    L = len(model.loops)
+    p = make_packed(G.GenParams(), n_writes, n_exact)
+    s_star = int(frac * float(p.lengths().mean()) / C_)
+    out = {"name": name, "segment": C_, "nonlin": cfg["model"]["nonlin"], "n_writes": n_writes, "s_star": s_star, "exact": {}}
+    for e in (0.0, *eps):  # (a)
+        model.probe_hook = LoopHook(s_star, e, seed=1)
+        out["exact"][f"{e:g}"] = token_profile(passkey_token_hits(model, p, dev, amp_dtype=amp))["exact"]
+    model.probe_hook = None
+    # (b) trajectories on the first streams, clean and perturbed
+    ids, _ = D.pad_batch(p, np.arange(n_traj), 256)
+    x = torch.from_numpy(ids).to(dev)
+    rec = {}
+    for tag, e in (("clean", 0.0), ("perturbed", eps_traj)):
+        model.probe_hook = hook = LoopHook(s_star, e, seed=2, record=True)
+        with torch.no_grad(), torch.autocast(dev.type, dtype=amp or torch.float32, enabled=amp is not None):
+            model(input_ids=x)
+        rec[tag] = hook.states(L)
+    model.probe_hook = None
+    out["contraction"] = contraction_profile(rec["clean"], rec["perturbed"], s_star)
+    out["drift"] = drift_profile(rec["clean"])
+    # (c) Jacobian at a few positions of a few streams
+    n_seg = len(rec["clean"])
+    sing, rho = [], []
+    for j in range(n_jac):
+        n_tok = int(p.offs[j + 1] - p.offs[j])
+        ids_j = torch.from_numpy(np.asarray(p.ids[p.offs[j]:p.offs[j + 1]], dtype=np.int64)).to(dev)
+        for pos in (2, min(n_seg, n_tok // C_) // 4, min(n_seg, n_tok // C_) // 2):
+            J = loop_jacobian(model, ids_j, pos, amp)
+            sv = np.linalg.svd(J, compute_uv=False)
+            sing.append(sv[:3].tolist())
+            rho.append(float(np.abs(np.linalg.eigvals(J)).max()))
+    out["jacobian"] = {"sigma_max_mean": float(np.mean([s[0] for s in sing])), "sigma_max": [round(s[0], 3) for s in sing],
+                       "spectral_radius_mean": float(np.mean(rho)), "spectral_radius": [round(r, 3) for r in rho], "positions_per_stream": 3, "streams": n_jac}
+    return out
+
+
 def passkey_vs_length(name: str, ns: list[int], n_examples: int = 200) -> list[dict]:
     """Passkey exact match (and AR accuracies) of a finished run on fresh streams of each length in `ns` (writes)."""
     import torch
@@ -183,6 +302,11 @@ def main() -> None:
     de.add_argument("--rates", type=float, nargs="+", default=[0.0, 0.25, 1.0, 2.0])
     de.add_argument("--examples", type=int, default=200)
     de.add_argument("--out", type=Path, required=True)
+    at = sub.add_parser("attractor")
+    at.add_argument("--runs", nargs="+", required=True)
+    at.add_argument("--n-writes", type=int, default=4096)
+    at.add_argument("--examples", type=int, default=200)
+    at.add_argument("--out", type=Path, required=True)
     pr = sub.add_parser("profile")
     pr.add_argument("--runs", nargs="+", required=True)
     pr.add_argument("--ns", type=int, nargs="+", default=[256, 1024, 4096])
@@ -190,8 +314,13 @@ def main() -> None:
     pr.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
     res = {}
+    a.out.parent.mkdir(parents=True, exist_ok=True)
     for name in a.runs:
-        if a.cmd == "profile":
+        if a.cmd == "attractor":
+            res[name] = attractor_probe(name, a.n_writes, a.examples)
+            r = res[name]
+            print(f"{name}: exact {r['exact']} | contraction {r['contraction']} | sigma_max {r['jacobian']['sigma_max_mean']:.2f} rho {r['jacobian']['spectral_radius_mean']:.2f}", flush=True)
+        elif a.cmd == "profile":
             res[name] = passkey_profile(name, a.ns, a.split)
             print(f"{name}: " + " ".join(f"N{r['N']}: exact {r['exact']:.2f} hist {[round(h, 2) for h in r['hist']]}" for r in res[name]), flush=True)
         elif a.cmd == "density":
@@ -200,8 +329,7 @@ def main() -> None:
         else:
             res[name] = passkey_vs_length(name, a.ns, a.examples)
             print(f"{name}: " + " ".join(f"{r['N']}:{r['passkey_acc']:.2f}" for r in res[name]), flush=True)
-    a.out.parent.mkdir(parents=True, exist_ok=True)
-    a.out.write_text(json.dumps(res, indent=1))
+        a.out.write_text(json.dumps(res, indent=1))  # after every run, so a long probe never loses finished runs
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
 Each queue line is `<tmux session> | <arguments of src/launch.py>`; `#` starts a comment. The file is re-read on every
 poll, so lines can be appended while the driver runs. A line is started once (the session name is the key, recorded in
 logs/queue/launched.txt) when at most `--start-below` workers are still alive in the watched + already launched
-sessions and every GPU the stage uses has at least `--min-free-gb` of free memory. launch.py skips runs whose result already exists, so restarting the driver is safe.
+sessions and every GPU the stage uses has free memory for all of the stage's workers (`--gb-per-worker` each, at least `--min-free-gb`). launch.py skips runs whose result already exists, so restarting the driver is safe.
 """
 from __future__ import annotations
 
@@ -49,6 +49,16 @@ def stage_gpus(args: list[str]) -> list[int]:
     return out
 
 
+def stage_procs_per_gpu(args: list[str]) -> int:
+    """Workers per GPU of a stage: the value after `--procs-per-gpu` in its launch.py arguments (launch.py defaults to 2)."""
+    return int(args[args.index("--procs-per-gpu") + 1]) if "--procs-per-gpu" in args else 2
+
+
+def memory_needed_gb(args: list[str], gb_per_worker: float, min_free_gb: float) -> float:
+    """Free memory a stage needs on each of its GPUs: every worker grows to several GB, so the gate scales with the worker count."""
+    return max(min_free_gb, gb_per_worker * stage_procs_per_gpu(args))
+
+
 def free_gb(gpu: int) -> float | None:
     """Free memory of a GPU in GiB, None if nvidia-smi does not answer."""
     r = subprocess.run(["nvidia-smi", "-i", str(gpu), "--query-gpu=memory.free", "--format=csv,noheader,nounits"], capture_output=True, text=True)
@@ -74,7 +84,8 @@ def main() -> None:
     ap.add_argument("--queue", default="configs/queue.txt")
     ap.add_argument("--watch", nargs="*", default=[], help="already running tmux sessions whose workers count as busy")
     ap.add_argument("--start-below", type=int, default=6, help="start the next stage when at most this many workers are alive")
-    ap.add_argument("--min-free-gb", type=float, default=12.0, help="start a stage only when each of its GPUs has this much free memory")
+    ap.add_argument("--min-free-gb", type=float, default=12.0, help="start a stage only when each of its GPUs has at least this much free memory")
+    ap.add_argument("--gb-per-worker", type=float, default=7.0, help="free memory required per worker of the stage on each GPU (a training process grows to 5-7 GB)")
     ap.add_argument("--poll", type=int, default=60, help="seconds between checks")
     ap.add_argument("--dry-run", action="store_true", help="print the stages and exit")
     args = ap.parse_args()
@@ -95,7 +106,8 @@ def main() -> None:
         if not pending and live == 0:
             print(f"{stamp()} queue empty and nothing running: done", flush=True)
             return
-        if pending and can_start(live, args.start_below, {g: free_gb(g) for g in stage_gpus(pending[0][1])}, args.min_free_gb):
+        if pending and can_start(live, args.start_below, {g: free_gb(g) for g in stage_gpus(pending[0][1])},
+                                 memory_needed_gb(pending[0][1], args.gb_per_worker, args.min_free_gb)):
             session, a = pending[0]
             print(f"{stamp()} {live} workers alive -> starting {session}", flush=True)
             r = subprocess.run([sys.executable, str(ROOT / "src" / "launch.py"), "--session", session, *a], cwd=ROOT)

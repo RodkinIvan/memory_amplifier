@@ -50,6 +50,12 @@ class GpuGate(unittest.TestCase):
         self.assertEqual(Q.stage_gpus(["--gpus", "0", "1", "--sweep", "a=1,2"]), [0, 1])
         self.assertEqual(Q.stage_gpus(["--config", "a.yaml"]), [0, 1])  # launch.py's default
 
+    def test_the_memory_gate_scales_with_the_workers_of_the_stage(self):
+        self.assertEqual(Q.stage_procs_per_gpu(["--gpus", "0", "--procs-per-gpu", "4"]), 4)
+        self.assertEqual(Q.stage_procs_per_gpu(["--gpus", "0"]), 2)  # launch.py's default
+        self.assertEqual(Q.memory_needed_gb(["--procs-per-gpu", "4"], 7.0, 12.0), 28.0)
+        self.assertEqual(Q.memory_needed_gb(["--procs-per-gpu", "1"], 7.0, 12.0), 12.0)  # never below the floor
+
     def test_a_stage_waits_for_workers_and_for_free_memory(self):
         self.assertTrue(Q.can_start(5, 5, {0: 20.0}, 12.0))
         self.assertFalse(Q.can_start(6, 5, {0: 20.0}, 12.0))        # too many workers alive

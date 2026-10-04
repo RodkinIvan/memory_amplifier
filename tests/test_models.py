@@ -221,5 +221,88 @@ class FeedbackBehaviour(unittest.TestCase):
         self.assertEqual(float((self.run_model(a, x) - self.run_model(b, x)).abs().max()), 0.0)
 
 
+class KvCacheEquivalence(unittest.TestCase):
+    """`kv_cache=True` must give the same logits and gradients as recomputing the tail, with the loops switched on (m != 0).
+
+    Strong feedback is chaotic: the tail path with weights perturbed by 1e-4 differs from itself by ~0.8 in logits after a few
+    dozen hops, so rounding noise would swamp the comparison. The feedback here is the mild recipe scale (projection std 0.1,
+    gain 0.1), where the two paths agree to bf16 rounding (~0.004 in logits of scale 0.13, 37 hops, window 64)."""
+
+    CASES = ((16, 8, 100), (16, 16, 100), (16, 24, 90), (16, 5, 77), (8, 24, 90), (64, 16, 400), (64, 8, 300))  # window, segment, length: C < W, = W, > W, T % C != 0
+
+    def pair(self, W, C, cache_cls=None):
+        a = build_swa_fb(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=W, segment=C).cuda()
+        strong_feedback(a, std=0.1, gain=0.1)
+        b = build_swa_fb(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=W, segment=C, kv_cache=True).cuda()
+        b.load_state_dict(a.state_dict())
+        return a, b
+
+    def logits_and_grads(self, m, x):
+        m.zero_grad()
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            logits = m(input_ids=x).logits.float()
+        logits.logsumexp(-1).mean().backward()
+        return logits.detach(), {n: p.grad.detach().clone() for n, p in m.named_parameters() if p.grad is not None}
+
+    def compare(self, W, C, T):
+        torch.manual_seed(0)
+        a, b = self.pair(W, C)
+        x = torch.randint(1, 40, (3, T), device="cuda")
+        (la, ga), (lb, gb) = self.logits_and_grads(a, x), self.logits_and_grads(b, x)
+        names = [n for n in ga if ga[n].norm() > 1e-6]
+        cos = min(float(torch.nn.functional.cosine_similarity(ga[n].flatten(), gb[n].flatten(), dim=0)) for n in names)
+        rel = max(float((ga[n] - gb[n]).norm() / ga[n].norm()) for n in names)
+        return float((la - lb).abs().max()), cos, rel, len(names)
+
+    def test_logits_and_gradients_match_the_tail_recompute(self):
+        for W, C, T in self.CASES:
+            diff, cos, rel, n = self.compare(W, C, T)
+            self.assertLess(diff, 0.01, (W, C, T, "logits"))  # rounding is at most ~0.004 here; a window one token too small gives ~0.017
+            self.assertGreater(cos, 0.99, (W, C, T, "gradient direction"))
+            self.assertLess(rel, 0.1, (W, C, T, "gradient size"))
+            self.assertGreater(n, 10)  # many parameters carry a gradient, including the loops
+
+    def test_the_comparison_would_notice_a_stock_sliding_cache(self):
+        """Sensitivity check: a cache that trims to W *after* appending the chunk (what fla's own sliding cache does) shrinks the window
+        of the first queries of every chunk; the comparison must fail for it, and for a window that is merely one token too small."""
+        import models
+        real = models._TailCache
+
+        class StockLike(real):  # returns only the last W keys, chunk included
+            def update(self, attn_state, layer_idx, offset=1, cache_kwargs=None, **_):
+                out = super().update(attn_state, layer_idx, offset, cache_kwargs)["attn_state"]
+                return {"attn_state": tuple(x[:, -(self.keep + 1):] for x in out)}
+
+        class OneShort(real):
+            def __init__(self, keep, n_layers):
+                super().__init__(keep - 1, n_layers)
+
+        for bad in (StockLike, OneShort):
+            models._TailCache = bad
+            try:
+                diff, cos, rel, _ = self.compare(16, 8, 100)
+            finally:
+                models._TailCache = real
+            self.assertGreater(diff, 0.01, bad.__name__)
+
+    def test_cache_keeps_the_last_window_minus_one_tokens_and_returns_them_with_the_new_ones(self):
+        from models import _TailCache
+        c = _TailCache(keep=5, n_layers=1)
+        k1, v1 = torch.arange(8.0).view(1, 8, 1), torch.arange(8.0).view(1, 8, 1) * 10
+        out_k, _ = c.update((k1, v1), layer_idx=0)["attn_state"]
+        self.assertEqual(out_k.flatten().tolist(), list(range(8)))              # nothing cached yet: just the new chunk
+        self.assertEqual((c.get_seq_length(0), c.k[0].flatten().tolist()), (8, [3.0, 4.0, 5.0, 6.0, 7.0]))
+        k2 = torch.arange(8.0, 10.0).view(1, 2, 1)
+        out_k, _ = c.update((k2, k2 * 10), layer_idx=0)["attn_state"]
+        self.assertEqual(out_k.flatten().tolist(), [3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])  # cached W-1 keys, then the chunk
+        self.assertEqual(c.k[0].flatten().tolist(), [5.0, 6.0, 7.0, 8.0, 9.0])
+
+    def test_long_streams_beyond_the_position_table_are_refused(self):
+        a = build_swa_fb(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=8, segment=8, kv_cache=True).cuda()
+        a.base.config.max_position_embeddings = 64
+        with self.assertRaises(ValueError):
+            a(input_ids=torch.randint(1, 40, (1, 96), device="cuda"))
+
+
 if __name__ == "__main__":
     unittest.main()

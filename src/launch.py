@@ -45,6 +45,18 @@ def worker_header(gpu: int) -> list[str]:
             '[ -f wandb_token ] && export WANDB_API_KEY="$(cat wandb_token)"']
 
 
+def run_lines(cmd: list[str], log: Path, name: str, failed: Path) -> list[str]:
+    """Shell lines that run one training command. A run that dies with CUDA out-of-memory before its first evaluation (the GPU was
+    full when it started) is retried, up to 3 attempts, after a pause; any other failure, or one after training has started,
+    is not retried and is listed in the failed file."""
+    q = shlex.quote
+    return [f"ok=0; for attempt in 1 2 3; do",
+            f"  {shlex.join(cmd)} > {q(str(log))} 2>&1 && {{ ok=1; break; }}",
+            f"  if grep -q OutOfMemoryError {q(str(log))} && ! grep -q '\\] step ' {q(str(log))}; then sleep ${{RETRY_SLEEP:-120}}; else break; fi",
+            f"done",
+            f"[ $ok = 1 ] || echo FAILED {name} >> {q(str(failed))}"]
+
+
 def is_done(job: dict) -> bool:
     f = C.ROOT / "results" / "raw" / f"{job['name']}.json"
     return f.exists() and json.loads(f.read_text())["config"] == job["config"]
@@ -87,7 +99,7 @@ def main() -> None:
         for j in mine:
             cmd = [sys.executable, "src/train.py", "--config", args.config, *(["--no-wandb"] if args.no_wandb else []), "--set", *j["overrides"]]
             log = logdir / f"{j['name']}.log"
-            lines.append(f"{shlex.join(cmd)} > {shlex.quote(str(log))} 2>&1 || echo FAILED {j['name']} >> {shlex.quote(str(logdir / 'failed.txt'))}")
+            lines += run_lines(cmd, log, j["name"], logdir / "failed.txt")
         lines.append(f'echo "worker {w} (gpu {gpu}) finished"')
         script = logdir / f"worker{w}.sh"
         script.write_text("\n".join(lines) + "\n")

@@ -245,6 +245,43 @@ class DataAndEvaluation(unittest.TestCase):
         self.assertEqual(m, ref)  # counts (n_valid, ...) must not include the filler rows
 
 
+class RunLines(unittest.TestCase):
+    """The retry wrapper of the worker scripts, run for real in bash with fake training commands."""
+
+    def run_script(self, body: str):
+        import os, subprocess
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            fake = d / "fake.sh"
+            fake.write_text(body.replace("DIR", str(d)))
+            log, failed = d / "run.log", d / "failed.txt"
+            lines = L.run_lines(["bash", str(fake)], log, "myrun", failed)
+            subprocess.run(["bash", "-c", "\n".join(lines)], check=True, env={**os.environ, "RETRY_SLEEP": "0"})
+            attempts = int((d / "count").read_text()) if (d / "count").exists() else 0
+            return attempts, failed.read_text() if failed.exists() else ""
+
+    COUNT = 'n=$(cat DIR/count 2>/dev/null || echo 0); echo $((n+1)) > DIR/count\n'
+
+    def test_out_of_memory_at_start_is_retried_until_it_works(self):
+        attempts, failed = self.run_script(self.COUNT + 'if [ $n -lt 2 ]; then echo "torch.OutOfMemoryError: CUDA out of memory"; exit 1; fi\necho trained')
+        self.assertEqual((attempts, failed), (3, ""))
+
+    def test_another_failure_is_not_retried_and_is_listed(self):
+        attempts, failed = self.run_script(self.COUNT + 'echo "ValueError: bad config"; exit 1')
+        self.assertEqual(attempts, 1)
+        self.assertIn("FAILED myrun", failed)
+
+    def test_out_of_memory_after_training_started_is_not_retried(self):
+        attempts, failed = self.run_script(self.COUNT + 'echo "[myrun] step 2000 loss 0.3"; echo "torch.OutOfMemoryError: CUDA out of memory"; exit 1')
+        self.assertEqual(attempts, 1)
+        self.assertIn("FAILED myrun", failed)
+
+    def test_gives_up_after_three_attempts(self):
+        attempts, failed = self.run_script(self.COUNT + 'echo "torch.OutOfMemoryError: CUDA out of memory"; exit 1')
+        self.assertEqual(attempts, 3)
+        self.assertIn("FAILED myrun", failed)
+
+
 class WorkerScript(unittest.TestCase):
     def test_header_pins_the_gpu_and_enables_expandable_segments(self):
         head = L.worker_header(3)
