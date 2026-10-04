@@ -128,12 +128,14 @@ class SegmentFeedback(nn.Module):
     """One feedback loop: m = mean over the segment of nonlin(proj(norm(y))), added to the next segment's layer input.
 
     y are the layer's outputs for the segment (the residual stream after the block, so the memory can ride along the
-    residual path). `tanh` keeps m bounded (fixed points, no blow-up over hundreds of hops); `none` is the linear
-    control; `gelu` is unbounded. The injection gain is a learned per-channel scale and `gain_init` sets where it starts. It trades two
+    residual path). `tanh` keeps m bounded (fixed points, no blow-up over hundreds of hops); `none` removes only the tanh ("no tanh"):
+    the RMSNorm in front of the projection and the whole layer stack between injection and read-out stay, so the loop is not a linear
+    system; `gelu` is unbounded. The injection gain is a learned per-channel scale and `gain_init` sets where it starts. It trades two
     things (finished sweep, configs/swa_fb.yaml vs `model.gain_init=0`, see the report): with `gain_init` = 0 the model starts as exactly
-    plain SWA, the AR task is learned on time at every segment length (AR valid accuracy 0.6-1.0 after 2000 steps), but the optimiser must
-    find the loop from a zero injection and often does not at small segments (about half of the segment-16 and segment-8 runs never
-    started it); with the recipe's 0.1 the loop starts reliably, but the memory is a few times the token signal at first, so the AR task
+    plain SWA and the AR task is learned early in most runs (AR valid accuracy at N = 256 after 2000 steps: 0.47-0.98 in 21 of the 24
+    gain-0 runs, at most 0.02 in 3 no-tanh runs of seed 2 at segments 32 / 16 / 8; the first two learned it later, the segment-8 run never did),
+    but the optimiser must find the loop from a zero injection and often does not at small segments (about half of the segment-16 and
+    segment-8 runs never started it); with the recipe's 0.1 the loop starts reliably, but the memory is a few times the token signal at first, so the AR task
     is learned later the smaller the segment (0.61 / 0.17 / 0.00 for segments 64 / 32 / 16). Gain 1 stalls AR learning for good (loss stuck
     at 2.1 vs 1.2 after 600 steps). The constructor default is 0; the recipe sets 0.1."""
 

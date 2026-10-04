@@ -38,7 +38,7 @@ Plan and rationale: `reports/exp1_plan.md`.
 |---|---|---|
 | 1 | GDN, decay **fixed** to α ∈ {1, .999, .995, .99, .98, .95, .9, .8}, 3 seeds; plot passkey vs expired-AR accuracy | done, `reports/gdn_report.html` |
 | 1b | Sliding-window attention (SWA), window ∈ {32, 64, 128} × layers ∈ {2, 4}, 3 seeds. No decay: forgetting is a hard cutoff, reach R = layers·(window−1) tokens | done, `reports/swa_report.html` |
-| 1c | SWA + **segment feedback loop** (memory amplification): once per segment each layer turns its output into one vector that is added to its input in the next segment. Window 64, segment ∈ {64, 32, 16, 8}, tanh or linear loop, stream-length curriculum; extras: loop noise, 40k steps, loop gain 0 instead of 0.1, a plain-SWA control with the same curriculum, an attractor probe | done (2 gain-0 reruns still training); `reports/fb_report.html`, exploration in `results/explore/` |
+| 1c | SWA + **segment feedback loop** (memory amplification): once per segment each layer turns its output into one vector that is added to its input in the next segment. Window 64, segment ∈ {64, 32, 16, 8}, tanh or no-tanh loop, stream-length curriculum; extras: loop noise, 40k steps, loop gain 0 instead of 0.1, a plain-SWA control with the same curriculum, an attractor probe | 20k-step sweep done; round 3 (50k steps at gain 0, plain SWA at windows 64–1024, segment study) queued/running, see `configs/queue.txt`; `reports/fb_report.html`, exploration in `results/explore/` |
 | 2 | GDN (learned decay), GDN with eigenvalues in [−1, 1], Mamba-2 | not started |
 | 3 | GDN, 2 heads, per-head α statistics | not started |
 | 4 | attractor cleanup in isolation (numpy/torch) | not started |
@@ -52,6 +52,10 @@ python src/launch.py --config configs/swa_fb.yaml --session fbsweep --gpus 0 1 -
     --sweep model.nonlin=tanh,none model.segment=64,32,16 seed=0,1,2          # feedback loop; defaults of the yaml = the recipe
 tmux new -d -s fbqueue 'python src/run_queue.py --queue configs/queue.txt --watch fbsweep'   # unattended queue of further sweeps
 #   (a stage starts only with free GPU memory for its workers; add --set model.kv_cache=true to a sweep to cut the loop model's memory 2-4x, same results, no speed-up)
+#   a run that dies with CUDA out-of-memory (also in mid-training) is restarted up to 6 times and resumes from runs/<name>/resume.pt (written at every periodic
+#   validation); to continue stopped runs, kill the old tmux session and launch the same command again. --set train.cuda_graph=true replays one CUDA graph per batch shape
+#   instead of ~130 kernel launches per (segment, layer) call (same results up to rounding, tests/test_graphed.py)
+python src/config.py results/raw/*.json                                          # stamp each result with its diff against the frozen reference configs/ref/*_v1.yaml
 python src/aggregate.py                                                          # results/summary*.csv + plots
 python src/probes.py passkey-length --runs swa_w128_L4_s0 --out results/probes/x.json   # probes on checkpoints (see --help)
 python src/probes.py profile --runs swa_fb_nltanh_seg64_s2 --ns 256 1024 4096 --out results/probes/passkey_profile.json   # tokens right per stream
@@ -62,15 +66,22 @@ python src/report.py swa --out reports/swa_report.html                          
 wandb run names are `<model>_<overridden hyperparameters>_s<seed>`, e.g. `gdn_fixed_a0.95_s1`. The wandb key is read from a
 git-ignored file `wandb_token` (or `$WANDB_API_KEY`).
 
+**What differs from the reference recipe.** Run names list only the overrides of one launch, so every result file also stores its diff against a
+frozen reference config of its model kind (`configs/ref/gdn_fixed_v1.yaml`, `swa_v1.yaml`, `swa_fb_v1.yaml`; never edited, hash-checked in
+`tests/test_reference.py`; a new recipe gets a new file). The diff ignores only the seed, the wandb group, logging and the evaluation set / batch
+(`config.IGNORED_KEYS`); the wandb run notes carry it too. Report rows are *configurations*: runs with the same diff. Runs that differ in anything
+else are never averaged, and `reports/fb_report.html` ends with a table of every configuration with its diff, run names and per-seed numbers.
+
 ## Layout
 
 ```
 data/    make_passkey_swar.py  generator (deterministic, per-example seeds)
          sanity_checks.py      oracle, mutation test, determinism, leakage, statistics
          upload_passkey_swar.py, tune_drift.py, vocab.json
-src/     models.py (fixed-decay GDN, sliding-window attention, segment-feedback SWA), data.py, evaluate.py, train.py, launch.py,
-         run_queue.py (unattended queue of sweeps), aggregate.py, probes.py (checkpoint probes on fresh streams), report.py (HTML reports), config.py
-configs/ experiment YAMLs      reports/ statistics + plans      results/ summary tables, plots, raw per-run json
+src/     models.py (fixed-decay GDN, sliding-window attention, segment-feedback SWA), data.py, evaluate.py, train.py (resumable), graphed.py (CUDA-graph step),
+         launch.py, run_queue.py (unattended queue of sweeps), aggregate.py, probes.py (checkpoint probes on fresh streams), report.py + report_groups.py +
+         report_rounds.py (HTML reports; rows = configurations), config.py (configs, run names, diff against the frozen references)
+configs/ experiment YAMLs, configs/ref/ frozen references      reports/ statistics + plans      results/ summary tables, plots, raw per-run json
 tests/   python -m unittest discover -s tests -t .
 ```
 

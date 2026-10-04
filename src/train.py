@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config as C  # noqa: E402
 import data as D  # noqa: E402
 import evaluate as E  # noqa: E402
+from graphed import GraphedTrainStep  # noqa: E402
 from models import build_from_config  # noqa: E402
 
 METRICS = ("passkey_acc", "ar_valid_acc", "ar_expired_acc", "ar_expired_stale_acc", "ar_expired_never_acc")
@@ -105,7 +106,7 @@ def evaluate_with_backoff(model, packed, dev, tokens_per_batch: int, amp, min_to
         print(f"evaluation ran out of memory, retrying with tokens_per_batch={tokens_per_batch}", flush=True)
 
 
-def make_optimizer(model, tc: dict):
+def make_optimizer(model, tc: dict, capturable: bool = False):
     """AdamW with weight decay on matrices (not embeddings/norms); feedback-loop parameters ("loops.") get their own
     learning-rate multiplier `train.loop_lr_mult` and no weight decay."""
     named = list(model.named_parameters())
@@ -117,6 +118,12 @@ def make_optimizer(model, tc: dict):
               {"params": no_decay, "weight_decay": 0.0, "lr_mult": 1.0}]
     if loop:
         groups.append({"params": loop, "weight_decay": 0.0, "lr_mult": float(tc.get("loop_lr_mult", 1.0))})
+    if capturable:  # CUDA-graph step (src/graphed.py): tensor learning rates that are filled before every replay, optimizer state on the device
+        dev = next(model.parameters()).device
+        opt = torch.optim.AdamW(groups, lr=torch.tensor(float(tc["lr"]), device=dev), betas=tuple(tc["betas"]), capturable=True)
+        for g in opt.param_groups:
+            g["lr"] = torch.tensor(float(tc["lr"]), device=dev)
+        return opt
     return torch.optim.AdamW(groups, lr=tc["lr"], betas=tuple(tc["betas"]))
 
 
@@ -220,7 +227,10 @@ def main(argv=None) -> None:
         start += rows
     val = {n: D.load_packed(data_dir / f"n{n}" / "validation.parquet", kinds=True).subset(eval_examples_for(tc, n))
            for n in tc["eval_ns"]}
-    opt = make_optimizer(model, tc)
+    graph = bool(tc.get("cuda_graph", False))  # one CUDA graph per batch shape instead of ~33k kernel launches per step (src/graphed.py)
+    if graph and float(tc.get("passkey_weight", 1.0)) != 1.0 and int(tc.get("passkey_weight_anneal_steps", 0)) > 0:
+        sys.exit("train.cuda_graph needs a constant passkey weight (passkey_weight_anneal_steps = 0)")
+    opt = make_optimizer(model, tc, capturable=graph)
     model.train()
     loss_acc, n_acc, last, start, elapsed, resumed_at, history = torch.zeros((), device=dev), 0, 0.0, 1, 0.0, [], []
     if state:
@@ -233,28 +243,33 @@ def main(argv=None) -> None:
         n_acc, last, start, elapsed, resumed_at = state["n_acc"], state["last_loss"], state["step"] + 1, state["train_time_s"], [*state["resumed_at_steps"], state["step"]]
         history = state["history"]
         print(f"[{name}] resuming from step {state['step']} ({resume_file})", flush=True)
+    stepper = GraphedTrainStep(model, opt, lambda lg, lb: weighted_ce(lg, lb, passkey_weight_at(1, tc)), tc["grad_clip"], amp) if graph else None
     git = git_state()  # of this start; a resumed run may have been started from another commit
     t0 = time.time() - elapsed  # the time of the earlier attempts counts as training time
     for step in range(start, tc["steps"] + 1):
-        for g in opt.param_groups:
-            g["lr"] = lr_at(step, tc) * g.get("lr_mult", 1.0)
+        lrs = [lr_at(step, tc) * g.get("lr_mult", 1.0) for g in opt.param_groups]
         ids, labs = D.pad_batch(train, sample_train_indices(rng, tc, bounds, step, len(train), tc["batch_size"]), tc["pad_multiple"])
         ids, labs = torch.from_numpy(ids).to(dev), torch.from_numpy(labs).to(dev)
-        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp is not None):
-            logits = model(input_ids=ids).logits
         pk_w = passkey_weight_at(step, tc)
-        loss = weighted_ce(logits, labs, pk_w)
-        loss.backward()
-        gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc["grad_clip"])
-        opt.step()
-        opt.zero_grad(set_to_none=True)
+        if graph:
+            loss, gnorm = stepper.step(ids, labs, lrs)
+        else:
+            for g, v in zip(opt.param_groups, lrs):
+                g["lr"] = v
+            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp is not None):
+                logits = model(input_ids=ids).logits
+            loss = weighted_ce(logits, labs, pk_w)
+            loss.backward()
+            gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc["grad_clip"])
+            opt.step()
+            opt.zero_grad(set_to_none=True)
         loss_acc += loss.detach()
         n_acc += 1
         if step % tc["log_every"] == 0:
             last = float(loss_acc) / n_acc
             if not math.isfinite(last):
                 raise RuntimeError(f"[{name}] non-finite loss at step {step}")
-            wandb.log({"train/loss": last, "train/lr": opt.param_groups[0]["lr"], "train/grad_norm": float(gnorm), "train/passkey_weight": pk_w, "train/active_max_n": max(active_train_ns(step, tc)),
+            wandb.log({"train/loss": last, "train/lr": float(opt.param_groups[0]["lr"]), "train/grad_norm": float(gnorm), "train/passkey_weight": pk_w, "train/active_max_n": max(active_train_ns(step, tc)),
                        "train/steps_per_s": step / (time.time() - t0)}, step=step)
             loss_acc.zero_()
             n_acc = 0

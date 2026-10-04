@@ -9,7 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 
 # short names for the run name; any other key falls back to its last path component
-SHORT = {"model.alpha": "a", "model.window": "w", "model.segment": "seg", "model.nonlin": "nl", "model.noise": "noise", "model.kv_cache": "kv", "model.gain_init": "gi", "model.proj_std": "ps", "train.loop_lr_mult": "llr", "train.passkey_weight": "pkw", "train.passkey_weight_anneal_steps": "pka", "train.curriculum_stage_steps": "cur", "model.norm_eps": "eps", "model.head_dim": "hd", "model.num_heads": "nh",
+SHORT = {"model.alpha": "a", "model.window": "w", "model.segment": "seg", "model.nonlin": "nl", "model.noise": "noise", "model.kv_cache": "kv", "train.cuda_graph": "cg", "model.gain_init": "gi", "model.proj_std": "ps", "train.loop_lr_mult": "llr", "train.passkey_weight": "pkw", "train.passkey_weight_anneal_steps": "pka", "train.curriculum_stage_steps": "cur", "model.norm_eps": "eps", "model.head_dim": "hd", "model.num_heads": "nh",
          "model.d_model": "d", "model.n_layers": "L", "model.expand_v": "ev", "model.allow_neg_eigval": "neg",
          "train.lr": "lr",
          "train.steps": "steps", "train.batch_size": "bs", "seed": "s"}
@@ -94,7 +94,7 @@ IGNORED_PREFIXES = ("eval.",)
 # What the code uses for a key a stored config does not have (configs written before the key existed): `.get(key, default)` in
 # models.py / train.py. Keep in sync with those calls.
 CODE_DEFAULTS = {"model.segment": 0, "model.nonlin": "tanh", "model.noise": 0.0, "model.gain_init": 0.0, "model.proj_std": 0.02,
-                 "model.kv_cache": False, "train.precision": "fp32", "train.loop_lr_mult": 1.0, "train.passkey_weight": 1.0,
+                 "model.kv_cache": False, "train.cuda_graph": False, "train.precision": "fp32", "train.loop_lr_mult": 1.0, "train.passkey_weight": 1.0,
                  "train.passkey_weight_anneal_steps": 0, "train.curriculum_stage_steps": 0}
 
 

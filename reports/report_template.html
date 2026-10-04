@@ -72,6 +72,9 @@ summary:focus-visible, a:focus-visible { outline: 2px solid var(--s1); outline-o
 table { border-collapse: collapse; font-family: var(--mono); font-size: .8rem; font-variant-numeric: tabular-nums; }
 th, td { padding: 3px 9px; border-bottom: 1px solid var(--grid); text-align: right; white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
+.tbl.kv th, .tbl.kv td { text-align: left; white-space: normal; vertical-align: top; }
+.tbl.wide td:first-child { white-space: normal; min-width: 240px; max-width: 420px; }
+.hint { color: var(--muted); font-size: .72rem; }
 th { color: var(--ink-2); font-weight: 500; }
 .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 14px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; min-width: 0; }
@@ -211,7 +214,7 @@ function scatter(host, n) {
       const hollow = o.r.valid < .9;
       s += `<circle cx="${cx}" cy="${cy}" r="6" fill="${hollow ? 'var(--surface)' : rowColor(o.i)}" stroke="${hollow ? rowColor(o.i) : 'var(--surface)'}" stroke-width="${hollow ? 2 : 1.6}" data-tip="${esc(tipTxt)}"/>`;
     });
-    const names = g.filter(o => !o.row.nolabel).map(o => o.row.label);  // rows may opt out of a label (identified by colour and tooltip)
+    const names = g.filter(o => !o.row.nolabel).map(o => o.row.slabel || o.row.label);  // rows may opt out of a label (identified by colour and tooltip)
     if (!names.length) return;
     const label = (DATA.row_prefix || '') + (names.length > 3 ? names[0] + ' … ' + names[names.length - 1] + ' (' + names.length + ')' : names.join(', '));
     const onRight = cx > m.l + iw * .55, lx = onRight ? cx - 10 : cx + 10;

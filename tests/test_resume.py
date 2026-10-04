@@ -102,6 +102,31 @@ class ResumeTraining(unittest.TestCase):
         worst = max((wa[k].float() - wb[k].float()).abs().max().item() for k in wa)
         self.assertLess(worst, 1e-4, "weights after a resume differ from an uninterrupted run")
 
+    def test_a_graphed_run_resumes_like_an_uninterrupted_graphed_run(self):
+        extra = ["train.cuda_graph=true", "model.noise=0"]  # the graph's noise stream is the graph-safe generator's, so compare without noise
+        ref_root, crash_root = self.tmp / "gref", self.tmp / "gcrash"
+        self.train(ref_root, extra=extra)
+        real_pad, calls = T.D.pad_batch, []
+
+        def crash_at_step_27(*a, **k):
+            calls.append(1)
+            if len(calls) == 27:
+                raise RuntimeError("simulated crash")
+            return real_pad(*a, **k)
+
+        with mock.patch.object(T.D, "pad_batch", crash_at_step_27), self.assertRaises(RuntimeError):
+            self.train(crash_root, extra=extra)
+        out = self.train(crash_root, extra=extra)
+        self.assertIn("resuming from step 15", out)
+        (name,) = [p.name for p in (ref_root / "runs").iterdir()]
+        self.assertIn("cgTrue", name)  # the switch is part of the run name (and of the diff against the reference)
+        a, b = self.result(ref_root), self.result(crash_root)
+        self.assertEqual(a["diff"]["train.cuda_graph"], [False, True])
+        self.assertAlmostEqual(a["final_train_loss"], b["final_train_loss"], places=3)
+        wa = torch.load(ref_root / "runs" / name / "model.pt", weights_only=True)
+        wb = torch.load(crash_root / "runs" / name / "model.pt", weights_only=True)
+        self.assertLess(max((wa[k].float() - wb[k].float()).abs().max().item() for k in wa), 1e-4)
+
     def test_a_checkpoint_of_another_config_stops_the_run(self):
         root = self.tmp / "mismatch"
         real_pad, calls = T.D.pad_batch, []

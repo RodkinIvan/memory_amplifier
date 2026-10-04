@@ -62,6 +62,9 @@ figcaption p { max-width: 82ch; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .legend i.line { width: 18px; height: 0; border-radius: 0; border-top: 2px solid; vertical-align: 3px; }
 .legend i.dash { width: 18px; height: 0; border-radius: 0; border-top: 2px dashed; vertical-align: 3px; }
+.pbar { display: grid; grid-template-columns: minmax(150px, 290px) minmax(0, 1fr); gap: 2px 12px; align-items: center; margin: 5px 0; font-size: .8rem; color: var(--ink-2); }
+.pbar .stack { display: flex; height: 22px; border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
+.pbar .stack i { display: block; min-width: 0; font: 10.5px/22px var(--mono); text-align: center; font-style: normal; overflow: hidden; }
 details { margin-top: 8px; font-size: .86rem; }
 summary { cursor: pointer; color: var(--ink-2); }
 summary:focus-visible, a:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
@@ -69,6 +72,9 @@ summary:focus-visible, a:focus-visible { outline: 2px solid var(--s1); outline-o
 table { border-collapse: collapse; font-family: var(--mono); font-size: .8rem; font-variant-numeric: tabular-nums; }
 th, td { padding: 3px 9px; border-bottom: 1px solid var(--grid); text-align: right; white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
+.tbl.kv th, .tbl.kv td { text-align: left; white-space: normal; vertical-align: top; }
+.tbl.wide td:first-child { white-space: normal; min-width: 240px; max-width: 420px; }
+.hint { color: var(--muted); font-size: .72rem; }
 th { color: var(--ink-2); font-weight: 500; }
 .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 14px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; min-width: 0; }
@@ -77,7 +83,7 @@ ul.tight { margin: 4px 0 10px; padding-left: 1.2em; display: grid; gap: 4px; max
 .tag { font-family: var(--mono); font-size: .75rem; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border); color: var(--ink-2); white-space: nowrap; }
 .tag.ok { color: var(--good); border-color: var(--good); }
 #tip { position: fixed; z-index: 10; pointer-events: none; background: var(--ink); color: var(--page); font: 12px/1.45 var(--mono); padding: 6px 9px; border-radius: 5px; max-width: 300px; display: none; }
-@media (max-width: 520px) { h1 { font-size: 1.5rem; } .wrap { padding-block: 20px 48px; } }
+@media (max-width: 520px) { h1 { font-size: 1.5rem; } .wrap { padding-block: 20px 48px; } .pbar { grid-template-columns: 1fr; } }
 </style>
 
 <div class="wrap">
@@ -142,7 +148,9 @@ const lum = c => { const f = v => { v /= 255; return v <= .03928 ? v / 12.92 : M
 const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
 // ordinal colour for item i of n: i = 0 is the darkest (light mode) / lightest (dark mode)
 const ordColor = (i, n) => { const s = [0, 1, 2, 3].map(k => hex2rgb(cssv('--ord' + k))); const j = n - 1 - i; const x = n === 1 ? 3 : j / (n - 1) * 3, k = Math.min(2, Math.floor(x)); return rgb(mix(s[k], s[k + 1], x - k)); };
-const rowColor = i => ordColor(i, ROWS.length);
+const rowColor = i => (ROWS[i].color ? cssv(ROWS[i].color) : ordColor(i, ROWS.length));  // a row may name its own colour token
+// series colour: explicit css colour, or an ordinal slot [i, n], or its position in the list
+const serCol = (sr, i, spec) => sr.c || (sr.ord ? ordColor(sr.ord[0], sr.ord[1]) : ordColor(spec.ordReverse ? spec.series.length - 1 - i : i, spec.series.length));
 
 // ---- tooltip
 const tip = $('#tip');
@@ -164,7 +172,7 @@ function heatmap(host, key, title, extra) {
   s += `<text x="0" y="13" style="fill:var(--ink);font-family:var(--sans);font-size:13px;font-weight:600">${esc(title)}</text>`;
   s += `<line x1="${left}" x2="${left + trainCols * cw - 4}" y1="34" y2="34" stroke="var(--axis)" stroke-width="1"/>`;
   s += `<text x="${left}" y="28" font-size="10">trained on N ≤ 256</text>`;
-  s += `<text x="${left + trainCols * cw + 2}" y="28" font-size="10">evaluation only, longer than training</text>`;
+  s += `<text x="${left + trainCols * cw + 2}" y="28" font-size="10">${NS.length - trainCols >= 3 ? 'evaluation only, longer than training' : 'beyond training'}</text>`;
   NS.forEach((n, j) => { s += `<text x="${left + j * cw + cw / 2}" y="${top - 6}" font-size="10.5" text-anchor="middle">${n}</text>`; });
   ROWS.forEach((row, i) => {
     s += `<text x="${left - 8}" y="${top + i * ch + ch / 2 + 4}" font-size="11" text-anchor="end" style="fill:var(--ink)">${esc(row.label)}</text>`;
@@ -206,7 +214,8 @@ function scatter(host, n) {
       const hollow = o.r.valid < .9;
       s += `<circle cx="${cx}" cy="${cy}" r="6" fill="${hollow ? 'var(--surface)' : rowColor(o.i)}" stroke="${hollow ? rowColor(o.i) : 'var(--surface)'}" stroke-width="${hollow ? 2 : 1.6}" data-tip="${esc(tipTxt)}"/>`;
     });
-    const names = g.map(o => o.row.label);
+    const names = g.filter(o => !o.row.nolabel).map(o => o.row.slabel || o.row.label);  // rows may opt out of a label (identified by colour and tooltip)
+    if (!names.length) return;
     const label = (DATA.row_prefix || '') + (names.length > 3 ? names[0] + ' … ' + names[names.length - 1] + ' (' + names.length + ')' : names.join(', '));
     const onRight = cx > m.l + iw * .55, lx = onRight ? cx - 10 : cx + 10;
     const ly = cy + (r.passkey > .5 ? 14 : -9);
@@ -242,7 +251,7 @@ function lineChart(host, legendHost, spec) {
   if (spec.note) s += `<text x="${m.l + 8}" y="${m.t + ih - 10}" font-size="10">${esc(spec.note)}</text>`;
   const ends = [];
   spec.series.forEach((sr, i) => {
-    const col = sr.c || ordColor(spec.ordReverse ? spec.series.length - 1 - i : i, spec.series.length), pts = sr.points.filter(p => p.y != null);
+    const col = serCol(sr, i, spec), pts = sr.points.filter(p => p.y != null);
     s += `<polyline fill="none" style="stroke:${col}" stroke-width="${sr.width || 2}" ${sr.dashed ? 'stroke-dasharray="6 4"' : ''} points="${pts.map(p => X(p.x) + ',' + Y(p.y)).join(' ')}"/>`;
     pts.forEach(p => {
       if (p.lo != null && p.hi != null && p.hi - p.lo > 1e-6) s += `<line x1="${X(p.x)}" x2="${X(p.x)}" y1="${Y(p.lo)}" y2="${Y(p.hi)}" style="stroke:${col}" stroke-width="1.4" opacity=".6"/>`;
@@ -262,7 +271,7 @@ function lineChart(host, legendHost, spec) {
     s += `<text x="${e.x + 14}" y="${e.y + 4}" font-size="10.5" class="endlabel" style="fill:var(--ink)">${esc(e.text)}</text>`;
   });
   host.innerHTML = s + '</svg>';
-  legendHost.innerHTML = spec.series.map((sr, i) => `<span><i class="${sr.dashed ? 'dash' : (spec.legendLine ? 'line' : '')}" style="${sr.dashed || spec.legendLine ? 'border-color' : 'background'}:${sr.c || ordColor(spec.ordReverse ? spec.series.length - 1 - i : i, spec.series.length)}"></i>${esc(sr.label)}</span>`).join('');
+  legendHost.innerHTML = spec.series.map((sr, i) => `<span><i class="${sr.dashed ? 'dash' : (spec.legendLine ? 'line' : '')}" style="${sr.dashed || spec.legendLine ? 'border-color' : 'background'}:${serCol(sr, i, spec)}"></i>${esc(sr.label)}</span>`).join('');
 }
 
 function table(cols, rows) {
@@ -275,7 +284,7 @@ function renderCharts() {
   heatmap($('#hm-stale'), 'stale', DATA.stale_title, r => `${r.n_stale.toLocaleString()} queries per seed`);
   $('#scatter').innerHTML = '';
   DATA.scatter_ns.forEach(n => scatter($('#scatter'), n));
-  DATA.extra_figs.forEach((f, i) => lineChart($('#ch-' + i), $('#lg-' + i), f.spec));
+  DATA.extra_figs.forEach((f, i) => { if (f.spec) lineChart($('#ch-' + i), $('#lg-' + i), f.spec); });  // a figure may carry html instead of a line chart
 }
 
 function fillText() {
@@ -296,12 +305,12 @@ function fillText() {
     <figure>
       <div class="fig-title">${f.title}</div>
       <p class="fig-sub">${f.sub}</p>
-      <div class="legend" id="lg-${i}"></div>
-      <div class="chart" id="ch-${i}"></div>
+      ${f.spec ? `<div class="legend" id="lg-${i}"></div><div class="chart" id="ch-${i}"></div>` : ''}${f.html || ''}
       <figcaption>${f.caption}</figcaption>
-      <details><summary>Table view</summary><div class="tbl" id="tb-${i}"></div></details>
+      ${f.spec ? `<details><summary>Table view</summary><div class="tbl" id="tb-${i}"></div></details>` : ''}
     </figure>`).join('');
   DATA.extra_figs.forEach((f, i) => {
+    if (!f.spec) return;
     const rws = []; f.spec.series.forEach(sr => sr.points.forEach(p => rws.push([sr.label, p.x, p.y == null ? '–' : p.y.toFixed(3), p.lo != null ? `${p.lo.toFixed(3)} to ${p.hi.toFixed(3)}` : ''])));
     $('#tb-' + i).innerHTML = table(['series', f.spec.xLabel, f.spec.yLabel, 'range over seeds'], rws);
   });

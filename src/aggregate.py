@@ -45,7 +45,8 @@ def load_runs(raw_dir: Path) -> list[dict]:
         variant = [k for k in C.name_keys(r["explicit_keys"]) if k != "model.alpha"]  # alpha has its own column
         label = kind + "".join(f"_{C.SHORT.get(k, k.split('.')[-1])}{C.fmt(C.get_nested(cfg, k))}" for k in variant)
         runs.append({"name": r["name"], "model": label, "alpha": cfg["model"]["alpha"] if kind == "gdn_fixed" else np.nan,
-                     "seed": cfg["seed"], "cfg": cfg, "rows": r["rows"], "final_train_loss": r["final_train_loss"]})
+                     "seed": cfg["seed"], "cfg": cfg, "rows": r["rows"], "final_train_loss": r["final_train_loss"],
+                     "n_params": r.get("n_params", 0), "train_time_s": r.get("train_time_s"), "val_history": r.get("val_history")})
     return runs
 
 

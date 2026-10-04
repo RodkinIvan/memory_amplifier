@@ -14,7 +14,7 @@ model:
   kind: swa_fb
   window: 64
   segment: 0               # tokens per segment; 0 = one segment per window
-  nonlin: tanh             # tanh (bounded, fixed points) | none (linear control) | gelu
+  nonlin: tanh             # tanh (bounded, fixed points) | none (no tanh; the RMSNorm stays, so the loop is still not linear) | gelu
   noise: 0.0               # std of gaussian noise added to m during training
   gain_init: 0.1           # injection gain at init; 0 = start as plain SWA (gain 1 stalls early learning)
   proj_std: 0.1            # init std of the loop projection
