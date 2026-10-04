@@ -343,5 +343,16 @@
    "n_expired_stale": 2029997,
    "n_expired_never": 16507
   }
- ]
+ ],
+ "reference": "swa_fb_v1",
+ "diff": {
+  "model.gain_init": [
+   0.1,
+   0.01
+  ],
+  "model.segment": [
+   0,
+   16
+  ]
+ }
 }

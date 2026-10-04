@@ -136,5 +136,24 @@
    "n_expired_stale": 111935,
    "n_expired_never": 16234
   }
- ]
+ ],
+ "reference": "swa_fb_v1",
+ "diff": {
+  "model.nonlin": [
+   "tanh",
+   "none"
+  ],
+  "train.passkey_weight": [
+   1.0,
+   100
+  ],
+  "train.passkey_weight_anneal_steps": [
+   0,
+   4000
+  ],
+  "train.steps": [
+   20000,
+   12000
+  ]
+ }
 }

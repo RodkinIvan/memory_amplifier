@@ -1,0 +1,52 @@
+# FROZEN reference config 'swa_fb_v1' (a copy of configs/swa_fb.yaml as of 2026-10-04). Never edit this file: every run's stored config is
+# compared against it (src/config.py reference_diff), so a changed reference would silently relabel finished runs. A new recipe gets a new file.
+# Sliding-window attention + segment feedback loop ("memory amplification", first version).
+# Once per segment every layer turns its output into one vector, m = mean over the segment of nonlin(proj(norm(y))),
+# which is added (learned per-channel gain) to that layer's input at every token of the NEXT segment.
+# Defaults = the recipe found in the 12k-step exploration (wandb group swa_fb_explore): a stream-length curriculum
+# (n32 -> n64 -> n128 -> n256, one stage per 2000 steps), loop parameters at 10x learning rate, small non-zero gain init.
+# Re-weighting the passkey loss (train.passkey_weight/_anneal_steps) is NOT used: it starved the AR task.
+# Sweep (src/launch.py):  model.nonlin in {tanh, none} x model.segment in {64, 32, 16} (window fixed at 64) x seed
+experiment: swa_fb
+project: passkey_swar
+data_dir: data_cache/passkey_swar
+seed: 0
+
+model:
+  kind: swa_fb
+  window: 64
+  segment: 0               # tokens per segment; 0 = one segment per window
+  nonlin: tanh             # tanh (bounded, fixed points) | none (linear control) | gelu
+  noise: 0.0               # std of gaussian noise added to m during training
+  gain_init: 0.1           # injection gain at init; 0 = start as plain SWA (gain 1 stalls early learning)
+  proj_std: 0.1            # init std of the loop projection
+  n_layers: 2
+  d_model: 128
+  num_heads: 4
+
+train:
+  steps: 20000
+  batch_size: 32
+  train_ns: [32, 64, 128, 256]
+  lr: 1.0e-3
+  betas: [0.9, 0.95]
+  weight_decay: 0.01
+  warmup_steps: 500
+  min_lr_ratio: 0.1
+  grad_clip: 1.0
+  pad_multiple: 256
+  precision: bf16
+  loop_lr_mult: 10.0       # learning-rate multiplier for the feedback-loop parameters
+  passkey_weight: 1.0      # loss weight of the 4 passkey tokens at step 0 (1 = plain mean over supervised tokens)
+  curriculum_stage_steps: 2000  # >0: start on the first train config only and add the next one every this many steps
+  passkey_weight_anneal_steps: 0  # decay the weight log-linearly to 1 over this many steps (0 = keep it constant)
+  log_every: 50
+  eval_every: 2000
+  eval_examples: 200
+  eval_ns: [32, 64, 128, 256, 512, 1024]
+
+eval:
+  splits: [validation, test]
+  ns: [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+  tokens_per_batch: 524288  # = 8 streams at N = 16384. Measured on N = 16384 (peak GiB / s per 1000 streams): segment 16: 8.3 / 533 at 2097152, 2.3 / 833 at 524288, 1.3 / 1614 at 262144;
+                            # segment 64: 5.1 / 46, 1.3 / 187, 0.7 / 371. The large batch caused out-of-memory losses on a shared GPU; this keeps the peak near 2 GiB at 1.6-4x the time.

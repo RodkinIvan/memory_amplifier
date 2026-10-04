@@ -62,8 +62,7 @@ def fmt(v) -> str:
 def name_keys(explicit_keys: list[str]) -> list[str]:
     """The overridden keys that describe a run. Evaluation / logging settings, the wandb group and the seed do not, so they stay
     out of run names and of the labels in the summary tables."""
-    skip = ("seed", "model.kind", "experiment", "train.eval_every", "train.log_every", "train.eval_examples", "train.eval_ns")
-    return [k for k in explicit_keys if k not in skip and not k.startswith("eval.")]
+    return [k for k in explicit_keys if k != "model.kind" and not is_ignored(k)]
 
 
 def run_name(cfg: dict, explicit_keys: list[str]) -> str:
@@ -81,5 +80,93 @@ def flatten(cfg: dict, prefix: str = "") -> dict:
     return out
 
 
+# ---- what differs from the reference recipe (review H7) --------------------------------------------------------------------------
+# Every run is labelled by the diff of its stored config against a frozen reference file of its model kind. Run names list only the
+# overrides of one launch (relative to whatever the YAML said then); the diff does not depend on that.
+REFERENCES = {"gdn_fixed": "gdn_fixed_v1", "swa": "swa_v1", "swa_fb": "swa_fb_v1"}  # model.kind -> configs/ref/<name>.yaml (never edited)
+
+# Settings that do not change what is trained or how it is scored: seed, wandb grouping, logging, and the evaluation set / batch.
+# Everything else counts, also implementation switches such as model.kv_cache (equivalent results, but a different config).
+IGNORED_KEYS = ("seed", "experiment", "project", "train.log_every", "train.eval_every", "train.eval_examples",
+                "train.eval_examples_by_n", "train.eval_ns")
+IGNORED_PREFIXES = ("eval.",)
+
+# What the code uses for a key a stored config does not have (configs written before the key existed): `.get(key, default)` in
+# models.py / train.py. Keep in sync with those calls.
+CODE_DEFAULTS = {"model.segment": 0, "model.nonlin": "tanh", "model.noise": 0.0, "model.gain_init": 0.0, "model.proj_std": 0.02,
+                 "model.kv_cache": False, "train.precision": "fp32", "train.loop_lr_mult": 1.0, "train.passkey_weight": 1.0,
+                 "train.passkey_weight_anneal_steps": 0, "train.curriculum_stage_steps": 0}
+
+
+def is_ignored(key: str) -> bool:
+    return key in IGNORED_KEYS or key.startswith(IGNORED_PREFIXES)
+
+
+def reference_name(cfg: dict) -> str:
+    kind = cfg["model"]["kind"]
+    if kind not in REFERENCES:
+        raise KeyError(f"no frozen reference for model kind {kind!r}: add configs/ref/{kind}_v1.yaml and list it in config.REFERENCES")
+    return REFERENCES[kind]
+
+
+def load_reference(cfg: dict) -> dict:
+    return yaml.safe_load((ROOT / "configs" / "ref" / f"{reference_name(cfg)}.yaml").read_text())
+
+
+def reference_diff(cfg: dict, ref: dict | None = None) -> dict:
+    """{dotted key: [reference value, this run's value]} for every setting of `cfg` that differs from its frozen reference,
+    apart from IGNORED_KEYS. A key a config lacks counts as the code default, so old configs compare correctly."""
+    a = {**CODE_DEFAULTS, **flatten(ref if ref is not None else load_reference(cfg))}
+    b = {**CODE_DEFAULTS, **flatten(cfg)}
+    return {k: [a.get(k), b.get(k)] for k in sorted(set(a) | set(b)) if not is_ignored(k) and a.get(k) != b.get(k)}
+
+
+def describe_diff(diff: dict, none: str = "reference recipe") -> str:
+    """'segment 0 → 32, gain_init 0.1 → 0': model keys first, then train keys, then the rest."""
+    if not diff:
+        return none
+    order = sorted(diff, key=lambda k: (k.split(".")[0] != "model", k.split(".")[0] != "train", k))
+    return ", ".join(f"{k.split('.')[-1]} {fmt(diff[k][0])} → {fmt(diff[k][1])}" for k in order)
+
+
+def run_description(cfg: dict) -> str:
+    """Text for the wandb run notes: the reference, what differs from it, and the facts that are easy to misread."""
+    tc = cfg["train"]
+    stage = int(tc.get("curriculum_stage_steps", 0))
+    curriculum = (f"curriculum: one stage per {stage} steps (train N added in order {tc['train_ns']}), unchanged by the number of steps"
+                  if stage > 0 else f"no curriculum (all of {tc['train_ns']} from the start)")
+    return (f"{cfg['model']['kind']}, reference {reference_name(cfg)}; differs in: {describe_diff(reference_diff(cfg))}. "
+            f"Schedule: {tc['warmup_steps']} warmup steps, then cosine decay to {tc['min_lr_ratio']:g} x lr at the LAST step ({tc['steps']}), "
+            f"so a run with more steps is not a shorter run continued. {curriculum}. Seed {cfg['seed']}.")
+
+
+def stamp_diff(result: dict) -> dict:
+    """Add `reference` and `diff` (from the stored config) to a results dict; returns it."""
+    result["reference"] = reference_name(result["config"])
+    result["diff"] = reference_diff(result["config"])
+    return result
+
+
 def clone(cfg: dict) -> dict:
     return copy.deepcopy(cfg)
+
+
+def stamp_files(paths: list[str]) -> int:
+    """Write `reference` and `diff` into results json files (finished runs from before the field existed). Returns how many changed."""
+    import json
+    changed = 0
+    for p in map(Path, paths):
+        r = json.loads(p.read_text())
+        before = (r.get("reference"), r.get("diff"))
+        stamp_diff(r)
+        if (r["reference"], r["diff"]) != before:
+            tmp = p.with_name(p.name + ".tmp")
+            tmp.write_text(json.dumps(r, indent=1))
+            tmp.rename(p)
+            changed += 1
+    return changed
+
+
+if __name__ == "__main__":  # python src/config.py results/raw/*.json  -> stamp the diff against the frozen reference into each file
+    import sys
+    print(f"{stamp_files(sys.argv[1:])} of {len(sys.argv) - 1} files changed")

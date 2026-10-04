@@ -25,3 +25,12 @@ fbg0_c | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --set experimen
 fbg0_d | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 1 --set experiment=swa_fb_g0 model.gain_init=0 seed=0 model.segment=8 model.nonlin=tanh
 fbg0_s1 | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 4 --set experiment=swa_fb_g0 model.gain_init=0 --sweep model.segment=64,32,16,8 model.nonlin=tanh,none seed=1
 fbg0_s2 | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 4 --set experiment=swa_fb_g0 model.gain_init=0 --sweep model.segment=64,32,16,8 model.nonlin=tanh,none seed=2
+
+# ---- Review round 3 (2026-10-04). Runs resume from their last periodic validation after an out-of-memory crash (H8), and every result stores its diff to
+# the frozen reference configs/ref/ (H7). Periodic validation also at N = 4096 (100 streams) and 16384 (32 streams) to follow the passkey curves.
+# H5: the larger-segment setups, retrained for 50k steps at gain 0 (cosine schedule stretched to 50k, curriculum one stage per 2000 steps as before). B is the main setup.
+h5_b | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 3 --set experiment=swa_fb_h5 model.gain_init=0 model.segment=32 model.nonlin=none train.steps=50000 train.eval_ns=[32,64,128,256,512,1024,4096,16384] train.eval_examples_by_n=[[4096,100],[16384,32]] --sweep seed=0,1,2
+# H6: plain SWA trained exactly like H5 (50k steps, same curriculum, 2 layers, 4 heads, bf16) at windows 64 / 128 / 256 / 512 / 1024 (reach 2*(W-1) tokens).
+h6_swa | --config configs/swa.yaml --gpus 0 --procs-per-gpu 3 --set experiment=swa_h6 model.n_layers=2 train.steps=50000 train.curriculum_stage_steps=2000 train.eval_ns=[32,64,128,256,512,1024,4096,16384] train.eval_examples_by_n=[[4096,100],[16384,32]] --sweep model.window=64,128,256,512,1024 seed=0,1,2
+# H5 setup C (recommended): segment 64 with the tanh loop.
+h5_c | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 3 --set experiment=swa_fb_h5 model.gain_init=0 model.segment=64 model.nonlin=tanh train.steps=50000 train.eval_ns=[32,64,128,256,512,1024,4096,16384] train.eval_examples_by_n=[[4096,100],[16384,32]] --sweep seed=0,1,2

@@ -85,7 +85,7 @@ def main() -> None:
     ap.add_argument("--watch", nargs="*", default=[], help="already running tmux sessions whose workers count as busy")
     ap.add_argument("--start-below", type=int, default=6, help="start the next stage when at most this many workers are alive")
     ap.add_argument("--min-free-gb", type=float, default=12.0, help="start a stage only when each of its GPUs has at least this much free memory")
-    ap.add_argument("--gb-per-worker", type=float, default=7.0, help="free memory required per worker of the stage on each GPU (a training process grows to 5-7 GB)")
+    ap.add_argument("--gb-per-worker", type=float, default=8.0, help="free memory required per worker of the stage on each GPU (a training process grows to 5-7.4 GB; measured 7.4 GB at segment 8)")
     ap.add_argument("--poll", type=int, default=60, help="seconds between checks")
     ap.add_argument("--dry-run", action="store_true", help="print the stages and exit")
     args = ap.parse_args()

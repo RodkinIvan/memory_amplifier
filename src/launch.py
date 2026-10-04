@@ -6,6 +6,9 @@
 
 The first --sweep key varies fastest (so seed 0 of every alpha finishes first). Runs whose results/raw/<name>.json
 already exists are skipped. Logs: logs/<session>/<run name>.log ; failures are listed in logs/<session>/failed.txt.
+
+Stopped or crashed runs continue where they were: train.py checkpoints at every periodic validation and resumes from it, so
+launching the same command again (after `tmux kill-session -t <session>` for the old session) loses at most `train.eval_every` steps.
 """
 from __future__ import annotations
 
@@ -45,14 +48,19 @@ def worker_header(gpu: int) -> list[str]:
             '[ -f wandb_token ] && export WANDB_API_KEY="$(cat wandb_token)"']
 
 
+ATTEMPTS = 6  # starts of one run (the first one and the retries after an out-of-memory crash)
+
+
 def run_lines(cmd: list[str], log: Path, name: str, failed: Path) -> list[str]:
-    """Shell lines that run one training command. A run that dies with CUDA out-of-memory before its first evaluation (the GPU was
-    full when it started) is retried, up to 3 attempts, after a pause; any other failure, or one after training has started,
-    is not retried and is listed in the failed file."""
+    """Shell lines that run one training command. train.py resumes from the checkpoint of its last periodic validation, so a run
+    that dies with CUDA out of memory, at the start or in the middle of training (the GPU is shared), is started again after a
+    pause, up to ATTEMPTS starts in all. All attempts append to the same log; only the output of the attempt that just ended
+    decides whether it was an out-of-memory crash. Any other failure is not retried and is listed in the failed file."""
     q = shlex.quote
-    return [f"ok=0; for attempt in 1 2 3; do",
-            f"  {shlex.join(cmd)} > {q(str(log))} 2>&1 && {{ ok=1; break; }}",
-            f"  if grep -q OutOfMemoryError {q(str(log))} && ! grep -q '\\] step ' {q(str(log))}; then sleep ${{RETRY_SLEEP:-120}}; else break; fi",
+    return [f"ok=0; for attempt in $(seq 1 {ATTEMPTS}); do",
+            f"  start=$(stat -c %s {q(str(log))} 2>/dev/null || echo 0)",
+            f"  {shlex.join(cmd)} >> {q(str(log))} 2>&1 && {{ ok=1; break; }}",
+            f"  if tail -c +$((start + 1)) {q(str(log))} | grep -qi -e OutOfMemoryError -e 'out of memory'; then sleep ${{RETRY_SLEEP:-120}}; else break; fi",
             f"done",
             f"[ $ok = 1 ] || echo FAILED {name} >> {q(str(failed))}"]
 

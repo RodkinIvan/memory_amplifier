@@ -1,0 +1,40 @@
+# FROZEN reference config 'gdn_fixed_v1' (a copy of configs/exp1.yaml as of 2026-10-04). Never edit this file: every run's stored config is
+# compared against it (src/config.py reference_diff), so a changed reference would silently relabel finished runs. A new recipe gets a new file.
+# Exp 1: baseline trade-off curve. GDN with a *fixed* decay alpha, 1 head, trained on n32..n256, evaluated on all N.
+# Sweep (see src/launch.py):  model.alpha in {1.0, 0.999, 0.995, 0.99, 0.98, 0.95, 0.9, 0.8} x seed in {0, 1, 2}
+experiment: exp1
+project: passkey_swar
+data_dir: data_cache/passkey_swar
+seed: 0
+
+model:
+  kind: gdn_fixed          # gdn_fixed (constant alpha) | gdn (learned decay; Exp 2/3)
+  alpha: 1.0
+  d_model: 128
+  n_layers: 2
+  num_heads: 1
+  head_dim: 32             # key dim = num_heads * head_dim (independent of d_model)
+  expand_v: 1.0            # value dim = key dim * expand_v
+  norm_eps: 1.0e-5         # eps of GDN's output RMSNorm (fla default)
+  allow_neg_eigval: false
+
+train:
+  steps: 30000
+  batch_size: 32           # examples, sampled uniformly from the pooled train configs
+  train_ns: [32, 64, 128, 256]
+  lr: 1.0e-3
+  betas: [0.9, 0.95]
+  weight_decay: 0.01
+  warmup_steps: 500
+  min_lr_ratio: 0.1
+  grad_clip: 1.0
+  pad_multiple: 256        # batches are right-padded to a multiple of this (bounds Triton recompiles)
+  log_every: 50
+  eval_every: 2000
+  eval_examples: 200       # validation examples per config for the periodic eval
+  eval_ns: [32, 64, 128, 256, 512, 1024]
+
+eval:                      # final evaluation
+  splits: [validation, test]
+  ns: [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+  tokens_per_batch: 262144

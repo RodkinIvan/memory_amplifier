@@ -333,5 +333,7 @@
    "n_expired_stale": 2029997,
    "n_expired_never": 16507
   }
- ]
+ ],
+ "reference": "swa_v1",
+ "diff": {}
 }

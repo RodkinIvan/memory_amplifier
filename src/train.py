@@ -5,6 +5,10 @@
 
 The wandb run name is `<model kind>_<every overridden hyperparameter>_s<seed>`, e.g. `gdn_fixed_a0.95_s1`.
 Results go to results/raw/<name>.json, the final weights to runs/<name>/model.pt.
+
+Resumable: at every periodic validation the full training state is written to runs/<name>/resume.pt (atomically). A run that is
+started again with the same config continues from it (model, optimizer, both random streams, step, wandb run); `launch.py` workers
+do this by themselves after an out-of-memory crash, and running the same launch command again continues stopped runs.
 """
 from __future__ import annotations
 
@@ -12,6 +16,7 @@ import argparse
 import json
 import math
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -76,6 +81,15 @@ def sample_train_indices(rng, tc: dict, bounds: dict, step: int, n_total: int, b
     return lo + (rng.random(batch) * (hi - lo)).astype(np.int64)
 
 
+PERIODIC_TOKENS_PER_BATCH = 262144  # batch of the periodic validation (the final evaluation uses eval.tokens_per_batch)
+
+
+def eval_examples_for(tc: dict, n: int) -> int:
+    """Validation examples per N in the periodic evaluation: `train.eval_examples`, except for the N listed in
+    `train.eval_examples_by_n` = [[N, count], ...] (long streams are expensive, a small subset is enough)."""
+    return int(dict((int(a), int(b)) for a, b in tc.get("eval_examples_by_n") or []).get(n, tc["eval_examples"]))
+
+
 def evaluate_with_backoff(model, packed, dev, tokens_per_batch: int, amp, min_tokens: int = 65536) -> dict:
     """`evaluate_packed`, but when the GPU is shared by many runs and a long-stream batch does not fit, retry with half
     the batch instead of losing a trained model. The metrics do not depend on the batch size (up to float rounding)."""
@@ -120,6 +134,34 @@ def weighted_ce(logits: torch.Tensor, labels: torch.Tensor, passkey_weight: floa
     return (ce * w).sum() / w.sum()
 
 
+def save_resume(path: Path, state: dict) -> None:
+    """Write the training state next to the final weights; a crash while writing leaves the previous file intact."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(state, tmp)
+    os.replace(tmp, path)
+
+
+def load_resume(path: Path, cfg: dict) -> dict | None:
+    """The saved state of an interrupted run with this exact config, None if there is none. A file written with another config
+    (same run name) stops the run instead of being mixed in."""
+    if not path.exists():
+        return None
+    state = torch.load(path, map_location="cpu", weights_only=True)
+    if state["config"] != cfg:
+        sys.exit(f"{path} was written with a different config (same name!); remove it or use --force")
+    return state
+
+
+def git_state() -> dict:
+    """Commit the code was started from and whether tracked files had uncommitted changes (empty outside a git checkout)."""
+    def git(*a):
+        r = subprocess.run(["git", *a], cwd=C.ROOT, capture_output=True, text=True, timeout=30)
+        return r.stdout.strip() if r.returncode == 0 else None
+    commit = git("rev-parse", "HEAD")
+    return {"commit": commit, "dirty": bool(git("status", "--porcelain", "--untracked-files=no"))} if commit else {}
+
+
 def write_json_atomic(path: Path, obj) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -131,7 +173,7 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default="configs/exp1.yaml")
     ap.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE", help="dotted config overrides, e.g. model.alpha=0.9")
-    ap.add_argument("--force", action="store_true", help="rerun even if results/raw/<name>.json exists")
+    ap.add_argument("--force", action="store_true", help="rerun even if results/raw/<name>.json exists; also discards runs/<name>/resume.pt")
     ap.add_argument("--no-wandb", action="store_true")
     args = ap.parse_args(argv)
 
@@ -151,6 +193,10 @@ def main(argv=None) -> None:
     vocab_size = json.loads((data_dir / "vocab.json").read_text())["size"]
     D.prepare_kinds(data_dir, meta["params"], workers=8)  # no-op when cached
 
+    resume_file = C.ROOT / "runs" / name / "resume.pt"
+    if args.force:
+        resume_file.unlink(missing_ok=True)
+    state = load_resume(resume_file, cfg)
     torch.manual_seed(cfg["seed"])
     rng = np.random.default_rng(cfg["seed"])
     dev = torch.device("cuda")
@@ -160,7 +206,9 @@ def main(argv=None) -> None:
 
     load_wandb_key()
     import wandb
-    run = wandb.init(project=cfg["project"], name=name, group=cfg["experiment"], config={**C.flatten(cfg), "n_params": n_params},
+    run = wandb.init(project=cfg["project"], name=name, group=cfg["experiment"], notes=C.run_description(cfg),
+                     config={**C.flatten(cfg), "n_params": n_params, "reference": C.reference_name(cfg), "diff": C.describe_diff(C.reference_diff(cfg))},
+                     id=state["wandb_id"] if state else None, resume="allow" if state else None,
                      mode="disabled" if args.no_wandb else "online", dir=str(C.ROOT))
     print(f"[{name}] params={n_params:,} wandb={run.url if not args.no_wandb else 'off'}", flush=True)
 
@@ -170,12 +218,24 @@ def main(argv=None) -> None:
         rows = pq.ParquetFile(data_dir / f"n{n}" / "train.parquet").metadata.num_rows
         bounds[n] = (start, start + rows)
         start += rows
-    val = {n: D.load_packed(data_dir / f"n{n}" / "validation.parquet", kinds=True).subset(tc["eval_examples"])
+    val = {n: D.load_packed(data_dir / f"n{n}" / "validation.parquet", kinds=True).subset(eval_examples_for(tc, n))
            for n in tc["eval_ns"]}
     opt = make_optimizer(model, tc)
     model.train()
-    t0, loss_acc, n_acc, last = time.time(), torch.zeros((), device=dev), 0, 0.0
-    for step in range(1, tc["steps"] + 1):
+    loss_acc, n_acc, last, start, elapsed, resumed_at, history = torch.zeros((), device=dev), 0, 0.0, 1, 0.0, [], []
+    if state:
+        model.load_state_dict(state["model"])
+        opt.load_state_dict(state["opt"])
+        rng.bit_generator.state = state["np_rng"]
+        torch.set_rng_state(state["torch_rng"])
+        torch.cuda.set_rng_state(state["cuda_rng"])
+        loss_acc.fill_(state["loss_acc"])
+        n_acc, last, start, elapsed, resumed_at = state["n_acc"], state["last_loss"], state["step"] + 1, state["train_time_s"], [*state["resumed_at_steps"], state["step"]]
+        history = state["history"]
+        print(f"[{name}] resuming from step {state['step']} ({resume_file})", flush=True)
+    git = git_state()  # of this start; a resumed run may have been started from another commit
+    t0 = time.time() - elapsed  # the time of the earlier attempts counts as training time
+    for step in range(start, tc["steps"] + 1):
         for g in opt.param_groups:
             g["lr"] = lr_at(step, tc) * g.get("lr_mult", 1.0)
         ids, labs = D.pad_batch(train, sample_train_indices(rng, tc, bounds, step, len(train), tc["batch_size"]), tc["pad_multiple"])
@@ -201,12 +261,17 @@ def main(argv=None) -> None:
         if step % tc["eval_every"] == 0 or step == tc["steps"]:
             logs = {}
             for n, p in val.items():
-                m = E.evaluate_packed(model, p, dev, amp_dtype=amp)
+                m = evaluate_with_backoff(model, p, dev, PERIODIC_TOKENS_PER_BATCH, amp)
                 logs.update({f"val/n{n}/{k}": m[k] for k in METRICS})
             wandb.log(logs, step=step)
+            history.append({"step": step, "train_loss": last, **logs})  # kept in the result file: the curves do not depend on wandb or on the logs
             print(f"[{name}] step {step} loss {last:.4f} | " + " ".join(
                 f"n{n}: pk {logs[f'val/n{n}/passkey_acc']:.2f} v {logs[f'val/n{n}/ar_valid_acc']:.2f} "
-                f"e {logs[f'val/n{n}/ar_expired_acc']:.2f}" for n in (32, 256, 1024) if n in val), flush=True)
+                f"e {logs[f'val/n{n}/ar_expired_acc']:.2f}" for n in (32, 256, 1024, 4096, 16384) if n in val), flush=True)
+            save_resume(resume_file, {"config": cfg, "step": step, "model": model.state_dict(), "opt": opt.state_dict(),
+                                      "np_rng": rng.bit_generator.state, "torch_rng": torch.get_rng_state(), "cuda_rng": torch.cuda.get_rng_state(),
+                                      "loss_acc": float(loss_acc), "n_acc": n_acc, "last_loss": last, "train_time_s": time.time() - t0,
+                                      "wandb_id": run.id, "resumed_at_steps": resumed_at, "history": history})
     train_time = time.time() - t0
 
     ckpt = C.ROOT / "runs" / name / "model.pt"  # saved before the (long) final evaluation so a failure there cannot lose the model
@@ -221,8 +286,9 @@ def main(argv=None) -> None:
             run.summary.update({f"final/{split}/n{n}/{k}": m[k] for k in METRICS})
         print(f"[{name}] {split}: " + " ".join(f"n{r['N']}:{r['passkey_acc']:.2f}/{r['ar_expired_acc']:.2f}" for r in rows if r["split"] == split), flush=True)
 
-    write_json_atomic(out_json, {"name": name, "config": cfg, "explicit_keys": explicit, "n_params": n_params,
-                                 "final_train_loss": last, "train_time_s": train_time, "rows": rows})
+    write_json_atomic(out_json, C.stamp_diff({"name": name, "config": cfg, "explicit_keys": explicit, "n_params": n_params,
+                                              "final_train_loss": last, "train_time_s": train_time, "resumed_at_steps": resumed_at, "git": git, "val_history": history, "rows": rows}))
+    resume_file.unlink(missing_ok=True)  # the result file is the record now
     run.finish()
     print(f"[{name}] done in {time.time() - t0:.0f}s -> {out_json}", flush=True)
 

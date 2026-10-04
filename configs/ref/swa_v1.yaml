@@ -1,0 +1,40 @@
+# FROZEN reference config 'swa_v1' (a copy of configs/swa.yaml as of 2026-10-04). Never edit this file: every run's stored config is
+# compared against it (src/config.py reference_diff), so a changed reference would silently relabel finished runs. A new recipe gets a new file.
+# Sliding-window attention baseline on passkey_swar (same data, optimiser, steps and evaluation as configs/exp1.yaml).
+# Each layer attends to the current token and the previous window-1 tokens, so information travels at most
+# n_layers * (window - 1) tokens: the AR half is solved by construction when that reach is ~100-130 tokens
+# (valid answers sit <= 92 tokens back, stale writes >= 98 tokens back), and the passkey is unreachable beyond it.
+# Sweep (src/launch.py):  model.window in {32, 64, 128} x model.n_layers in {2, 4} x seed in {0, 1, 2}
+experiment: swa
+project: passkey_swar
+data_dir: data_cache/passkey_swar
+seed: 0
+
+model:
+  kind: swa
+  window: 64               # tokens, including the current one
+  n_layers: 2
+  d_model: 128
+  num_heads: 4             # head dim 32 = d_model / num_heads
+
+train:
+  steps: 30000
+  batch_size: 32
+  train_ns: [32, 64, 128, 256]
+  lr: 1.0e-3
+  betas: [0.9, 0.95]
+  weight_decay: 0.01
+  warmup_steps: 500
+  min_lr_ratio: 0.1
+  grad_clip: 1.0
+  pad_multiple: 256
+  precision: bf16          # flash-attention requires fp16/bf16 (weights stay fp32); the GDN runs were fp32
+  log_every: 50
+  eval_every: 2000
+  eval_examples: 200
+  eval_ns: [32, 64, 128, 256, 512, 1024]
+
+eval:
+  splits: [validation, test]
+  ns: [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+  tokens_per_batch: 262144

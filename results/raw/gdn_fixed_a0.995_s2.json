@@ -335,5 +335,12 @@
    "n_expired_stale": 2029997,
    "n_expired_never": 16507
   }
- ]
+ ],
+ "reference": "gdn_fixed_v1",
+ "diff": {
+  "model.alpha": [
+   1.0,
+   0.995
+  ]
+ }
 }

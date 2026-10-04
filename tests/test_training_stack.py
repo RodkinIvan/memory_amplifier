@@ -271,15 +271,30 @@ class RunLines(unittest.TestCase):
         self.assertEqual(attempts, 1)
         self.assertIn("FAILED myrun", failed)
 
-    def test_out_of_memory_after_training_started_is_not_retried(self):
-        attempts, failed = self.run_script(self.COUNT + 'echo "[myrun] step 2000 loss 0.3"; echo "torch.OutOfMemoryError: CUDA out of memory"; exit 1')
-        self.assertEqual(attempts, 1)
+    def test_out_of_memory_after_training_started_is_retried(self):
+        # train.py resumes from its checkpoint, so a crash in the middle of training is worth another start
+        attempts, failed = self.run_script(self.COUNT + 'if [ $n -lt 1 ]; then echo "[myrun] step 2000 loss 0.3"; echo "torch.OutOfMemoryError: CUDA out of memory"; exit 1; fi\necho resumed')
+        self.assertEqual((attempts, failed), (2, ""))
+
+    def test_gives_up_after_the_attempt_limit(self):
+        attempts, failed = self.run_script(self.COUNT + 'echo "torch.OutOfMemoryError: CUDA out of memory"; exit 1')
+        self.assertEqual(attempts, L.ATTEMPTS)
         self.assertIn("FAILED myrun", failed)
 
-    def test_gives_up_after_three_attempts(self):
-        attempts, failed = self.run_script(self.COUNT + 'echo "torch.OutOfMemoryError: CUDA out of memory"; exit 1')
-        self.assertEqual(attempts, 3)
+    def test_an_earlier_out_of_memory_does_not_make_a_later_failure_retryable(self):
+        attempts, failed = self.run_script(self.COUNT + 'if [ $n -lt 1 ]; then echo "torch.OutOfMemoryError: CUDA out of memory"; else echo "ValueError: bad config"; fi\nexit 1')
+        self.assertEqual(attempts, 2)  # retried once for the OOM, then the ValueError ends it although the log still contains the OOM text
         self.assertIn("FAILED myrun", failed)
+
+    def test_all_attempts_stay_in_the_log(self):
+        import os, subprocess
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            fake = d / "fake.sh"
+            fake.write_text(self.COUNT.replace("DIR", str(d)) + 'echo "attempt $((n+1))"\nif [ $n -lt 1 ]; then echo "CUDA out of memory"; exit 1; fi')
+            log = d / "run.log"
+            subprocess.run(["bash", "-c", "\n".join(L.run_lines(["bash", str(fake)], log, "myrun", d / "failed.txt"))], check=True, env={**os.environ, "RETRY_SLEEP": "0"})
+            self.assertEqual(log.read_text().split("\n")[0:3], ["attempt 1", "CUDA out of memory", "attempt 2"])
 
 
 class WorkerScript(unittest.TestCase):
