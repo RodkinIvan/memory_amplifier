@@ -38,7 +38,7 @@ Plan and rationale: `reports/exp1_plan.md`.
 |---|---|---|
 | 1 | GDN, decay **fixed** to α ∈ {1, .999, .995, .99, .98, .95, .9, .8}, 3 seeds; plot passkey vs expired-AR accuracy | done, `reports/gdn_report.html` |
 | 1b | Sliding-window attention (SWA), window ∈ {32, 64, 128} × layers ∈ {2, 4}, 3 seeds. No decay: forgetting is a hard cutoff, reach R = layers·(window−1) tokens | done, `reports/swa_report.html` |
-| 1c | SWA + **segment feedback loop** (memory amplification): once per segment each layer turns its output into one vector that is added to its input in the next segment. Window 64, segment ∈ {64, 32, 16, 8}, tanh or linear loop, stream-length curriculum; extras: loop noise, 40k steps | done except 4 reruns after GPU out-of-memory failures; `reports/fb_report.html`, exploration in `results/explore/` |
+| 1c | SWA + **segment feedback loop** (memory amplification): once per segment each layer turns its output into one vector that is added to its input in the next segment. Window 64, segment ∈ {64, 32, 16, 8}, tanh or linear loop, stream-length curriculum; extras: loop noise, 40k steps, loop gain 0 instead of 0.1, a plain-SWA control with the same curriculum, an attractor probe | done (2 gain-0 reruns still training); `reports/fb_report.html`, exploration in `results/explore/` |
 | 2 | GDN (learned decay), GDN with eigenvalues in [−1, 1], Mamba-2 | not started |
 | 3 | GDN, 2 heads, per-head α statistics | not started |
 | 4 | attractor cleanup in isolation (numpy/torch) | not started |
@@ -51,9 +51,11 @@ python src/launch.py --config configs/swa.yaml --session swa --gpus 0 1 --procs-
 python src/launch.py --config configs/swa_fb.yaml --session fbsweep --gpus 0 1 --procs-per-gpu 9 \
     --sweep model.nonlin=tanh,none model.segment=64,32,16 seed=0,1,2          # feedback loop; defaults of the yaml = the recipe
 tmux new -d -s fbqueue 'python src/run_queue.py --queue configs/queue.txt --watch fbsweep'   # unattended queue of further sweeps
+#   (a stage starts only with free GPU memory for its workers; add --set model.kv_cache=true to a sweep to cut the loop model's memory 2-4x, same results, no speed-up)
 python src/aggregate.py                                                          # results/summary*.csv + plots
 python src/probes.py passkey-length --runs swa_w128_L4_s0 --out results/probes/x.json   # probes on checkpoints (see --help)
 python src/probes.py profile --runs swa_fb_nltanh_seg64_s2 --ns 256 1024 4096 --out results/probes/passkey_profile.json   # tokens right per stream
+python src/probes.py attractor --runs swa_fb_seg32_noise0.3_nltanh_s0 --out results/probes/attractor_probe.json   # perturb the loop vector, contraction, Jacobian
 python src/report.py swa --out reports/swa_report.html                          # self-contained HTML report (gdn | swa | fb)
 ```
 

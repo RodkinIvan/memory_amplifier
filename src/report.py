@@ -372,6 +372,13 @@ def recipe_gain() -> float:
     return float(C.load_config(C.ROOT / "configs" / "swa_fb.yaml", [])[0]["model"]["gain_init"])
 
 
+def active_logs(logs_root: Path, minutes: float = 30) -> set[str]:
+    """Run names whose training log was written in the last `minutes` minutes (the runs that are still going)."""
+    import time as _t
+    now = _t.time()
+    return {f.stem for f in Path(logs_root).glob("*/swa_fb_*.log") if now - f.stat().st_mtime < minutes * 60}
+
+
 def log_steps(logs_root: Path) -> dict:
     """{run name: {step: {metric: value}}} from the validation lines of the training logs; the newest log of a run name wins."""
     newest: dict[str, Path] = {}
@@ -398,7 +405,7 @@ def gain_comparison(raw: list[dict], gain: float, steps: dict) -> dict | None:
     groups: dict = {}
     for r in raw:
         g = r["cfg"]["model"].get("gain_init")
-        if plain(r) and g in (gain, 0) and gain != 0:
+        if plain(r) and g in (gain, 0, 0.01) and gain != 0:
             groups.setdefault((*_run_key(r), g), []).append(r)
     if not any(k[2] == 0 for k in groups):
         return None
@@ -432,7 +439,7 @@ def gain_comparison(raw: list[dict], gain: float, steps: dict) -> dict | None:
     started = {}
     for nl in nls:
         for s in reversed(segs):
-            for g in (gain, 0):
+            for g in (gain, 0.01, 0):
                 k = (s, nl, g)
                 if k not in groups:
                     continue
@@ -442,8 +449,8 @@ def gain_comparison(raw: list[dict], gain: float, steps: dict) -> dict | None:
                 a2 = ar_at(nl, s, g)
                 rows_html += (f"<tr><td>{lname(nl)}</td><td>{s}</td><td>{gname(g)}</td><td>{st} of {len(rs)}</td><td>{'–' if a2 is None else f'{a2:.2f}'}</td>"
                               f"<td>{pk(k, 256):.2f}</td><td>{pk(k, 1024):.2f}</td><td>{pk(k, 16384):.2f}</td><td>{np.mean([r['final_train_loss'] for r in rs]):.3f}</td></tr>")
-    table = ("<div class='tbl'><table><thead><tr><th>loop</th><th>segment</th><th>initial gain</th><th>loop started (passkey ≥ 0.5 at N = 64)</th><th>AR valid at step 2,000</th>"
-             "<th>passkey N = 256</th><th>N = 1024</th><th>N = 16384</th><th>final train loss</th></tr></thead><tbody>" + rows_html + "</tbody></table></div>")
+    table = ("<div class='tbl'><table><thead><tr><th>loop</th><th>segment</th><th>gain</th><th>loop started</th><th>AR valid, step 2k</th>"
+             "<th>passkey N = 256</th><th>N = 1024</th><th>N = 16384</th><th>train loss</th></tr></thead><tbody>" + rows_html + "</tbody></table></div>")
     best = max((k for k in groups if k[2] == 0), key=lambda k: pk(k, 16384))
     valid_of = lambda r: next(x for x in r["rows"] if x["split"] == "test" and x["N"] == 256)["ar_valid_acc"]
     seed_rows = [(r["seed"], next(x for x in r["rows"] if x["split"] == "test" and x["N"] == n)["passkey_acc"]) for r in sorted(groups[best], key=lambda r: r["seed"]) for n in (16384,)]
@@ -504,15 +511,11 @@ def fb_data() -> tuple[dict, str, str]:
     n_main = sum(len(groups[k]) for k in groups if k[0] in (64, 32, 16) and k[2] == 0 and k[3] == 20000)
     n_extra = len(fb) - n_main
 
-    # ---- runs still going (reruns after out-of-memory failures): newest log per run
+    # ---- runs still going (reruns after out-of-memory failures, long sweeps): every training log without a result file
     prog = sweep_progress(C.ROOT / "logs")
-    done = {r["name"] for r in fb}
-    running = []
-    for (seg, nl), seeds in sorted(prog.items()):
-        for seed, st in sorted(seeds.items()):
-            nm = f"swa_fb_nl{nl}_seg{seg}_s{seed}"
-            if nm not in done:
-                running.append(f"{nm.replace('swa_fb_', '')} (step {max(st):,})")
+    have = {r["name"] for r in raw}
+    live = active_logs(C.ROOT / "logs")
+    running = [f"{nm.replace('swa_fb_', '')} (step {max(st):,})" for nm, st in sorted(steps_log.items()) if nm not in have and nm in live]
 
     # ---- is the segment comparison handicapped by a slow start? AR valid accuracy at N = 256 (validation, 200 examples) from the logs
     def ar_at(seg, step):
@@ -606,7 +609,7 @@ def fb_data() -> tuple[dict, str, str]:
     expl_cur = [r for r in explore if r["cfg"]["train"].get("curriculum_stage_steps", 0) > 0 and r["cfg"]["train"]["passkey_weight"] == 1]
     expl_oth = [r for r in explore if r not in expl_cur]
     v256 = lambda r: next(x for x in r["rows"] if x["N"] == 256)["ar_valid_acc"]
-    rerun_note = f" {len(running)} of the 18 main-grid runs failed with a GPU out-of-memory error and are being rerun; seeds per row are shown in brackets: {', '.join(running)}." if running else ""
+    rerun_note = f" Still training when this page was built: {', '.join(running)}." if running else ""
     tldr = [
         f"<b>The loop works inside the training range.</b> With the stream-length curriculum, a 2-layer window-64 model (reach 126 tokens) that cannot answer the passkey at all ({results['ref']['256']['passkey']:.2f} without the loop) keeps it at N = 256, about 8 times its reach: "
         f"{f2(cell(main(64, 'none'), 256))} for the linear loop and {f2(cell(main(64, 'tanh'), 256))} for the tanh loop at segment 64, with AR valid accuracy {f2(cell(main(64, 'none'), 256, 'valid'))}, the same as the plain window.",
@@ -620,6 +623,61 @@ def fb_data() -> tuple[dict, str, str]:
         f"{f2(cell(main(64, 'tanh'), 4096))} / {f2(cell(main(64, 'tanh'), 8192))} / {f2(cell(main(64, 'tanh'), 16384))} at N = 4096 / 8192 / 16384 (about {hops(16384, 64):,} loop hops at the end), a constant instead of a decay. "
         + (gdn_txt + ". The loop does not beat GDN α = 1 where GDN works (N ≤ 2048), but at N = 16384 GDN is at zero and the tanh loop is not." if gdn_txt else ""),
     ]
+    # ---- the attractor probe (probes.py attractor) and the 12k-step exploration, as tables
+    ap_file = C.ROOT / "results" / "probes" / "attractor_probe.json"
+    attr = json.loads(ap_file.read_text()) if ap_file.exists() else {}
+    all_fb = {r["name"]: r for r in raw if r["cfg"]["model"]["kind"] == "swa_fb"}
+    attr = {n: r for n, r in attr.items() if n in all_fb}
+
+    def run_label(nm):
+        r = all_fb[nm]
+        g = r["cfg"]["model"]["gain_init"]
+        return _fb_label(_fb_key(r), 1).replace(" (1)", "") + ("" if g == rec_gain else f" · gain {g:g}") + f" · seed {r['seed']}"
+
+    extra_html_figs = []
+    if attr:
+        order_a = sorted(attr, key=lambda n: -attr[n]["exact"]["0"])
+        rows_a = "".join(
+            f"<tr><td>{html.escape(run_label(n))}</td><td>{r['exact']['0']:.2f}</td>" + "".join(f"<td>{r['exact'][e]:.2f}</td>" for e in ("0.1", "0.3", "1", "3"))
+            + "".join(f"<td>{r['contraction'].get(k, float('nan')):.3f}</td>" for k in ("1", "16", "64"))
+            + f"<td>{r['jacobian']['sigma_max_mean']:.2f}</td><td>{r['jacobian']['spectral_radius_mean']:.2f}</td><td>{r['drift']['rms']['0.5']:.2f}</td></tr>" for n, r in ((n, attr[n]) for n in order_a))
+        keep = [n for n in order_a if attr[n]["exact"]["0"] >= 0.3]
+        lose = [n for n in order_a if attr[n]["exact"]["0"] < 0.05]
+        a_n = attr[order_a[0]]["n_writes"]
+        keep_txt = lose_txt = ""
+        if keep:
+            r03 = min(attr[n]["exact"]["0.3"] / attr[n]["exact"]["0"] for n in keep)
+            r1 = min(attr[n]["exact"]["1"] / attr[n]["exact"]["0"] for n in keep)
+            c64 = max(attr[n]["contraction"].get("64", float("nan")) for n in keep)
+            rho_k = [attr[n]["jacobian"]["spectral_radius_mean"] for n in keep]
+            keep_txt = (f"In the {len(keep)} probed runs that hold the passkey at N = {a_n:,} ({', '.join(run_label(n) for n in keep)}) a perturbation of 0.3 times the RMS of m leaves at least {r03:.0%} of the clean exact match "
+                        f"and one of 1.0 times the RMS at least {r1:.0%}; the difference to the clean run shrinks to {c64:.1%} of its start within 64 hops at most, and the one-hop Jacobian has a spectral radius of {min(rho_k):.2f} to {max(rho_k):.2f}.")
+        if lose:
+            rho_l = [attr[n]["jacobian"]["spectral_radius_mean"] for n in lose]
+            lose_txt = (f"Contraction alone is not retention: the {len(lose)} probed runs that lose the passkey (clean exact match below 0.05) have spectral radii of {min(rho_l):.2f} to {max(rho_l):.2f}, "
+                        f"and the largest one belongs to a linear loop whose state is large and keeps drifting.")
+        extra_html_figs.append({"title": "9. Is the loop an attractor? Perturbation, contraction and Jacobian of the loop vector",
+                                "sub": f"Fresh streams of N = {a_n:,} writes (100 for the exact match, 16 for the contraction, 4 × 3 positions for the Jacobian). m is perturbed at 25% of the stream, in all layers at once, by Gaussian noise of the given multiple of its own RMS.",
+                                "caption": f"<p>{keep_txt} {lose_txt}</p><p>Two caveats. The Jacobian is the one-hop response of m with the layer inputs of the window held fixed, so it does not include what the 63-token window itself holds, and it is computed in bf16. "
+                                           "The rows are single runs chosen as contrasts, not a sample.</p>",
+                                "spec": None, "html": ("<div class='tbl'><table><thead><tr><th>run</th><th>exact, clean</th><th>×0.1</th><th>×0.3</th><th>×1</th><th>×3</th><th>diff after 1 hop</th><th>16 hops</th><th>64 hops</th>"
+                                                       "<th>σ max</th><th>spectral radius</th><th>RMS of m</th></tr></thead><tbody>" + rows_a + "</tbody></table></div>")})
+        probe_txt = None
+        if keep:
+            probe_txt = (f"<b>The runs that keep the passkey correct perturbations of their loop vector.</b> {keep_txt} {lose_txt} "
+                         "What decides retention is therefore not contraction by itself; a direct test is whether the retaining runs hold one stable state per passkey (decode the passkey from m late in the stream).")
+    explore_rows = ""
+    for r in sorted(explore, key=lambda r: (r["cfg"]["train"].get("curriculum_stage_steps", 0) == 0, r["cfg"]["train"]["passkey_weight"], r["cfg"]["train"].get("passkey_weight_anneal_steps", 0), r["cfg"]["model"]["nonlin"] != "tanh")):
+        tc, mc = r["cfg"]["train"], r["cfg"]["model"]
+        n256 = next(x for x in r["rows"] if x["N"] == 256)
+        n1k = next(x for x in r["rows"] if x["N"] == 1024)
+        recipe = ("curriculum" if tc.get("curriculum_stage_steps", 0) else "no curriculum") + (f", passkey weight {tc['passkey_weight']:g} → 1 over {tc['passkey_weight_anneal_steps'] // 1000}k steps" if tc["passkey_weight"] != 1 else ", no re-weighting")
+        explore_rows += (f"<tr><td>{recipe}</td><td>{'tanh' if mc['nonlin'] == 'tanh' else 'linear'}</td><td>{n256['ar_valid_acc']:.2f}</td><td>{n256['passkey_acc']:.2f}</td><td>{n1k['passkey_acc']:.2f}</td></tr>")
+    if explore_rows:
+        extra_html_figs.append({"title": "10. How the training recipe was chosen: the 12k-step exploration",
+                                "sub": f"{len(explore)} runs, window 64, segment 64, seed 0, validation split.",
+                                "caption": "<p>The curriculum alone is the only recipe that learns the AR half and the passkey together; every run that up-weighted the passkey loss paid with AR accuracy. This is what the main sweep's recipe is based on.</p>",
+                                "spec": None, "html": ("<div class='tbl'><table><thead><tr><th>recipe</th><th>loop</th><th>AR valid, N = 256</th><th>passkey, N = 256</th><th>passkey, N = 1024</th></tr></thead><tbody>" + explore_rows + "</tbody></table></div>")})
     gain_figs, gain_tested = [], None
     if gc:
         sg = (64, 32, 16, 8)
@@ -655,15 +713,18 @@ def fb_data() -> tuple[dict, str, str]:
             {"title": "7. The same at N = 16,384 (about 61k tokens)", "sub": "Same runs and layout as figure 6.",
              "caption": f"<p>The linear loop at segment 8 and gain 0 keeps {f2(gc['pk']((8, 'none', 0), 16384)) if (8, 'none', 0) in gc['groups'] else '–'} of the passkeys at this length; every other configuration is at or below {f2(max(gc['pk'](k, 16384) for k in gc['groups'] if k != (8, 'none', 0)))}.</p>",
              "spec": gc["chart"](16384)},
-            {"title": "8. Did the loop start? Segment, loop type and initial gain", "sub": "Runs per row: the seeds of the main grid (3), or fewer where a run failed.",
+            {"title": "8. Did the loop start? Segment, loop type and initial gain", "sub": "Runs per row: 3 seeds (fewer where a run is missing, one for the gain-0.01 pilot). Loop started = passkey of at least 0.5 at N = 64 on the test split. AR valid, step 2k = AR valid accuracy at N = 256 after 2,000 training steps (validation, mean over the runs of the row).",
              "caption": (f"<p>The recipe gain ({rec_gain:g}) started the loop in {gtot(rec_gain)[0]} of {gtot(rec_gain)[1]} runs and gain 0 in {gtot(0)[0]} of {gtot(0)[1]}: from a zero injection the optimiser has to find the loop, "
-                         "and at small segments often does not. In exchange gain 0 learns the AR half much earlier (column 'AR valid at step 2,000'); the recipe gain delays it the more, the smaller the segment.</p>"),
+                         "and at small segments often does not. In exchange gain 0 learns the AR half much earlier (column 'AR valid, step 2k'); the recipe gain delays it the more, the smaller the segment. "
+                         "The two gain-0.01 pilot runs behave like gain 0: the loop started at segment 64 and not at segment 16.</p>"),
              "spec": None, "html": gc["table"]},
         ]
         gain_tested = {"title": "Gain-0 comparison", "tag": f"{n_g0} runs", "ok": True,
                        "body": "The segment comparison again with the loop gain initialised at 0 instead of the recipe's 0.1 (code review H2): segments 64, 32, 16 and 8, tanh and linear loop, 3 seeds, everything else as in the main sweep. The plain-SWA control with the same curriculum is the reference row."}
     if prof_txt:
         tldr.append(prof_txt + (f" Noise 0.1 does not help ({f2(cell((32, 'tanh', 0.1, 20000), 4096))} at N = 4096)." if has((32, 'tanh', 0.1, 20000)) else ""))
+    if attr and probe_txt:
+        tldr.append(probe_txt)
     if has((64, "tanh", 0.0, 40000)):
         tldr.append(f"<b>Twice the training helps a little and changes no horizon</b> (one seed each). At N = 1024: segment-64 tanh {f2(cell((64, 'tanh', 0.0, 40000), 1024))} (20k steps: {f2(cell(main(64, 'tanh'), 1024))}), "
                     f"segment-32 linear {f2(cell((32, 'none', 0.0, 40000), 1024))} ({f2(cell(main(32, 'none'), 1024))}); the linear loops are still at 0 by N = 4096.")
@@ -719,15 +780,19 @@ def fb_data() -> tuple[dict, str, str]:
              "caption": f"<p>Every linear loop is at {max(cell(k, 4096) for k in groups if k[1] == 'none'):.2f} or less by N = 4096, whatever the segment, noise or training length. Seeds at N = 1024: segment 64 {', '.join(f2(x) for x in per(main(64, 'none'), 1024))}, segment 32 {', '.join(f2(x) for x in per(main(32, 'none'), 1024))}. "
                         f"Training twice as long moves the curve to the right a little (segment 32, 40k steps: {f2(cell((32, 'none', 0.0, 40000), 512))} at N = 512) and the horizon stays at about N = 2048.</p>" if has((32, 'none', 0.0, 40000)) else "",
              "spec": curves("none")},
-        ] + gain_figs + ([{"title": "5. What a lost passkey looks like: tokens right per stream",
+        ] + ([{"title": "5. What a lost passkey looks like: tokens right per stream",
                "sub": "Test streams of finished models, each bar splits the 1,000 streams by how many of the 4 passkey tokens are right (exact match is the darkest part).",
                "caption": "<p>Chance for a single token is 1 in 16. A graded memory leaves many streams with 1 to 3 tokens right; the noise-trained tanh loop at N = 4096 is split into streams that are fully right and streams with nothing right. "
                           "Each token is scored given the true earlier tokens (teacher forcing), so the middle bars slightly overstate how much of a partly lost passkey a model could actually write out; the all-four bar is the exact-match accuracy.</p>",
-               "spec": None, "html": pbars}] if pbars else []),
-        "next": ("<p><b>1. Replicate the noise result before building on it.</b> Segment-32 tanh with noise 0.3 is one seed. Run 3 seeds, add segment 64 and noise 0.2, 0.5 and 1.0, and profile the tokens at N = 16,384.</p>"
-                 "<p><b>2. Find what wipes the passkey in the lost streams.</b> If the loss is all-or-nothing, a specific event destroys the memory. Compare lost and kept streams by passkey position, number of overwrites and query positions.</p>"
-                 "<p><b>3. Attractor cleanup (Exp 4) now has something to be compared with.</b> The tanh loop behaves like a leaky bounded memory; the isolated cleanup experiment (capacity, noise margin, iterations) would say what a better one could reach.</p>"
-                 "<p><b>4. Decisions that are yours.</b> Training on longer streams (n512, n1024) would remove the extrapolation gap by construction and needs new training data; the benchmark change that samples the query density per stream; Exp 2 and Exp 3 are still on hold.</p>"),
+               "spec": None, "html": pbars}] if pbars else []) + gain_figs + extra_html_figs,
+        "next": ("<p><b>1. More seeds where a conclusion depends on one.</b> The linear loop at segment 8 with gain 0 (seeds 0.93, 0.01 and 0.72 at N = 16,384) and the noise-0.3 tanh loop (one seed) both need at least 5 seeds before the "
+                 "segment-size and the noise results are called results. Segment 4 would show whether the trend continues.</p>"
+                 "<p><b>2. Decode the passkey from the loop vector late in the stream.</b> If the retaining runs hold one stable state per passkey, a linear read-out of m at N = 4,096 recovers it, and the runs that forget should not allow that. "
+                 "This is the direct test behind figure 9.</p>"
+                 "<p><b>3. Longer training (the runs have not plateaued) and a selective write.</b> Validation passkey at N = 1,024 was still rising at the end of the 20k and 40k-step runs. The loop vector is an average over the segment; a learned gate or pooling "
+                 "would test the selective re-amplification the hypothesis is about.</p>"
+                 "<p><b>4. A harder task and the decisions that are yours.</b> The passkey is always the first item; a random position, several passkeys, an overwritten passkey and a per-stream query density would force the loop to select. "
+                 "Training on longer streams would remove the extrapolation gap by construction and needs new training data. Exp 2 and Exp 3 are on hold.</p>"),
     }
     return data, "SWA Feedback Loop Report", "Sliding-window attention with a segment feedback loop"
 
