@@ -168,16 +168,18 @@ def long_runs(dgroups: list[dict], std: dict, logs: dict) -> dict | None:
     short20 = {name: std.get((seg, nl, 0.0, 20000, 0.0)) for name, (seg, nl) in h5.items()}
     rows, series = [], []
     colour = {"B": "var(--s2)", "C": "var(--s1)"}
+    named = lambda g: RG.short_label(g) + ("" if "train.steps" in g["diff"] else f", {RG.setting(g, 'train.steps') // 1000}k steps")  # a changed step count is already in the label
     for name, (seg, nl) in h5.items():
         g = loops.get(name)
         if short20[name]:
-            series.append(_series_over_n(short20[name]["runs"], f"{RG.short_label(short20[name])}, 20k steps", f"{name} 20k", colour[name], True))
+            series.append(_series_over_n(short20[name]["runs"], named(short20[name]), f"{name} 20k", colour[name], True))
         if g:
-            series.append(_series_over_n(g["runs"], f"{RG.short_label(g)}, 50k steps", f"{name} 50k", colour[name]))
+            series.append(_series_over_n(g["runs"], named(g), f"{name} 50k", colour[name]))
     for i, g in enumerate(swa):
         series.append(_series_over_n(g["runs"], f"plain SWA, window {RG.setting(g, 'model.window')}", f"W{RG.setting(g, 'model.window')}", f"var(--seq{min(4, i)})"))
     if ctrl20:
         series.append(_series_over_n(ctrl20["runs"], "plain SWA, window 64, 20k steps", "W64 20k", "var(--muted)", True))
+    train_max = max(max(r["cfg"]["train"]["train_ns"]) for g in dgroups for r in g["runs"][:1] if g["kind"] in ("swa", "swa_fb"))  # longest training stream (N)
     for g in [*(short20[n] for n in h5 if short20[n]), *loops.values(), *( [ctrl20] if ctrl20 else []), *swa]:
         rs = g["runs"]
         cells = cells_for_row(rs, "test")
@@ -185,9 +187,9 @@ def long_runs(dgroups: list[dict], std: dict, logs: dict) -> dict | None:
         t = [r["train_time_s"] for r in rs if r.get("train_time_s")]
         reach = RG.reach(g)
         rows.append([html.escape(RG.label(g)), f"{reach:,} tokens" if reach else "loop", f"{rs[0]['n_params'] // 1000}k", "–" if not t else f"{np.mean(t) / 3600:.1f} h",
-                     RG.seeds_text(RG.per_seed(rs, 1024)), RG.seeds_text(RG.per_seed(rs, 4096)), RG.seeds_text(RG.per_seed(rs, 16384)),
+                     RG.seeds_text(RG.per_seed(rs, 256)), RG.seeds_text(RG.per_seed(rs, 1024)), RG.seeds_text(RG.per_seed(rs, 4096)), RG.seeds_text(RG.per_seed(rs, 16384)),
                      "none" if hz is None else f"N = {hz:,}", f2(np.mean(RG.per_seed(rs, 256, "ar_valid_acc")))])
-    table = _table(["configuration", "attention reach", "params", "train time", "passkey N = 1,024, per seed", "N = 4,096", "N = 16,384", "longest N with mean ≥ 0.9", "AR valid, N = 256"], rows, "wide")
+    table = _table(["configuration", "attention reach", "params", "train time", "passkey N = 256, per seed", "N = 1,024", "N = 4,096", "N = 16,384", "longest N with mean ≥ 0.9", "AR valid, N = 256"], rows, "wide")
     figs = [{"key": "long", "title": "50k-step runs against plain windows, passkey against stream length",
              "sub": "Test split, mean over seeds with the seed range as bars. Dashed = the 20k-step runs of the same setup. Grey ramp = plain sliding-window attention with the same curriculum, 50k steps and 2 layers, at windows 64 / 128 / 256 / 512 / 1,024.",
              "caption": "<p>A plain window of W tokens reaches 2(W−1) tokens back, so it can hold the passkey while the stream is shorter than that. The 50k-step runs change only the number of steps (and the cosine schedule that stretches with it) against the 20k-step gain-0 runs.</p>",
@@ -207,17 +209,39 @@ def long_runs(dgroups: list[dict], std: dict, logs: dict) -> dict | None:
                          "sub": f"Per seed ({'solid / dashed alternate' if len(cs) > 2 else 'one line per run'}); 100 streams at N = 4,096 and 32 at N = 16,384, 200 below. B = segment 32 no tanh, C = segment 64 tanh.",
                          "caption": "", "spec": {"series": cs, "xTicks": list(range(0, 50001, 10000)), "x0": 0, "x1": 50000, "xLog": False, "xLabel": "training step", "yLabel": f"validation passkey, N = {n:,}",
                                                  "legendLine": True, "rightPad": 70, "aria": f"Validation passkey at N = {n} during training"}})
-    text = []
+    mean_at = lambda g, n: float(np.mean(RG.per_seed(g["runs"], n)))
+    parts = []
     for name, g in loops.items():
-        rs = g["runs"]
         prev = short20[name]
-        text.append(f"{name} ({RG.short_label(g)}, 50k steps): passkey at N = 1,024 / 4,096 / 16,384 {RG.seeds_text(RG.per_seed(rs, 1024))} | {RG.seeds_text(RG.per_seed(rs, 4096))} | {RG.seeds_text(RG.per_seed(rs, 16384))} (seeds)"
-                    + (f", at 20k steps {RG.seeds_text(RG.per_seed(prev['runs'], 1024))} | {RG.seeds_text(RG.per_seed(prev['runs'], 4096))} | {RG.seeds_text(RG.per_seed(prev['runs'], 16384))}" if prev else ""))
+        parts.append(f"{RG.short_label(g).replace(', ', ', ', 1)} ({len(g['runs'])} seed{'s' if len(g['runs']) != 1 else ''}): passkey at N = 1,024 / 4,096 / 16,384 {RG.seeds_text(RG.per_seed(g['runs'], 1024))} | {RG.seeds_text(RG.per_seed(g['runs'], 4096))} | "
+                     f"{RG.seeds_text(RG.per_seed(g['runs'], 16384))} per seed" + (f", means {mean_at(g, 1024):.2f} / {mean_at(g, 4096):.2f} / {mean_at(g, 16384):.2f} against {mean_at(prev, 1024):.2f} / {mean_at(prev, 4096):.2f} / {mean_at(prev, 16384):.2f} after 20k steps" if prev else ""))
+    swa_txt = ""
     if swa:
-        text.append("plain SWA, 50k steps, longest N with mean passkey ≥ 0.9: " + ", ".join(
-            f"window {RG.setting(g, 'model.window')} (reach {RG.reach(g):,}): " + (lambda hz: "none" if hz is None else f"{hz:,}")(horizon(cells_for_row(g['runs'], 'test'), 'passkey', 0.9)) for g in swa))
-    tldr = "<b>Longer training and larger plain windows (50k steps, gain 0, same curriculum).</b> " + "; ".join(text) + " (figures {fig:long}, {fig:long_table})."
-    return {"figs": figs, "tldr": tldr}
+        wins = []
+        for g in swa:
+            reach, hz = RG.reach(g), horizon(cells_for_row(g["runs"], "test"), "passkey", 0.9)
+            n_in = max([n for n in NS if n * TOKENS_PER_WRITE + 12 <= reach], default=None)
+            wins.append((RG.setting(g, "model.window"), reach, n_in, hz))
+        swa_txt = ("Plain SWA with the same training, window (reach in tokens): longest N with mean passkey ≥ 0.9 " + ", ".join(
+            f"{w} ({r:,}): " + ("none" if hz is None else f"{hz:,}") for w, r, n_in, hz in wins) + ". ")
+        out = [(w, r, n_in, hz) for w, r, n_in, hz in wins if n_in is not None and n_in > train_max]
+        if out and all(hz is not None and hz <= train_max for _, _, _, hz in out):
+            swa_txt += (" ".join(f"Window {w} reaches {r:,} tokens, enough for streams up to N = {n_in:,}, but holds the passkey only up to N = {hz:,}, the longest training stream." for w, r, n_in, hz in out)
+                        + " So a plain window does not extrapolate in length even inside its reach, whereas "
+                        + "; ".join(f"the loop with segment {RG.effective_segment(g)} and a {RG.setting(g, 'model.n_layers') * (RG.setting(g, 'model.window') - 1)}-token attention reach scores {mean_at(g, 1024):.2f} at N = 1,024 (about {round(1024 * TOKENS_PER_WRITE):,} tokens)" for g in loops.values())
+                        + ". ")
+    tldr = ("<b>50k steps instead of 20k (gain 0, same curriculum), and plain windows trained the same way.</b> " + "; ".join(parts) + ". " + swa_txt
+            + " (figures {fig:long}, {fig:long_table}" + (", validation curves {fig:curves1024}" if any(f["key"] == "curves1024" for f in figs) else "") + ".)")
+    # is the loop still improving at the end? validation passkey at N = 1,024, mean of the last 5 evaluations against the 5 before (10k steps each at eval_every 2000)
+    deltas = []
+    for name, g in loops.items():
+        for r in g["runs"]:
+            c = [v for _, v in curve(r, logs, 1024)]
+            if len(c) >= 10:
+                deltas.append((f"{name} seed {r['seed']}", float(np.mean(c[-5:]) - np.mean(c[-10:-5]))))
+    rising = (f"At the end of the 50k-step runs the validation passkey at N = 1,024 (mean of the last 5 evaluations minus the 5 before) changed by "
+              + ", ".join(f"{d:+.2f} ({n})" for n, d in deltas) + f"; it rose by more than 0.05 in {sum(d > 0.05 for _, d in deltas)} of {len(deltas)} runs, so training had not plateaued.") if deltas else ""
+    return {"figs": figs, "tldr": tldr, "rising": rising}
 
 
 def segment_study(std: dict, logs: dict, steps: int = 50000, gain: float = 0.0) -> dict | None:

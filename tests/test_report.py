@@ -250,6 +250,22 @@ class ReportRounds(unittest.TestCase):
         self.assertEqual(keys, ["long", "long_table", "curves1024"])  # the stored history has no N = 4096, so no curves for it
         self.assertIn("50k", out["tldr"])
 
+    def test_the_text_says_a_plain_window_does_not_extrapolate_only_when_the_data_show_it(self):
+        mk = lambda w, pk: [fake_run("swa.yaml", ["model.n_layers=2", "train.steps=50000", "train.curriculum_stage_steps=2000", f"model.window={w}"], s, pk) for s in range(3)]
+        base = [*self.b50, *self.b20]
+        # window 1024 (reach 2,046 tokens = streams up to N = 512) holds the passkey up to N = 256 only: the sentence appears
+        runs = [*base, *mk(1024, {32: 1.0, 64: 1.0, 128: 1.0, 256: 0.98})]
+        groups = RG.diff_groups(runs)
+        std = {RG.standard_key(g): g for g in groups if RG.standard_key(g)}
+        text = RR.long_runs(groups, std, {})["tldr"]
+        self.assertIn("does not extrapolate in length even inside its reach", text)
+        self.assertIn("up to N = 512, but holds the passkey only up to N = 256", text)
+        # the same window holding the passkey at N = 512 (beyond the training streams): no such claim
+        runs = [*base, *mk(1024, {32: 1.0, 64: 1.0, 128: 1.0, 256: 1.0, 512: 0.95})]
+        groups = RG.diff_groups(runs)
+        std = {RG.standard_key(g): g for g in groups if RG.standard_key(g)}
+        self.assertNotIn("does not extrapolate", RR.long_runs(groups, std, {})["tldr"])
+
     def test_validation_curves_come_from_the_stored_history_or_from_the_log(self):
         run = self.b50[0]
         self.assertEqual(RR.curve(run, {}, 1024), [(2000, 0.0), (4000, 0.3), (6000, 0.6)])

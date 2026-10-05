@@ -780,8 +780,8 @@ def fb_data() -> tuple[dict, str, str]:
                  "segment-size and the noise results are called results. Segment 4 would show whether the trend continues.</p>"
                  "<p><b>2. Decode the passkey from the loop vector late in the stream.</b> If the retaining runs hold one stable state per passkey, a linear read-out of m at N = 4,096 recovers it, and the runs that forget should not allow that. "
                  "This is the direct test behind figure {fig:attractor}.</p>"
-                 "<p><b>3. Longer training (the runs have not plateaued) and a selective write.</b> Validation passkey at N = 1,024 was still rising at the end of the 20k and 40k-step runs. The loop vector is an average over the segment; a learned gate or pooling "
-                 "would test the selective re-amplification the hypothesis is about.</p>"
+                 "<p><b>3. Longer training and a selective write.</b> " + (long_["rising"] + " " if long_ and long_.get("rising") else "Validation passkey at N = 1,024 was still rising at the end of the 20k and 40k-step runs. ")
+                 + "The loop vector is an average over the segment; a learned gate or pooling would test the selective re-amplification the hypothesis is about.</p>"
                  "<p><b>4. A harder task and the decisions that are yours.</b> The passkey is always the first item; a random position, several passkeys, an overwritten passkey and a per-stream query density would force the loop to select. "
                  "Training on longer streams would remove the extrapolation gap by construction and needs new training data. Exp 2 and Exp 3 are on hold.</p>"),
     }

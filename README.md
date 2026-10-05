@@ -52,7 +52,7 @@ python src/launch.py --config configs/swa_fb.yaml --session fbsweep --gpus 0 1 -
     --sweep model.nonlin=tanh,none model.segment=64,32,16 seed=0,1,2          # feedback loop; defaults of the yaml = the recipe
 tmux new -d -s fbqueue 'python src/run_queue.py --queue configs/queue.txt --watch fbsweep'   # unattended queue of further sweeps
 #   (a stage starts only with free GPU memory for its workers; add --set model.kv_cache=true to a sweep to cut the loop model's memory 2-4x, same results, no speed-up)
-#   a run that dies with CUDA out-of-memory (also in mid-training) is restarted up to 6 times and resumes from runs/<name>/resume.pt (written at every periodic
+#   a run that dies with CUDA out-of-memory (also in mid-training) is restarted up to 30 times (5 min apart) and resumes from runs/<name>/resume.pt (written at every periodic
 #   validation); to continue stopped runs, kill the old tmux session and launch the same command again. --set train.cuda_graph=true replays one CUDA graph per batch shape
 #   instead of ~130 kernel launches per (segment, layer) call (same results up to rounding, tests/test_graphed.py)
 python src/config.py results/raw/*.json                                          # stamp each result with its diff against the frozen reference configs/ref/*_v1.yaml

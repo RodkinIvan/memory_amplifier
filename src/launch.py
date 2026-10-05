@@ -48,7 +48,8 @@ def worker_header(gpu: int) -> list[str]:
             '[ -f wandb_token ] && export WANDB_API_KEY="$(cat wandb_token)"']
 
 
-ATTEMPTS = 6  # starts of one run (the first one and the retries after an out-of-memory crash)
+ATTEMPTS = 30  # starts of one run (the first one and the retries after an out-of-memory crash); with the 300 s pause below that is about 2.5 h of waiting for memory
+# (6 starts with a 120 s pause were used up in minutes while the GPU stayed full for hours: four 50k-step runs were lost that way on 2026-10-05)
 
 
 def run_lines(cmd: list[str], log: Path, name: str, failed: Path) -> list[str]:
@@ -60,7 +61,7 @@ def run_lines(cmd: list[str], log: Path, name: str, failed: Path) -> list[str]:
     return [f"ok=0; for attempt in $(seq 1 {ATTEMPTS}); do",
             f"  start=$(stat -c %s {q(str(log))} 2>/dev/null || echo 0)",
             f"  {shlex.join(cmd)} >> {q(str(log))} 2>&1 && {{ ok=1; break; }}",
-            f"  if tail -c +$((start + 1)) {q(str(log))} | grep -qi -e OutOfMemoryError -e 'out of memory'; then sleep ${{RETRY_SLEEP:-120}}; else break; fi",
+            f"  if tail -c +$((start + 1)) {q(str(log))} | grep -qi -e OutOfMemoryError -e 'out of memory'; then sleep ${{RETRY_SLEEP:-300}}; else break; fi",
             f"done",
             f"[ $ok = 1 ] || echo FAILED {name} >> {q(str(failed))}"]
 
