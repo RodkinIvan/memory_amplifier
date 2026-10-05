@@ -696,7 +696,8 @@ def fb_data() -> tuple[dict, str, str]:
                     f"segment-32 no-tanh {f2(cell((32, 'none', 0.0, 40000), 1024))} ({f2(cell(main(32, 'none'), 1024))}); the no-tanh loops are still at 0 by N = 4096.")
     logs_c = RR.log_curves(C.ROOT / "logs")
     far = RR.far_propagation({k: g for k, g in std.items()}, ref_runs, rec_gain, logs_c)
-    long_ = RR.long_runs(dgroups, std, logs_c)
+    gdn2_groups = RG.diff_groups([r for r in raw if r["cfg"]["model"]["kind"] == "gdn2"])
+    long_ = RR.long_runs([*dgroups, *gdn2_groups], std, logs_c)
     segs_ = RR.segment_study(std, logs_c)
     if far:
         tldr.insert(1, far["tldr"])

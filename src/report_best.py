@@ -232,7 +232,8 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
                   if "w1024" in results and hz("w1024") is not None and hz("w1024") <= max(tc["train_ns"]) else "")
     started = lambda g: sum(_row(r, 256)["passkey_acc"] > 0.5 for r in g["runs"])
     gdn_m_txt = (f"; GDN-2 with the stock learned decay, trained like our model (50k steps, same curriculum; best of {len(gdn_m)} seed{'s' if len(gdn_m) > 1 else ''}, picked on validation) scores {f2(cell('gdn_m_best', 1024))} / {f2(cell('gdn_m_best', 2048))} / {f2(cell('gdn_m_best', 4096))} / {f2(cell('gdn_m_best', 8192))} "
-                 f"at N = 1,024 / 2,048 / 4,096 / 8,192 and {f2(cell('gdn_m_best', n16))} at N = 16,384") if gdn_m else ""
+                 f"at N = 1,024 / 2,048 / 4,096 / 8,192 and {f2(cell('gdn_m_best', n16))} at N = 16,384; per seed at N = 4,096 it scores {RG.seeds_text(RG.per_seed(gdn_m, 4096))}; the best seed stays above 0.9 up to N = {hz('gdn_m_best') or 0:,}, "
+                 f"our checkpoint up to N = {hz('best') or 0:,}") if gdn_m else ""
     gdn_txt = (f"; GDN α = 1 (441k parameters, 30k steps without the curriculum; best of {len(gdn)} seeds, picked on validation like our checkpoint) scores {f2(cell('gdn_best', 1024))} / {f2(cell('gdn_best', 2048))} / {f2(cell('gdn_best', 4096))} / {f2(cell('gdn_best', 8192))} "
                f"at N = 1,024 / 2,048 / 4,096 / 8,192 and {f2(cell('gdn_best', n16))} at N = 16,384 (mean of its seeds {f2(cell('gdn', 2048))} at N = 2,048)") if "gdn" in results else ""
     gdn_txt += gdn_m_txt
@@ -248,6 +249,7 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
         f"<b>Training is unstable.</b> The setup of the best checkpoint has {seed_note(bg)}. Passkey at N = 256 per seed {RG.seeds_text(RG.per_seed(bg['runs'], 256))} and at N = 16,384 per seed {RG.seeds_text(RG.per_seed(bg['runs'], n16))} "
         f"(seeds {', '.join(str(r['seed']) for r in bg['runs'])}); {sum(x < 0.1 for x in RG.per_seed(bg['runs'], n16))} of {n_seeds(bg)} score below 0.1 at N = 16,384"
         + (f". With 20k steps instead of {steps_k(bg)} the same setup scored {RG.seeds_text(RG.per_seed(a20['runs'], n16))} over its {n_seeds(a20)} seeds (mean {f2(cell('A20', n16))})" if a20 is not None and bg is not a20 else "")
+        + (f". GDN-2 is unstable in the same way: {sum(x >= 0.9 for x in RG.per_seed(gdn_m, 4096))} of {len(gdn_m)} seeds hold the passkey at N = 4,096" if gdn_m else "")
         + ". The runs differ in whether and when the loop switches on and in how far it then carries the passkey, which is the gap between the best checkpoint and the mean lines"
         + (f" (figures {figs_ref(['c1024', 'c16k'])})" if figs_ref(['c1024', 'c16k']) else "") + ".",
     ]

@@ -250,6 +250,17 @@ class ReportRounds(unittest.TestCase):
         self.assertEqual(keys, ["long", "long_table", "curves1024"])  # the stored history has no N = 4096, so no curves for it
         self.assertIn("50k", out["tldr"])
 
+    def test_gdn2_trained_like_the_loop_models_joins_the_long_run_comparison(self):
+        g2 = [fake_run("gdn2.yaml", ["train.steps=50000", "train.curriculum_stage_steps=2000"], s, {256: 1.0, 1024: 1.0, 4096: 1.0 if s == 2 else 0.0, 8192: 0.9 if s == 2 else 0.0}) for s in range(3)]
+        groups = [*self.dgroups, *RG.diff_groups(g2)]
+        out = RR.long_runs(groups, self.std, {})
+        chart = out["figs"][0]["spec"]
+        self.assertIn("GDN-2", [sr["short"] for sr in chart["series"]])
+        self.assertEqual(len(chart["series"]), 1 + 1 + 4 + 1)  # B 20k and 50k, four windows, GDN-2
+        self.assertIn("recurrent state", out["figs"][1]["html"])
+        self.assertIn("GDN-2 (stock learned decay, same training, 563k parameters, 3 seeds)", out["tldr"].replace("441k", "563k"))
+        self.assertIn("0.00 / 0.00 / 1.00", out["tldr"])  # per-seed passkey at N = 4,096
+
     def test_the_text_says_a_plain_window_does_not_extrapolate_only_when_the_data_show_it(self):
         mk = lambda w, pk: [fake_run("swa.yaml", ["model.n_layers=2", "train.steps=50000", "train.curriculum_stage_steps=2000", f"model.window={w}"], s, pk) for s in range(3)]
         base = [*self.b50, *self.b20]

@@ -161,6 +161,8 @@ def long_runs(dgroups: list[dict], std: dict, logs: dict) -> dict | None:
                   and RG.setting(g, "model.n_layers") == 2 and set(g["diff"]) <= {"model.window", "train.steps", "train.curriculum_stage_steps"}),
                  key=lambda g: RG.setting(g, "model.window"))
     loops = {k: g for k, g in loops.items() if g}
+    gdn2 = next((g for g in dgroups if g["kind"] == "gdn2" and RG.setting(g, "train.steps") == 50000 and RG.setting(g, "train.curriculum_stage_steps") == 2000
+                 and set(g["diff"]) <= {"train.steps", "train.curriculum_stage_steps"}), None)  # the recurrent baseline trained like the loop models
     if not loops and not swa:
         return None
     ctrl20 = next((g for g in dgroups if g["kind"] == "swa" and RG.setting(g, "model.window") == 64 and RG.setting(g, "train.steps") == 20000
@@ -177,16 +179,18 @@ def long_runs(dgroups: list[dict], std: dict, logs: dict) -> dict | None:
             series.append(_series_over_n(g["runs"], named(g), f"{name} 50k", colour[name]))
     for i, g in enumerate(swa):
         series.append(_series_over_n(g["runs"], f"plain SWA, window {RG.setting(g, 'model.window')}", f"W{RG.setting(g, 'model.window')}", f"var(--seq{min(4, i)})"))
+    if gdn2:
+        series.append(_series_over_n(gdn2["runs"], "GDN-2 (learned decay), same training", "GDN-2", "var(--ink)", False))
     if ctrl20:
         series.append(_series_over_n(ctrl20["runs"], "plain SWA, window 64, 20k steps", "W64 20k", "var(--muted)", True))
     train_max = max(max(r["cfg"]["train"]["train_ns"]) for g in dgroups for r in g["runs"][:1] if g["kind"] in ("swa", "swa_fb"))  # longest training stream (N)
-    for g in [*(short20[n] for n in h5 if short20[n]), *loops.values(), *( [ctrl20] if ctrl20 else []), *swa]:
+    for g in [*(short20[n] for n in h5 if short20[n]), *loops.values(), *([ctrl20] if ctrl20 else []), *swa, *([gdn2] if gdn2 else [])]:
         rs = g["runs"]
         cells = cells_for_row(rs, "test")
         hz = horizon(cells, "passkey", 0.9)
         t = [r["train_time_s"] for r in rs if r.get("train_time_s")]
         reach = RG.reach(g)
-        rows.append([html.escape(RG.label(g)), f"{reach:,} tokens" if reach else "loop", f"{rs[0]['n_params'] // 1000}k", "–" if not t else f"{np.mean(t) / 3600:.1f} h",
+        rows.append([html.escape(RG.label(g)), f"{reach:,} tokens" if reach else ("recurrent state" if g["kind"] == "gdn2" else "loop"), f"{rs[0]['n_params'] // 1000}k", "–" if not t else f"{np.mean(t) / 3600:.1f} h",
                      RG.seeds_text(RG.per_seed(rs, 256)), RG.seeds_text(RG.per_seed(rs, 1024)), RG.seeds_text(RG.per_seed(rs, 4096)), RG.seeds_text(RG.per_seed(rs, 16384)),
                      "none" if hz is None else f"N = {hz:,}", f2(np.mean(RG.per_seed(rs, 256, "ar_valid_acc")))])
     table = _table(["configuration", "attention reach", "params", "train time", "passkey N = 256, per seed", "N = 1,024", "N = 4,096", "N = 16,384", "longest N with mean ≥ 0.9", "AR valid, N = 256"], rows, "wide")
@@ -215,6 +219,9 @@ def long_runs(dgroups: list[dict], std: dict, logs: dict) -> dict | None:
         prev = short20[name]
         parts.append(f"{RG.short_label(g).replace(', ', ', ', 1)} ({len(g['runs'])} seed{'s' if len(g['runs']) != 1 else ''}): passkey at N = 1,024 / 4,096 / 16,384 {RG.seeds_text(RG.per_seed(g['runs'], 1024))} | {RG.seeds_text(RG.per_seed(g['runs'], 4096))} | "
                      f"{RG.seeds_text(RG.per_seed(g['runs'], 16384))} per seed" + (f", means {mean_at(g, 1024):.2f} / {mean_at(g, 4096):.2f} / {mean_at(g, 16384):.2f} against {mean_at(prev, 1024):.2f} / {mean_at(prev, 4096):.2f} / {mean_at(prev, 16384):.2f} after 20k steps" if prev else ""))
+    if gdn2:
+        parts.append(f"GDN-2 (stock learned decay, same training, {gdn2['runs'][0]['n_params'] // 1000}k parameters, {len(gdn2['runs'])} seeds): passkey at N = 1,024 / 4,096 / 8,192 / 16,384 per seed "
+                     f"{RG.seeds_text(RG.per_seed(gdn2['runs'], 1024))} | {RG.seeds_text(RG.per_seed(gdn2['runs'], 4096))} | {RG.seeds_text(RG.per_seed(gdn2['runs'], 8192))} | {RG.seeds_text(RG.per_seed(gdn2['runs'], 16384))}")
     swa_txt = ""
     if swa:
         wins = []
