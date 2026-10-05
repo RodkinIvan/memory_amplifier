@@ -96,6 +96,16 @@ class SWABuilder(unittest.TestCase):
                                  "expand_v": 1.0, "alpha": 0.9, "allow_neg_eigval": False, "norm_eps": 1e-5}, 40)
         self.assertEqual(sum(p.numel() for p in gdn.parameters()), 441_024)  # unchanged by the refactor
 
+    def test_gdn2_is_the_stock_learned_decay_gdn(self):
+        """kind 'gdn2' keeps the decay parameters that gdn_fixed removes, takes no alpha, and trains from the config like the other kinds."""
+        mc = {"kind": "gdn2", "d_model": 128, "n_layers": 2, "num_heads": 1, "head_dim": 32, "expand_v": 1.0, "allow_neg_eigval": False, "norm_eps": 1e-5}
+        gdn2 = build_from_config(mc, 40)
+        for param in ("a_proj", "A_log", "dt_bias"):
+            self.assertTrue(any(param in n for n, _ in gdn2.named_parameters()), param)
+        self.assertGreater(sum(p.numel() for p in gdn2.parameters()), 441_024)  # the learned gate adds a_proj, A_log, dt_bias
+        with self.assertRaises(ValueError):
+            build_model("gdn2", vocab_size=40, alpha=0.9)
+
     def test_reach_formula(self):
         self.assertEqual(swa_reach(64, 2), 126)
         self.assertEqual(swa_reach(128, 4), 508)

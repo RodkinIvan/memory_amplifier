@@ -1,13 +1,13 @@
-# Exp 2: Gated DeltaNet with the stock LEARNED decay (input-dependent gate, one head of dim 32, 2 layers), same data, optimiser and evaluation as configs/exp1.yaml.
+# Exp 2 ('GDN-2'): Gated DeltaNet with the stock LEARNED decay (input-dependent gate, one head of dim 32, 2 layers), same data, optimiser and evaluation as configs/exp1.yaml.
 # The fixed-alpha baselines of Exp 1 replace the gate by a constant; here nothing is replaced ("pure GDN"). Run it with the recipe of the loop models to compare fairly:
-#   python src/launch.py --config configs/gdn.yaml --session gdn2 --gpus 0 --procs-per-gpu 3 --set train.steps=50000 train.curriculum_stage_steps=2000 --sweep seed=0,1,2
-experiment: gdn
+#   python src/launch.py --config configs/gdn2.yaml --session gdn2 --gpus 0 --procs-per-gpu 3 --set train.steps=50000 train.curriculum_stage_steps=2000 --sweep seed=0,1,2
+experiment: gdn2
 project: passkey_swar
 data_dir: data_cache/passkey_swar
 seed: 0
 
 model:
-  kind: gdn                # gdn_fixed (constant alpha, configs/exp1.yaml) | gdn (stock learned decay)
+  kind: gdn2               # gdn_fixed (constant alpha, configs/exp1.yaml) | gdn2 (stock learned decay, this file)
   d_model: 128
   n_layers: 2
   num_heads: 1

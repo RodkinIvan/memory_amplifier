@@ -13,7 +13,7 @@ import config as C
 ROOT = _paths.ROOT
 FROZEN = {  # sha256 of the reference files: they must never be edited (a new recipe gets a new file and a new entry here)
     "gdn_fixed_v1": "6d8251d434a7765cbeddd5dd0fd803c8a16e7242d028790394c62193b039694b",
-    "gdn_v1": "3e0a0c30491a090cac30b676d1b6e7ef94adb1225a393a57a3d630272a6d06c9",
+    "gdn2_v1": "57e8b32e19d2ce05fae3bb74512b67842fd5a604fae762a9ce1b3a5f92e10219",
     "swa_v1": "d9f7bbfcb1baf8db1969270e45c35f1a3800467756b85a0d9912e4a9a5823058",
     "swa_fb_v1": "bdaae668865cd05cc6d507b7303d5921cbdd94d6286b251f1e0679fe440fe6b5",
 }

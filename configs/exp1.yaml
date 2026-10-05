@@ -6,7 +6,7 @@ data_dir: data_cache/passkey_swar
 seed: 0
 
 model:
-  kind: gdn_fixed          # gdn_fixed (constant alpha) | gdn (learned decay; Exp 2/3)
+  kind: gdn_fixed          # gdn_fixed (constant alpha) | gdn2 (stock learned decay, configs/gdn2.yaml)
   alpha: 1.0
   d_model: 128
   n_layers: 2

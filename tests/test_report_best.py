@@ -104,8 +104,8 @@ class BestReport(unittest.TestCase):
 
     def test_gdn2_trained_like_our_model_is_a_separate_row_and_never_merged_with_the_fixed_alpha_gdn(self):
         def matched(seed, pk):
-            r = fake_run("gdn.yaml", ["train.steps=50000", "train.curriculum_stage_steps=2000"], seed, pk)
-            r["model"], r["alpha"] = "gdn_steps50000_cur2000", float("nan")
+            r = fake_run("gdn2.yaml", ["train.steps=50000", "train.curriculum_stage_steps=2000"], seed, pk)
+            r["model"], r["alpha"] = "gdn2_steps50000_cur2000", float("nan")
             for row in r["rows"]:
                 if row["split"] == "validation":
                     row["passkey_acc"] = pk.get(row["N"], 0.0)

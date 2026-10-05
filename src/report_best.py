@@ -124,7 +124,7 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
     gdn = [r for r in raw if r["model"] == "gdn_fixed" and r["alpha"] == 1.0]
     gdn_best = pick_best_baseline(gdn) if gdn else None
     # GDN-2 (the stock learned decay, no fixed alpha) trained like our model (same curriculum and number of steps): the fair-training comparison
-    gdn_m = next((g["runs"] for g in RG.diff_groups([r for r in raw if r["cfg"]["model"]["kind"] == "gdn"])
+    gdn_m = next((g["runs"] for g in RG.diff_groups([r for r in raw if r["cfg"]["model"]["kind"] == "gdn2"])
                   if RG.setting(g, "train.steps") == 50000 and RG.setting(g, "train.curriculum_stage_steps") == 2000
                   and set(g["diff"]) <= {"train.steps", "train.curriculum_stage_steps"}), [])
     gdn_m_best = pick_best_baseline(gdn_m) if gdn_m else None

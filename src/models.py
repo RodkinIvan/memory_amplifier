@@ -84,7 +84,7 @@ def build_model(kind: str, *, vocab_size: int, d_model: int = 128, n_layers: int
             for m in layer.attn.modules():  # same init fla applies to the children of a stock GatedDeltaNet
                 if m is not layer.attn:
                     model._init_weights(m)
-    elif kind != "gdn":
+    elif kind not in ("gdn", "gdn2"):  # gdn2 = the stock learned decay (the name that appears in run names and wandb)
         raise ValueError(f"unknown model kind {kind!r}")
     return model
 

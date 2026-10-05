@@ -39,7 +39,7 @@ Plan and rationale: `reports/exp1_plan.md`.
 | 1 | GDN, decay **fixed** to α ∈ {1, .999, .995, .99, .98, .95, .9, .8}, 3 seeds; plot passkey vs expired-AR accuracy | done, `reports/gdn_report.html` |
 | 1b | Sliding-window attention (SWA), window ∈ {32, 64, 128} × layers ∈ {2, 4}, 3 seeds. No decay: forgetting is a hard cutoff, reach R = layers·(window−1) tokens | done, `reports/swa_report.html` |
 | 1c | SWA + **segment feedback loop** (memory amplification): once per segment each layer turns its output into one vector that is added to its input in the next segment. Window 64, segment ∈ {64, 32, 16, 8}, tanh or no-tanh loop, stream-length curriculum; extras: loop noise, 40k steps, loop gain 0 instead of 0.1, a plain-SWA control with the same curriculum, an attractor probe | 20k-step sweep done; round 3 (50k steps at gain 0, plain SWA at windows 64–1024, segment study) queued/running, see `configs/queue.txt`; `reports/fb_report.html`, exploration in `results/explore/` |
-| 2 | GDN (learned decay), GDN with eigenvalues in [−1, 1], Mamba-2 | not started |
+| 2 | **GDN-2** = GDN with the stock learned decay (`kind: gdn2`, `configs/gdn2.yaml`), trained like the loop models (50k steps, curriculum); then GDN with eigenvalues in [−1, 1], Mamba-2 | GDN-2 running (3 seeds, session `gdn2`) |
 | 3 | GDN, 2 heads, per-head α statistics | not started |
 | 4 | attractor cleanup in isolation (numpy/torch) | not started |
 
