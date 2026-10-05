@@ -348,10 +348,6 @@
   "model.nonlin": [
    "tanh",
    "none"
-  ],
-  "model.segment": [
-   0,
-   64
   ]
  }
 }

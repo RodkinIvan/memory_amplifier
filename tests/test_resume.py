@@ -161,7 +161,7 @@ class StoredDiff(unittest.TestCase):
     def test_a_run_description_names_the_changes_and_the_schedule(self):
         cfg, _ = C.load_config(REAL_ROOT / "configs" / "swa_fb.yaml", ["model.gain_init=0", "train.steps=50000", "model.segment=32"])
         text = C.run_description(cfg)
-        for part in ("swa_fb_v1", "gain_init 0.1 → 0", "steps 20000 → 50000", "segment 0 → 32", "LAST step (50000)", "curriculum: one stage per 2000 steps"):
+        for part in ("swa_fb_v1", "gain_init 0.1 → 0", "steps 20000 → 50000", "segment 64 → 32", "LAST step (50000)", "curriculum: one stage per 2000 steps"):
             self.assertIn(part, text)
 
 

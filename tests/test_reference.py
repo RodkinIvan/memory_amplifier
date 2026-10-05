@@ -43,8 +43,18 @@ class Diff(unittest.TestCase):
 
     def test_changed_settings_are_listed_with_both_values(self):
         cfg = cfg_of("swa_fb.yaml", "model.gain_init=0", "train.steps=50000", "model.segment=32", "model.nonlin=none")
-        self.assertEqual(C.reference_diff(cfg), {"model.gain_init": [0.1, 0], "model.nonlin": ["tanh", "none"], "model.segment": [0, 32], "train.steps": [20000, 50000]})
-        self.assertEqual(C.describe_diff(C.reference_diff(cfg)), "gain_init 0.1 → 0, nonlin tanh → none, segment 0 → 32, steps 20000 → 50000")
+        self.assertEqual(C.reference_diff(cfg), {"model.gain_init": [0.1, 0], "model.nonlin": ["tanh", "none"], "model.segment": [64, 32], "train.steps": [20000, 50000]})
+        self.assertEqual(C.describe_diff(C.reference_diff(cfg)), "gain_init 0.1 → 0, nonlin tanh → none, segment 64 → 32, steps 20000 → 50000")
+
+    def test_segment_zero_means_one_per_window_so_an_explicit_window_sized_segment_is_no_difference(self):
+        self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml", "model.segment=64")), {})  # review L10
+        self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml", "model.segment=0")), {})
+        self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml", "model.segment=8")), {"model.segment": [64, 8]})
+        # a different window with segment left at 0 moves the segment with it: both entries are told
+        d = C.reference_diff(cfg_of("swa_fb.yaml", "model.window=128"))
+        self.assertEqual(d, {"model.window": [64, 128], "model.segment": [64, 128]})
+        # plain SWA has no segment: nothing is added to its diff
+        self.assertEqual(C.reference_diff(cfg_of("swa.yaml", "model.window=128")), {"model.window": [64, 128]})
 
     def test_seed_logging_and_evaluation_settings_are_not_differences(self):
         cfg = cfg_of("swa_fb.yaml", "seed=2", "experiment=other", "train.eval_every=100", "train.eval_ns=[32]", "train.eval_examples=5",

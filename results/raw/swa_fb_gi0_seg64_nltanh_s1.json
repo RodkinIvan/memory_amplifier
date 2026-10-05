@@ -350,10 +350,6 @@
   "model.gain_init": [
    0.1,
    0
-  ],
-  "model.segment": [
-   0,
-   64
   ]
  }
 }

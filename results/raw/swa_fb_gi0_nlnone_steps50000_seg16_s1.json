@@ -1480,7 +1480,7 @@
    "none"
   ],
   "model.segment": [
-   0,
+   64,
    16
   ],
   "train.steps": [

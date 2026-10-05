@@ -346,10 +346,6 @@
  ],
  "reference": "swa_fb_v1",
  "diff": {
-  "model.segment": [
-   0,
-   64
-  ],
   "train.steps": [
    20000,
    40000

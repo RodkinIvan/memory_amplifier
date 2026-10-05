@@ -52,16 +52,20 @@ ATTEMPTS = 30  # starts of one run (the first one and the retries after an out-o
 # (6 starts with a 120 s pause were used up in minutes while the GPU stayed full for hours: four 50k-step runs were lost that way on 2026-10-05)
 
 
-def run_lines(cmd: list[str], log: Path, name: str, failed: Path) -> list[str]:
+def run_lines(cmd: list[str], log: Path, name: str, failed: Path, gpu: int | None = None, need_gb: float = 0.0) -> list[str]:
     """Shell lines that run one training command. train.py resumes from the checkpoint of its last periodic validation, so a run
     that dies with CUDA out of memory, at the start or in the middle of training (the GPU is shared), is started again after a
     pause, up to ATTEMPTS starts in all. All attempts append to the same log; only the output of the attempt that just ended
-    decides whether it was an out-of-memory crash. Any other failure is not retried and is listed in the failed file."""
+    decides whether it was an out-of-memory crash. Any other failure is not retried and is listed in the failed file.
+    With `gpu` and `need_gb`, a restart also waits until that GPU has `need_gb` free (polling every FREE_POLL seconds, at most FREE_WAIT_MAX), so a worker does not
+    allocate blindly on a GPU that is full of someone else's job (review H10)."""
     q = shlex.quote
+    wait = [] if gpu is None or need_gb <= 0 else [
+        f"waited=0; while [ $(( $(nvidia-smi -i {gpu} --query-gpu=memory.free --format=csv,noheader,nounits | head -1) / 1024 )) -lt {int(-(-need_gb // 1))} ] && [ $waited -lt ${{FREE_WAIT_MAX:-14400}} ]; do sleep ${{FREE_POLL:-60}}; waited=$((waited + ${{FREE_POLL:-60}} + 1)); done"]
     return [f"ok=0; for attempt in $(seq 1 {ATTEMPTS}); do",
             f"  start=$(stat -c %s {q(str(log))} 2>/dev/null || echo 0)",
             f"  {shlex.join(cmd)} >> {q(str(log))} 2>&1 && {{ ok=1; break; }}",
-            f"  if tail -c +$((start + 1)) {q(str(log))} | grep -qi -e OutOfMemoryError -e 'out of memory'; then sleep ${{RETRY_SLEEP:-300}}; else break; fi",
+            f"  if tail -c +$((start + 1)) {q(str(log))} | grep -qi -e OutOfMemoryError -e 'out of memory'; then sleep ${{RETRY_SLEEP:-300}}; " + "; ".join(wait + [":"]) + "; else break; fi",
             f"done",
             f"[ $ok = 1 ] || echo FAILED {name} >> {q(str(failed))}"]
 
@@ -71,7 +75,7 @@ def is_done(job: dict) -> bool:
     return f.exists() and json.loads(f.read_text())["config"] == job["config"]
 
 
-def main() -> None:
+def make_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default="configs/exp1.yaml")
     ap.add_argument("--session", required=True, help="tmux session name (also the logs/ subfolder)")
@@ -81,8 +85,11 @@ def main() -> None:
     ap.add_argument("--procs-per-gpu", type=int, default=2)
     ap.add_argument("--no-wandb", action="store_true", help="pass --no-wandb to every train.py call (smoke tests)")
     ap.add_argument("--dry-run", action="store_true")
-    args = ap.parse_args()
+    return ap
 
+
+def main() -> None:
+    args = make_parser().parse_args()
     jobs = build_jobs(args.config, args.set, args.sweep)
     todo = [j for j in jobs if not is_done(j)]
     print(f"{len(jobs)} runs in the sweep, {len(jobs) - len(todo)} already done, {len(todo)} to run")
@@ -108,7 +115,7 @@ def main() -> None:
         for j in mine:
             cmd = [sys.executable, "src/train.py", "--config", args.config, *(["--no-wandb"] if args.no_wandb else []), "--set", *j["overrides"]]
             log = logdir / f"{j['name']}.log"
-            lines += run_lines(cmd, log, j["name"], logdir / "failed.txt")
+            lines += run_lines(cmd, log, j["name"], logdir / "failed.txt", gpu=gpu, need_gb=C.footprint_gb(j["config"]))
         lines.append(f'echo "worker {w} (gpu {gpu}) finished"')
         script = logdir / f"worker{w}.sh"
         script.write_text("\n".join(lines) + "\n")

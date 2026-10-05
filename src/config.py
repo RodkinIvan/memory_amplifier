@@ -116,13 +116,21 @@ def load_reference(cfg: dict) -> dict:
 def reference_diff(cfg: dict, ref: dict | None = None) -> dict:
     """{dotted key: [reference value, this run's value]} for every setting of `cfg` that differs from its frozen reference,
     apart from IGNORED_KEYS. A key a config lacks counts as the code default, so old configs compare correctly."""
-    a = {**CODE_DEFAULTS, **flatten(ref if ref is not None else load_reference(cfg))}
-    b = {**CODE_DEFAULTS, **flatten(cfg)}
+    a = effective_segment({**CODE_DEFAULTS, **flatten(ref if ref is not None else load_reference(cfg))})
+    b = effective_segment({**CODE_DEFAULTS, **flatten(cfg)})
     return {k: [a.get(k), b.get(k)] for k in sorted(set(a) | set(b)) if not is_ignored(k) and a.get(k) != b.get(k)}
 
 
+def effective_segment(flat: dict) -> dict:
+    """For the loop model, `model.segment` 0 (or absent) means one segment per window: replace it by the window, so a run that sets
+    segment = window explicitly does not differ from the reference, which leaves it at 0 (review L10)."""
+    if flat.get("model.kind") == "swa_fb" and not flat.get("model.segment") and flat.get("model.window"):
+        return {**flat, "model.segment": flat["model.window"]}
+    return flat
+
+
 def describe_diff(diff: dict, none: str = "reference recipe") -> str:
-    """'segment 0 → 32, gain_init 0.1 → 0': model keys first, then train keys, then the rest."""
+    """'segment 64 → 32, gain_init 0.1 → 0': model keys first, then train keys, then the rest."""
     if not diff:
         return none
     order = sorted(diff, key=lambda k: (k.split(".")[0] != "model", k.split(".")[0] != "train", k))
@@ -138,6 +146,19 @@ def run_description(cfg: dict) -> str:
     return (f"{cfg['model']['kind']}, reference {reference_name(cfg)}; differs in: {describe_diff(reference_diff(cfg))}. "
             f"Schedule: {tc['warmup_steps']} warmup steps, then cosine decay to {tc['min_lr_ratio']:g} x lr at the LAST step ({tc['steps']}), "
             f"so a run with more steps is not a shorter run continued. {curriculum}. Seed {cfg['seed']}.")
+
+
+def footprint_gb(cfg: dict) -> float:
+    """GPU memory one training process of this config needs (GB), for gating the queue and for waiting before an out-of-memory restart.
+    Measured with nvidia-smi on the shared GPU (training peak plus the periodic and final evaluation, expandable segments): loop model at segment 8 7.4-8.9,
+    segments 32 and 64 4.5, GDN 3.7-4.5. The segment-16 and plain-SWA values are estimates (between the measured ones). Review H10."""
+    mc = cfg["model"]
+    if mc["kind"] == "swa_fb":
+        seg = mc.get("segment") or mc["window"]
+        return 8.0 if seg <= 8 else 6.5 if seg <= 16 else 5.0
+    if mc["kind"] in ("gdn_fixed", "gdn", "gdn2"):
+        return 4.5
+    return 4.0
 
 
 def stamp_diff(result: dict) -> dict:

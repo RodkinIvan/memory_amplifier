@@ -52,6 +52,8 @@ python src/launch.py --config configs/swa_fb.yaml --session fbsweep --gpus 0 1 -
     --sweep model.nonlin=tanh,none model.segment=64,32,16 seed=0,1,2          # feedback loop; defaults of the yaml = the recipe
 tmux new -d -s fbqueue 'python src/run_queue.py --queue configs/queue.txt --watch fbsweep'   # unattended queue of further sweeps
 #   (a stage starts only with free GPU memory for its workers; add --set model.kv_cache=true to a sweep to cut the loop model's memory 2-4x, same results, no speed-up)
+#   queue stages are gated on the measured per-worker memory (config.footprint_gb: 8 GB at segment 8, 5 GB at segments 32/64; segment-8 stages run at most 2 workers per GPU), and a
+#   worker waits for that much free memory before it restarts a run after an out-of-memory crash
 #   a run that dies with CUDA out-of-memory (also in mid-training) is restarted up to 30 times (5 min apart) and resumes from runs/<name>/resume.pt (written at every periodic
 #   validation); to continue stopped runs, kill the old tmux session and launch the same command again. --set train.cuda_graph=true replays one CUDA graph per batch shape
 #   instead of ~130 kernel launches per (segment, layer) call (same results up to rounding, tests/test_graphed.py)
@@ -82,6 +84,7 @@ data/    make_passkey_swar.py  generator (deterministic, per-example seeds)
 src/     models.py (fixed-decay GDN, sliding-window attention, segment-feedback SWA), data.py, evaluate.py, train.py (resumable), graphed.py (CUDA-graph step),
          launch.py, run_queue.py (unattended queue of sweeps), aggregate.py, probes.py (checkpoint probes on fresh streams), report.py + report_groups.py +
          report_rounds.py (HTML reports; rows = configurations), config.py (configs, run names, diff against the frozen references)
+checkpoints/ the best weights (2.3 MB each, manifest.json with hashes and metrics; `python scripts/backup_checkpoints.py <run>`)
 configs/ experiment YAMLs, configs/ref/ frozen references      reports/ statistics + plans      results/ summary tables, plots, raw per-run json
 tests/   python -m unittest discover -s tests -t .
 ```

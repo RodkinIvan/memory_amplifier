@@ -6,7 +6,9 @@
 Each queue line is `<tmux session> | <arguments of src/launch.py>`; `#` starts a comment. The file is re-read on every
 poll, so lines can be appended while the driver runs. A line is started once (the session name is the key, recorded in
 logs/queue/launched.txt) when at most `--start-below` workers are still alive in the watched + already launched
-sessions and every GPU the stage uses has free memory for all of the stage's workers (`--gb-per-worker` each, at least `--min-free-gb`). launch.py skips runs whose result already exists, so restarting the driver is safe.
+sessions and every GPU the stage uses has free memory for all of the stage's workers (each worker's measured footprint, `config.footprint_gb`, e.g. 8 GB at segment 8 and
+5 GB at segment 32 / 64; at least `--min-free-gb` in all). A stage with an 8 GB footprint gets at most 2 workers per GPU (`MAX_BIG_WORKERS`): the GPU is shared with other
+people's jobs. launch.py skips runs whose result already exists, so restarting the driver is safe.
 """
 from __future__ import annotations
 
@@ -54,9 +56,36 @@ def stage_procs_per_gpu(args: list[str]) -> int:
     return int(args[args.index("--procs-per-gpu") + 1]) if "--procs-per-gpu" in args else 2
 
 
-def memory_needed_gb(args: list[str], gb_per_worker: float, min_free_gb: float) -> float:
-    """Free memory a stage needs on each of its GPUs: every worker grows to several GB, so the gate scales with the worker count."""
-    return max(min_free_gb, gb_per_worker * stage_procs_per_gpu(args))
+MAX_BIG_WORKERS = 2  # workers per GPU for stages whose footprint is BIG_GB or more
+BIG_GB = 8.0
+
+
+def stage_footprint_gb(args: list[str]) -> float | None:
+    """The largest per-worker footprint (GB) among the runs of a stage, from the configs the sweep expands to; None if the arguments cannot be expanded."""
+    sys.path.insert(0, str(ROOT / "src"))
+    try:
+        import config as C
+        import launch as L
+        a = L.make_parser().parse_args(["--session", "x", *args])
+        return max(C.footprint_gb(j["config"]) for j in L.build_jobs(str(ROOT / a.config), a.set, a.sweep))
+    except Exception:  # noqa: BLE001 - an unreadable stage falls back to the --gb-per-worker value
+        return None
+
+
+def limit_workers(args: list[str], footprint: float | None) -> list[str]:
+    """Stages with a big footprint run at most MAX_BIG_WORKERS workers per GPU; returns the (possibly rewritten) launch arguments."""
+    if footprint is None or footprint < BIG_GB or stage_procs_per_gpu(args) <= MAX_BIG_WORKERS:
+        return args
+    out = list(args)
+    out[out.index("--procs-per-gpu") + 1] = str(MAX_BIG_WORKERS)
+    return out
+
+
+def memory_needed_gb(args: list[str], gb_per_worker: float | None, min_free_gb: float) -> float:
+    """Free memory a stage needs on each of its GPUs: the measured footprint of one worker (or `gb_per_worker`, the fallback / override) times the workers per GPU."""
+    foot = stage_footprint_gb(args)
+    per_worker = gb_per_worker if gb_per_worker is not None else (foot if foot is not None else 8.0)
+    return max(min_free_gb, per_worker * stage_procs_per_gpu(limit_workers(args, foot)))
 
 
 def free_gb(gpu: int) -> float | None:
@@ -85,7 +114,7 @@ def main() -> None:
     ap.add_argument("--watch", nargs="*", default=[], help="already running tmux sessions whose workers count as busy")
     ap.add_argument("--start-below", type=int, default=6, help="start the next stage when at most this many workers are alive")
     ap.add_argument("--min-free-gb", type=float, default=12.0, help="start a stage only when each of its GPUs has at least this much free memory")
-    ap.add_argument("--gb-per-worker", type=float, default=8.0, help="free memory required per worker of the stage on each GPU (a training process grows to 5-7.4 GB; measured 7.4 GB at segment 8)")
+    ap.add_argument("--gb-per-worker", type=float, default=None, help="override the measured per-worker footprint (config.footprint_gb) with one value for every stage")
     ap.add_argument("--poll", type=int, default=60, help="seconds between checks")
     ap.add_argument("--dry-run", action="store_true", help="print the stages and exit")
     args = ap.parse_args()
@@ -96,7 +125,8 @@ def main() -> None:
     stamp = lambda: time.strftime("%F %T")  # noqa: E731
     if args.dry_run:
         for session, a in parse_queue(qfile.read_text()):
-            print(f"{session}: launch.py {shlex.join(a)}")
+            foot = stage_footprint_gb(a)
+            print(f"{session}: footprint {foot} GB per worker, needs {memory_needed_gb(a, args.gb_per_worker, args.min_free_gb):.1f} GB per GPU: launch.py {shlex.join(limit_workers(a, foot))}")
         return
 
     while True:
@@ -109,6 +139,7 @@ def main() -> None:
         if pending and can_start(live, args.start_below, {g: free_gb(g) for g in stage_gpus(pending[0][1])},
                                  memory_needed_gb(pending[0][1], args.gb_per_worker, args.min_free_gb)):
             session, a = pending[0]
+            a = limit_workers(a, stage_footprint_gb(a))
             print(f"{stamp()} {live} workers alive -> starting {session}", flush=True)
             r = subprocess.run([sys.executable, str(ROOT / "src" / "launch.py"), "--session", session, *a], cwd=ROOT)
             if r.returncode:  # do not retry forever; the log shows why

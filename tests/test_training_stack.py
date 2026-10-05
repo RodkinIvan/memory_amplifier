@@ -297,6 +297,38 @@ class RunLines(unittest.TestCase):
             self.assertEqual(log.read_text().split("\n")[0:3], ["attempt 1", "CUDA out of memory", "attempt 2"])
 
 
+class RestartWaitsForMemory(unittest.TestCase):
+    """Review H10: after an out-of-memory crash a worker waits until the GPU has the run's footprint free before it starts again."""
+
+    def test_the_restart_waits_for_free_memory_and_does_not_start_blindly(self):
+        import os, subprocess
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "bin").mkdir()
+            # a fake nvidia-smi: reports 1 GB free for the first two readings, then 40 GB
+            (d / "bin" / "nvidia-smi").write_text('#!/usr/bin/env bash\nn=$(cat ' + str(d / "polls") + ' 2>/dev/null || echo 0); echo $((n+1)) > ' + str(d / "polls") + '\n[ $n -lt 2 ] && echo 1024 || echo 40960\n')
+            (d / "bin" / "nvidia-smi").chmod(0o755)
+            fake = d / "fake.sh"
+            fake.write_text('n=$(cat ' + str(d / "count") + ' 2>/dev/null || echo 0); echo $((n+1)) > ' + str(d / "count") + '\n'
+                            'if [ $n -lt 1 ]; then echo "torch.OutOfMemoryError: CUDA out of memory"; exit 1; fi\necho trained\n')
+            lines = L.run_lines(["bash", str(fake)], d / "run.log", "myrun", d / "failed.txt", gpu=3, need_gb=8.0)
+            subprocess.run(["bash", "-c", "\n".join(lines)], check=True, env={**os.environ, "PATH": f"{d / 'bin'}:{os.environ['PATH']}", "RETRY_SLEEP": "0", "FREE_POLL": "0"})
+            self.assertEqual(int((d / "count").read_text()), 2)          # restarted once
+            self.assertGreaterEqual(int((d / "polls").read_text()), 3)   # looked at the GPU until enough was free (two low readings, then a high one)
+            self.assertFalse((d / "failed.txt").exists())
+
+    def test_without_a_gpu_the_restart_does_not_call_nvidia_smi(self):
+        lines = "\n".join(L.run_lines(["true"], Path("/tmp/x.log"), "r", Path("/tmp/f.txt")))
+        self.assertNotIn("nvidia-smi", lines)
+        self.assertIn("nvidia-smi -i 2", "\n".join(L.run_lines(["true"], Path("/tmp/x.log"), "r", Path("/tmp/f.txt"), gpu=2, need_gb=5.0)))
+
+    def test_the_footprint_follows_the_segment_and_the_model(self):
+        cfg = lambda **m: {"model": {"kind": "swa_fb", "window": 64, **m}}
+        self.assertEqual([C.footprint_gb(cfg(segment=s)) for s in (8, 16, 32, 64, 0)], [8.0, 6.5, 5.0, 5.0, 5.0])
+        self.assertEqual(C.footprint_gb({"model": {"kind": "gdn2"}}), 4.5)
+        self.assertEqual(C.footprint_gb({"model": {"kind": "swa", "window": 64}}), 4.0)
+
+
 class WorkerScript(unittest.TestCase):
     def test_header_pins_the_gpu_and_enables_expandable_segments(self):
         head = L.worker_header(3)

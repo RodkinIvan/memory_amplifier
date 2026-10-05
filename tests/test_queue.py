@@ -53,8 +53,29 @@ class GpuGate(unittest.TestCase):
     def test_the_memory_gate_scales_with_the_workers_of_the_stage(self):
         self.assertEqual(Q.stage_procs_per_gpu(["--gpus", "0", "--procs-per-gpu", "4"]), 4)
         self.assertEqual(Q.stage_procs_per_gpu(["--gpus", "0"]), 2)  # launch.py's default
-        self.assertEqual(Q.memory_needed_gb(["--procs-per-gpu", "4"], 7.0, 12.0), 28.0)
+        self.assertEqual(Q.memory_needed_gb(["--procs-per-gpu", "4"], 7.0, 12.0), 28.0)  # an explicit per-worker value overrides the measured footprint
         self.assertEqual(Q.memory_needed_gb(["--procs-per-gpu", "1"], 7.0, 12.0), 12.0)  # never below the floor
+
+    STAGE = ["--config", "configs/swa_fb.yaml", "--gpus", "0", "--set", "model.nonlin=none", "--sweep"]
+
+    def test_the_gate_uses_the_measured_footprint_of_the_stage_not_one_number_for_all(self):
+        """Review H10: segment-8 workers need ~8 GB, segment 32 / 64 ~5 GB; a flat 4.5 GB let stages start on a full GPU."""
+        seg = lambda *segs, procs="2": [*self.STAGE[:-1], "--procs-per-gpu", procs, "--sweep", f"model.segment={','.join(map(str, segs))}", "seed=0,1,2"]
+        self.assertEqual(Q.stage_footprint_gb(seg(8)), 8.0)
+        self.assertEqual(Q.stage_footprint_gb(seg(32)), 5.0)
+        self.assertEqual(Q.stage_footprint_gb(seg(64, 16)), 6.5)   # the largest run of the sweep decides
+        self.assertEqual(Q.stage_footprint_gb(seg(64, 8)), 8.0)
+        self.assertEqual(Q.memory_needed_gb(seg(32, procs="3"), None, 12.0), 15.0)
+        self.assertEqual(Q.memory_needed_gb(seg(8, procs="2"), None, 12.0), 16.0)
+        self.assertEqual(Q.memory_needed_gb(seg(8, procs="2"), 4.5, 12.0), 12.0)  # --gb-per-worker still overrides
+        self.assertEqual(Q.memory_needed_gb(["--config", "does/not/exist.yaml", "--procs-per-gpu", "2"], None, 12.0), 16.0)  # unreadable stage: the 8 GB fallback
+
+    def test_a_segment_8_stage_gets_at_most_two_workers_per_gpu(self):
+        a = [*self.STAGE[:-1], "--procs-per-gpu", "3", "--sweep", "model.segment=8", "seed=0,1,2"]
+        self.assertEqual(Q.stage_procs_per_gpu(Q.limit_workers(a, 8.0)), 2)
+        self.assertEqual(Q.memory_needed_gb(a, None, 12.0), 16.0)  # the gate counts the 2 workers that will run
+        self.assertEqual(Q.limit_workers(a, 5.0), a)                # a smaller footprint keeps its workers
+        self.assertEqual(Q.limit_workers(["--gpus", "0"], 8.0), ["--gpus", "0"])  # default 2 workers: nothing to cut
 
     def test_a_stage_waits_for_workers_and_for_free_memory(self):
         self.assertTrue(Q.can_start(5, 5, {0: 20.0}, 12.0))

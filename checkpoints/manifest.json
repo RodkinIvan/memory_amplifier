@@ -1,0 +1,60 @@
+{
+ "swa_fb_gi0_nlnone_seg8_steps50000_s2": {
+  "bytes": 2263682,
+  "diff_vs_reference": {
+   "model.gain_init": [
+    0.1,
+    0
+   ],
+   "model.nonlin": [
+    "tanh",
+    "none"
+   ],
+   "model.segment": [
+    64,
+    8
+   ],
+   "train.steps": [
+    20000,
+    50000
+   ]
+  },
+  "file": "checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt",
+  "n_params": 563584,
+  "sha256": "63804c2a8855a10c4ad930c6d7ab94cdb0510dba75363a24239ef161b57be743",
+  "test_ar_valid_at_16384": 0.994,
+  "test_passkey": {
+   "1024": 0.999,
+   "16384": 0.993,
+   "256": 1.0,
+   "4096": 0.993
+  }
+ },
+ "swa_fb_gi0_seg8_nlnone_s0": {
+  "bytes": 2263682,
+  "diff_vs_reference": {
+   "model.gain_init": [
+    0.1,
+    0
+   ],
+   "model.nonlin": [
+    "tanh",
+    "none"
+   ],
+   "model.segment": [
+    64,
+    8
+   ]
+  },
+  "file": "checkpoints/swa_fb_gi0_seg8_nlnone_s0.pt",
+  "n_params": 563584,
+  "sha256": "fa53efb66e21e8bc08c02563ce3ce3e85c97f01bd940216e7cda3f6a9df938d7",
+  "test_ar_valid_at_16384": 0.994,
+  "test_passkey": {
+   "1024": 0.984,
+   "16384": 0.928,
+   "256": 0.998,
+   "4096": 0.965
+  }
+ }
+}

@@ -350,10 +350,6 @@
    "tanh",
    "none"
   ],
-  "model.segment": [
-   0,
-   64
-  ],
   "train.steps": [
    20000,
    40000
