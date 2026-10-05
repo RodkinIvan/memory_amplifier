@@ -90,6 +90,8 @@ def structure(group: dict) -> str:
         return f"plain SWA, window {w}, {nl} layers"
     if kind == "swa_fb":
         return f"window {w}, segment {effective_segment(group)}, {'tanh loop' if setting(group, 'model.nonlin') == 'tanh' else 'no-tanh loop'}"
+    if kind == "gdn":
+        return "GDN (learned decay)"
     return f"{kind}, alpha {setting(group, 'model.alpha'):g}"
 
 

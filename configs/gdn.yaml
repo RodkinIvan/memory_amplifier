@@ -1,0 +1,38 @@
+# Exp 2: Gated DeltaNet with the stock LEARNED decay (input-dependent gate, one head of dim 32, 2 layers), same data, optimiser and evaluation as configs/exp1.yaml.
+# The fixed-alpha baselines of Exp 1 replace the gate by a constant; here nothing is replaced ("pure GDN"). Run it with the recipe of the loop models to compare fairly:
+#   python src/launch.py --config configs/gdn.yaml --session gdn2 --gpus 0 --procs-per-gpu 3 --set train.steps=50000 train.curriculum_stage_steps=2000 --sweep seed=0,1,2
+experiment: gdn
+project: passkey_swar
+data_dir: data_cache/passkey_swar
+seed: 0
+
+model:
+  kind: gdn                # gdn_fixed (constant alpha, configs/exp1.yaml) | gdn (stock learned decay)
+  d_model: 128
+  n_layers: 2
+  num_heads: 1
+  head_dim: 32             # key dim = num_heads * head_dim (independent of d_model)
+  expand_v: 1.0            # value dim = key dim * expand_v
+  norm_eps: 1.0e-5         # eps of GDN's output RMSNorm (fla default)
+  allow_neg_eigval: false
+
+train:
+  steps: 30000
+  batch_size: 32           # examples, sampled uniformly from the pooled train configs
+  train_ns: [32, 64, 128, 256]
+  lr: 1.0e-3
+  betas: [0.9, 0.95]
+  weight_decay: 0.01
+  warmup_steps: 500
+  min_lr_ratio: 0.1
+  grad_clip: 1.0
+  pad_multiple: 256        # batches are right-padded to a multiple of this (bounds Triton recompiles)
+  log_every: 50
+  eval_every: 2000
+  eval_examples: 200       # validation examples per config for the periodic eval
+  eval_ns: [32, 64, 128, 256, 512, 1024]
+
+eval:                      # final evaluation
+  splits: [validation, test]
+  ns: [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+  tokens_per_batch: 262144

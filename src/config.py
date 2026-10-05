@@ -83,7 +83,7 @@ def flatten(cfg: dict, prefix: str = "") -> dict:
 # ---- what differs from the reference recipe (review H7) --------------------------------------------------------------------------
 # Every run is labelled by the diff of its stored config against a frozen reference file of its model kind. Run names list only the
 # overrides of one launch (relative to whatever the YAML said then); the diff does not depend on that.
-REFERENCES = {"gdn_fixed": "gdn_fixed_v1", "swa": "swa_v1", "swa_fb": "swa_fb_v1"}  # model.kind -> configs/ref/<name>.yaml (never edited)
+REFERENCES = {"gdn_fixed": "gdn_fixed_v1", "gdn": "gdn_v1", "swa": "swa_v1", "swa_fb": "swa_fb_v1"}  # model.kind -> configs/ref/<name>.yaml (never edited)
 
 # Settings that do not change what is trained or how it is scored: seed, wandb grouping, logging, and the evaluation set / batch.
 # Everything else counts, also implementation switches such as model.kv_cache (equivalent results, but a different config).

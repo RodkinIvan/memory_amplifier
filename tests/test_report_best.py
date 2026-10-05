@@ -95,12 +95,34 @@ class BestReport(unittest.TestCase):
     def test_the_gdn_baseline_is_shown_as_its_best_seed_chosen_on_validation_and_as_the_mean(self):
         data, _, _ = self.build()
         self.assertEqual(B.pick_best_baseline(self.gdn)["seed"], 1)  # best average validation passkey, not seed 0
-        self.assertIn("best seed (1, on validation)", next(r["label"] for r in data["rows"] if r["key"] == "gdn_best"))
+        self.assertIn("best seed (1)", next(r["label"] for r in data["rows"] if r["key"] == "gdn_best"))
         self.assertAlmostEqual(data["results"]["gdn_best"]["2048"]["passkey"], 0.9)
         self.assertAlmostEqual(data["results"]["gdn"]["2048"]["passkey"], (0.2 + 0.9 + 0.0) / 3, places=6)
         text = " ".join(data["tldr"])
         self.assertIn("best of 3 seeds, picked on validation like our checkpoint", text)
         self.assertIn("441k parameters, 30k steps without the curriculum", text)
+
+    def test_gdn2_trained_like_our_model_is_a_separate_row_and_never_merged_with_the_fixed_alpha_gdn(self):
+        def matched(seed, pk):
+            r = fake_run("gdn.yaml", ["train.steps=50000", "train.curriculum_stage_steps=2000"], seed, pk)
+            r["model"], r["alpha"] = "gdn_steps50000_cur2000", float("nan")
+            for row in r["rows"]:
+                if row["split"] == "validation":
+                    row["passkey_acc"] = pk.get(row["N"], 0.0)
+            return r
+        m = [matched(0, {256: 1.0, 1024: 1.0, 4096: 0.6, 16384: 0.1}), matched(1, {256: 1.0, 1024: 0.5})]
+        data, _, _ = B.best_data([*self.runs, *m], {}, [])
+        keys = [r["key"] for r in data["rows"]]
+        self.assertEqual(keys[-4:], ["gdn_best", "gdn", "gdn_m_best", "gdn_m"])
+        self.assertEqual(len(data["results"]["gdn"]["256"]["per"]["passkey"]), 3)  # the 30k-step seeds only
+        self.assertEqual(len(data["results"]["gdn_m"]["256"]["per"]["passkey"]), 2)
+        self.assertAlmostEqual(data["results"]["gdn_m_best"]["4096"]["passkey"], 0.6)  # seed 0: the better validation curve
+        text = " ".join(data["tldr"])
+        self.assertIn("GDN-2 with the stock learned decay, trained like our model (50k steps, same curriculum; best of 2 seeds, picked on validation) scores", text)
+        n_fig = next(f for f in data["extra_figs"] if f["key"] == "n")
+        self.assertIn("GDN-2", [s["short"] for s in n_fig["spec"]["series"]])
+        one, _, _ = B.best_data([*self.runs, m[0]], {}, [])
+        self.assertNotIn("gdn_m", [r["key"] for r in one["rows"]])  # a single seed has no mean row
 
     def test_only_setups_that_exist_are_shown(self):
         no_a50 = [r for r in self.runs if not (r["cfg"]["model"]["kind"] == "swa_fb" and r["cfg"]["model"]["segment"] == 8 and r["cfg"]["train"]["steps"] == 50000)]
