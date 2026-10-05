@@ -122,6 +122,7 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
     train_max_tokens = round(max(tc["train_ns"]) * TOKENS_PER_WRITE + 12)
     tok = lambda n: round(n * TOKENS_PER_WRITE)
     n_seeds = lambda g: len(g["runs"])
+    seeds_lbl = lambda g: f"{n_seeds(g)} seeds" if n_seeds(g) >= 3 else f"{n_seeds(g)} of 3 seeds"  # a setup that still has runs in training says so
     seed_note = lambda g: f"{n_seeds(g)} seed{'s' if n_seeds(g) != 1 else ''}" + ("" if n_seeds(g) >= 3 else " finished, more still training")
     steps_k = lambda g: f"{RG.setting(g, 'train.steps') // 1000}k"
 
@@ -132,7 +133,7 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
     for k, col in (("A50", "--s2"), ("A20", "--s3"), ("B50", "--s1")):
         if k in setups:
             g = setups[k]
-            add(k, f"same setup, mean of {n_seeds(g)} seeds" if g is bg else f"segment {RG.effective_segment(g)}, {steps_k(g)} steps, mean of {n_seeds(g)} seeds", g["runs"], col, f"{RG.label(g)} ({seed_note(g)})")
+            add(k, f"same setup, mean of {seeds_lbl(g)}" if g is bg else f"segment {RG.effective_segment(g)}, {steps_k(g)} steps, mean of {seeds_lbl(g)}", g["runs"], col, f"{RG.label(g)} ({seed_note(g)})")
     if 1024 in swa_g:
         add("w1024", f"plain SWA, window 1024 (reach {RG.reach(swa_g[1024]):,})", swa_g[1024]["runs"], "--muted", RG.label(swa_g[1024]))
     if 64 in swa_g:
@@ -150,8 +151,8 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
     for k, col in (("A50", "var(--s2)"), ("A20", "var(--s3)"), ("B50", "var(--s1)")):
         if k in setups:
             g = setups[k]
-            series.append(over_n(g["runs"], f"segment {RG.effective_segment(g)}, {steps_k(g)} steps, mean of {n_seeds(g)} seeds (bars: worst to best seed)", col, dashed=True, width=2.2,
-                                 short=f"seg {RG.effective_segment(g)} {steps_k(g)} mean"))
+            series.append(over_n(g["runs"], f"segment {RG.effective_segment(g)}, {steps_k(g)} steps, mean of {seeds_lbl(g)} (bars: worst to best seed)", col, dashed=True, width=2.2,
+                                 short=f"{steps_k(g)} avg" if RG.effective_segment(g) == seg else f"seg {RG.effective_segment(g)} avg"))
     if 1024 in swa_g:
         series.append(over_n(swa_g[1024]["runs"], f"plain SWA, window 1024 (reach {RG.reach(swa_g[1024]):,} tokens)", "var(--muted)", width=2.2, short="SWA W1024"))
     if 64 in swa_g:
@@ -169,7 +170,7 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
         for k, col in (("A50", "var(--s2)"), ("A20", "var(--s3)"), ("B50", "var(--s1)")):
             if k in setups and (with20 or k == "A50"):
                 g = setups[k]
-                m = mean_curve(g["runs"], logs, n, f"segment {RG.effective_segment(g)}, {steps_k(g)} steps, mean of {n_seeds(g)} seeds (bars: worst to best)", col, dashed=True, short=f"seg {RG.effective_segment(g)} {steps_k(g)} mean")
+                m = mean_curve(g["runs"], logs, n, f"segment {RG.effective_segment(g)}, {steps_k(g)} steps, mean of {seeds_lbl(g)} (bars: worst to best)", col, dashed=True, short=f"{steps_k(g)} avg" if RG.effective_segment(g) == seg else f"seg {RG.effective_segment(g)} avg")
                 if m:
                     sr.append(m)
         for r in bg["runs"]:
