@@ -95,14 +95,16 @@ ul.tight { margin: 4px 0 10px; padding-left: 1.2em; display: grid; gap: 4px; max
     <ol id="tldr"></ol>
   </section>
 
-  <h2>What was tested</h2>
+  <div id="intro"></div>
+
+  <h2 id="tested-h">What was tested</h2>
   <div class="two" id="tested"></div>
 
-  <h2>Results</h2>
+  <h2 id="results-h">Results</h2>
   <p id="results-intro"></p>
 
-  <figure>
-    <div class="fig-title">1. Accuracy by configuration and stream length</div>
+  <figure id="fig1-fig">
+    <div class="fig-title" id="fig1-title">1. Accuracy by configuration and stream length</div>
     <p class="fig-sub" id="fig1-sub"></p>
     <div class="hm-scroll chart" id="hm-passkey"></div>
     <div class="hm-scroll chart" id="hm-valid"></div>
@@ -111,7 +113,7 @@ ul.tight { margin: 4px 0 10px; padding-left: 1.2em; display: grid; gap: 4px; max
     <details><summary>Table view</summary><div class="tbl" id="tbl1"></div></details>
   </figure>
 
-  <figure>
+  <figure id="fig2-fig">
     <div class="fig-title">2. The requested trade-off plot: passkey vs expired-query accuracy</div>
     <p class="fig-sub" id="fig2-sub"></p>
     <div class="panels chart" id="scatter"></div>
@@ -121,7 +123,7 @@ ul.tight { margin: 4px 0 10px; padding-left: 1.2em; display: grid; gap: 4px; max
 
   <div id="extra-figs"></div>
 
-  <h2>What is next</h2>
+  <h2 id="next-h">What is next</h2>
   <div id="next"></div>
 </div>
 <div id="tip" role="tooltip"></div>
@@ -282,25 +284,32 @@ function renderCharts() {
   heatmap($('#hm-passkey'), 'passkey', 'Passkey exact match', r => `${r.n_examples} examples per seed`);
   heatmap($('#hm-valid'), 'valid', DATA.valid_title, r => `${r.n_valid.toLocaleString()} queries per seed`);
   heatmap($('#hm-stale'), 'stale', DATA.stale_title, r => `${r.n_stale.toLocaleString()} queries per seed`);
-  $('#scatter').innerHTML = '';
-  DATA.scatter_ns.forEach(n => scatter($('#scatter'), n));
+  if (!DATA.hide_scatter) { $('#scatter').innerHTML = ''; DATA.scatter_ns.forEach(n => scatter($('#scatter'), n)); }
   DATA.extra_figs.forEach((f, i) => { if (f.spec) lineChart($('#ch-' + i), $('#lg-' + i), f.spec); });  // a figure may carry html instead of a line chart
 }
 
 function fillText() {
   $('#meta').innerHTML = DATA.meta;
   $('#tldr').innerHTML = DATA.tldr.map(t => `<li>${t}</li>`).join('');
+  $('#intro').innerHTML = DATA.intro || '';  // optional block between the summary and the cards (a method description with its own figures)
+  $('#tested-h').textContent = DATA.tested_title || 'What was tested'; $('#results-h').textContent = DATA.results_title || 'Results'; $('#next-h').textContent = DATA.next_title || 'What is next';
+  if (DATA.fig1_title) $('#fig1-title').textContent = DATA.fig1_title;
+  if (DATA.hide_scatter) $('#fig2-fig').remove();
   $('#tested').innerHTML = DATA.tested.map(c => `<div class="card"><h3>${c.title} <span class="tag ${c.ok ? 'ok' : ''}">${esc(c.tag)}</span></h3><p>${c.body}</p></div>`).join('');
+  if (!DATA.tested.length) { $('#tested-h').remove(); $('#tested').remove(); }
   $('#results-intro').innerHTML = DATA.results_intro;
-  $('#fig1-sub').innerHTML = DATA.fig1_sub; $('#fig2-sub').innerHTML = DATA.fig2_sub;
-  $('#cap1').innerHTML = DATA.cap1; $('#cap2').innerHTML = DATA.cap2;
+  $('#fig1-sub').innerHTML = DATA.fig1_sub;
+  $('#cap1').innerHTML = DATA.cap1;
+  if (!DATA.hide_scatter) { $('#fig2-sub').innerHTML = DATA.fig2_sub; $('#cap2').innerHTML = DATA.cap2; }
   $('#next').innerHTML = DATA.next;
   const rows = [];
   ROWS.forEach(row => NS.forEach(n => { const r = cell(row.key, n); if (r) rows.push([row.label, n, fmt2(r.passkey), fmt2(r.valid), fmt2(r.stale), fmt2(r.expired), r.n_stale]); }));
   $('#tbl1').innerHTML = table([DATA.row_name, 'N', 'passkey', 'ar_valid', 'expired (stale)', 'expired (all)', '# stale queries per seed'], rows);
-  const rows2 = [];
-  DATA.scatter_ns.forEach(n => ROWS.forEach(row => { const r = cell(row.key, n); if (r) rows2.push([n, row.label, fmt2(r.expired), fmt2(r.passkey), fmt2(r.valid)]); }));
-  $('#tbl2').innerHTML = table(['N', DATA.row_name, 'expired acc', 'passkey', 'ar_valid'], rows2);
+  if (!DATA.hide_scatter) {
+    const rows2 = [];
+    DATA.scatter_ns.forEach(n => ROWS.forEach(row => { const r = cell(row.key, n); if (r) rows2.push([n, row.label, fmt2(r.expired), fmt2(r.passkey), fmt2(r.valid)]); }));
+    $('#tbl2').innerHTML = table(['N', DATA.row_name, 'expired acc', 'passkey', 'ar_valid'], rows2);
+  }
   $('#extra-figs').innerHTML = DATA.extra_figs.map((f, i) => `
     <figure>
       <div class="fig-title">${f.title}</div>

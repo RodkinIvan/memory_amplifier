@@ -60,7 +60,8 @@ python src/aggregate.py                                                         
 python src/probes.py passkey-length --runs swa_w128_L4_s0 --out results/probes/x.json   # probes on checkpoints (see --help)
 python src/probes.py profile --runs swa_fb_nltanh_seg64_s2 --ns 256 1024 4096 --out results/probes/passkey_profile.json   # tokens right per stream
 python src/probes.py attractor --runs swa_fb_seg32_noise0.3_nltanh_s0 --out results/probes/attractor_probe.json   # perturb the loop vector, contraction, Jacobian
-python src/report.py swa --out reports/swa_report.html                          # self-contained HTML report (gdn | swa | fb)
+python src/report.py swa --out reports/swa_report.html                          # self-contained HTML report (gdn | swa | fb | best)
+python src/report.py best --out reports/best_report.html                        # presentation sub-report: the method, the best checkpoint, seed-average lines
 ```
 
 wandb run names are `<model>_<overridden hyperparameters>_s<seed>`, e.g. `gdn_fixed_a0.95_s1`. The wandb key is read from a

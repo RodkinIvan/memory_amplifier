@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -164,3 +165,19 @@ def horizon(cells: dict, key: str = "passkey", thr: float = 0.9):
     """Largest N whose seed-mean `key` is at least thr (None if there is none)."""
     ok = [n for n in NS if cells[str(n)][key] is not None and cells[str(n)][key] >= thr]
     return max(ok) if ok else None
+
+
+def number_figures(data: dict, first: int = 3) -> dict:
+    """Number the extra figures in order from `first` and replace {fig:key} references in all text by the number of that figure."""
+    nums = {}
+    for i, f in enumerate(data["extra_figs"], start=first):
+        f["title"] = f"{i}. " + re.sub(r"^\d+\.\s*", "", f["title"])
+        if f.get("key"):
+            nums[f["key"]] = i
+    text = json.dumps(data)
+    for key, i in nums.items():
+        text = text.replace("{fig:%s}" % key, str(i))
+    left = re.findall(r"\{fig:[^}]*\}", text)
+    if left:
+        raise ValueError(f"references to figures that do not exist: {sorted(set(left))}")
+    return json.loads(text)

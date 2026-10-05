@@ -4,6 +4,7 @@
     python src/report.py gdn --out reports/gdn_report.html
     python src/report.py swa --out reports/swa_report.html
     python src/report.py fb --out reports/fb_report.html     # SWA + segment feedback loop (also reads logs/fbsweep for runs in progress)
+    python src/report.py best --out reports/best_report.html # presentation sub-report: the method and the best checkpoint
 
 All numbers in the text are computed from the data; the template is reports/report_template.html.
 """
@@ -26,7 +27,7 @@ import data as D  # noqa: E402
 import probes as P  # noqa: E402
 import report_groups as RG  # noqa: E402
 import report_rounds as RR  # noqa: E402
-from report_groups import NS, _nn, cells_for_row, horizon  # noqa: E402,F401
+from report_groups import NS, _nn, cells_for_row, horizon, number_figures  # noqa: E402,F401
 
 TEMPLATE = C.ROOT / "reports" / "report_template.html"
 TOKENS_PER_WRITE = 3.75  # 3 tokens per write plus its share (0.25 per write) of 3-token queries
@@ -429,22 +430,6 @@ def gain_comparison(raw: list[dict], gain: float, steps: dict) -> dict | None:
             "best_valid": [valid_of(r) for r in sorted(groups[best], key=lambda r: r["seed"])]}
 
 
-def number_figures(data: dict, first: int = 3) -> dict:
-    """Number the extra figures in order from `first` and replace {fig:key} references in all text by the number of that figure."""
-    nums = {}
-    for i, f in enumerate(data["extra_figs"], start=first):
-        f["title"] = f"{i}. " + re.sub(r"^\d+\.\s*", "", f["title"])
-        if f.get("key"):
-            nums[f["key"]] = i
-    text = json.dumps(data)
-    for key, i in nums.items():
-        text = text.replace("{fig:%s}" % key, str(i))
-    left = re.findall(r"\{fig:[^}]*\}", text)
-    if left:
-        raise ValueError(f"references to figures that do not exist: {sorted(set(left))}")
-    return json.loads(text)
-
-
 def fb_data() -> tuple[dict, str, str]:
     raw = A.load_runs(C.ROOT / "results" / "raw")
     # runs of the recipe (the loop gain of configs/swa_fb.yaml); runs with another gain are a separate comparison and must not merge into these rows
@@ -791,9 +776,13 @@ def fb_data() -> tuple[dict, str, str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("kind", choices=["gdn", "swa", "fb"])
+    ap.add_argument("kind", choices=["gdn", "swa", "fb", "best"])
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
+    if a.kind == "best":
+        import report_best  # the presentation sub-report (method and best checkpoint)
+        render(*report_best.best_data(), a.out)
+        return
     render(*{"gdn": gdn_data, "swa": swa_data, "fb": fb_data}[a.kind](), a.out)
 
 
