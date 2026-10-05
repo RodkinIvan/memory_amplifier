@@ -36,7 +36,7 @@ def make_packed(p: G.GenParams, n_writes: int, n_examples: int, split_seed: int 
     ids, labs, types, kinds, offs, toffs = [], [], [], [], [0], [0]
     for i in range(n_examples):
         t, l, ty = G.make_example(G.example_seed(split_seed, n_writes, i), n_writes, p)
-        _, _, k, _ = S.oracle(np.asarray(t, np.int16), p.w, p.n_keys, p.n_values)
+        _, _, k, _ = S.oracle(np.asarray(t, np.int16), p.w, p.n_keys, p.n_values, p.passkey_len)
         ids += t
         labs += l
         types += ty

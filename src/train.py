@@ -33,7 +33,7 @@ import evaluate as E  # noqa: E402
 from graphed import GraphedTrainStep  # noqa: E402
 from models import build_from_config  # noqa: E402
 
-METRICS = ("passkey_acc", "ar_valid_acc", "ar_expired_acc", "ar_expired_stale_acc", "ar_expired_never_acc")
+METRICS = ("passkey_acc", "passkey_token_acc", "ar_valid_acc", "ar_expired_acc", "ar_expired_stale_acc", "ar_expired_never_acc")
 
 
 def load_wandb_key() -> None:
@@ -194,8 +194,7 @@ def main(argv=None) -> None:
         return
 
     mc, tc, ec = cfg["model"], cfg["train"], cfg["eval"]
-    data_dir = Path(cfg["data_dir"])
-    data_dir = data_dir if data_dir.is_absolute() else C.ROOT / data_dir
+    data_dir = C.data_dir_for(cfg)
     meta = json.loads((data_dir / "gen_meta.json").read_text())
     vocab_size = json.loads((data_dir / "vocab.json").read_text())["size"]
     D.prepare_kinds(data_dir, meta["params"], workers=8)  # no-op when cached
@@ -208,6 +207,10 @@ def main(argv=None) -> None:
     rng = np.random.default_rng(cfg["seed"])
     dev = torch.device("cuda")
     model = build_from_config(mc, vocab_size).to(dev)
+    if tc.get("init_from"):  # fine-tune: start from the weights of an earlier run (optimizer, schedule and step count start fresh)
+        init = Path(tc["init_from"])
+        model.load_state_dict(torch.load(init if init.is_absolute() else C.ROOT / init, map_location="cpu", weights_only=True))
+        print(f"[{name}] initialised from {tc['init_from']}", flush=True)
     n_params = sum(p.numel() for p in model.parameters())
     amp = torch.bfloat16 if tc.get("precision", "fp32") == "bf16" else None  # flash-attention models need bf16
 

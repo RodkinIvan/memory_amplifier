@@ -47,7 +47,7 @@ PAD, BOS, EOS, PK, PKQ, W, Q, NULL = range(len(SPECIALS))
 KEY0 = len(SPECIALS)  # first key id; values follow the keys
 TYPE_NAMES = ["passkey", "ar_valid", "ar_expired"]
 PASSKEY, AR_VALID, AR_EXPIRED = range(3)
-PASSKEY_LEN = 4
+PASSKEY_LEN = 4  # the default passkey length; GenParams.passkey_len overrides it (capacity experiments use 8, 16, 32, ...)
 
 ALL_NS = [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
 TRAIN_NS = [32, 64, 128, 256]
@@ -63,6 +63,7 @@ class GenParams:
     drift_rate: float = 0.10  # per-write probability of swapping one active key for an inactive one
     active_min: int = 6
     active_max: int = 8
+    passkey_len: int = PASSKEY_LEN  # tokens of the passkey, each one of n_values values (4 bits at 16 values)
 
     @property
     def val0(self) -> int:
@@ -71,6 +72,15 @@ class GenParams:
     @property
     def vocab_size(self) -> int:
         return KEY0 + self.n_keys + self.n_values
+
+
+def params_dict(p: GenParams) -> dict:
+    """The generation parameters stored in gen_meta.json. `passkey_len` is written only when it is not the default, so the metadata (and the checksums
+    that cover it) of a default dataset stay exactly what they were before the option existed."""
+    d = asdict(p)
+    if d["passkey_len"] == PASSKEY_LEN:
+        del d["passkey_len"]
+    return d
 
 
 def vocab_dict(p: GenParams) -> dict:
@@ -106,7 +116,7 @@ def make_example(seed: int, n_writes: int, p: GenParams):
         perm[i], perm[j] = perm[j], perm[i]
     active, inactive = perm[:m], perm[m:]
 
-    passkey = [val0 + int(rnd() * V) for _ in range(PASSKEY_LEN)]
+    passkey = [val0 + int(rnd() * V) for _ in range(p.passkey_len)]
     toks = [BOS, PK, *passkey]
     labs = [IGNORE] * len(toks)
     types: list[int] = []
@@ -138,7 +148,7 @@ def make_example(seed: int, n_writes: int, p: GenParams):
             types.append(t)
     toks += [PKQ, *passkey, EOS]
     labs += [IGNORE, *passkey, IGNORE]
-    types += [PASSKEY] * PASSKEY_LEN
+    types += [PASSKEY] * p.passkey_len
     return toks, labs, types
 
 
@@ -222,6 +232,7 @@ def main(argv=None):
     ap.add_argument("--drift-rate", type=float, default=d.drift_rate, help="per-write prob. of swapping an active key")
     ap.add_argument("--active-min", type=int, default=d.active_min)
     ap.add_argument("--active-max", type=int, default=d.active_max)
+    ap.add_argument("--passkey-len", type=int, default=d.passkey_len, help="passkey length in tokens (default 4); the sequence is BOS PK p1..pP stream PKQ p1..pP EOS")
     ap.add_argument("--ns", type=int, nargs="+", default=ALL_NS, help="AR write counts (one HF config n{N} each)")
     ap.add_argument("--train-ns", type=int, nargs="+", default=TRAIN_NS)
     ap.add_argument("--train-size", type=int, default=100_000)
@@ -237,7 +248,8 @@ def main(argv=None):
     assert len(set(seeds.values())) == 3, "each split needs its own seed"
     assert set(args.train_ns) <= set(args.ns)
     p = GenParams(args.w, args.n_keys, args.n_values, args.query_rate, args.valid_frac,
-                  args.drift_rate, args.active_min, args.active_max)
+                  args.drift_rate, args.active_min, args.active_max, args.passkey_len)
+    assert p.passkey_len >= 1
     assert p.active_max <= p.n_keys and 1 <= p.active_min <= p.active_max
     assert p.vocab_size < 2**15  # ids are stored as int16
 
@@ -246,7 +258,7 @@ def main(argv=None):
     here = Path(__file__).resolve().parent
     repo_root = here.parent
     meta = {
-        "params": asdict(p), "seeds": seeds, "ns": args.ns, "train_ns": args.train_ns,
+        "params": params_dict(p), "seeds": seeds, "ns": args.ns, "train_ns": args.train_ns,
         "sizes": {"train": args.train_size, "validation": args.eval_size, "test": args.eval_size},
         "generator": git_info(repo_root, ["data/make_passkey_swar.py", "data/sanity_checks.py"]),
         "versions": {"python": sys.version.split()[0], "numpy": np.__version__, "pyarrow": pa.__version__},

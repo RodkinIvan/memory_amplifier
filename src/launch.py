@@ -99,8 +99,7 @@ def main() -> None:
         return
 
     cfg0 = jobs[0]["config"]
-    data_dir = Path(cfg0["data_dir"])
-    data_dir = data_dir if data_dir.is_absolute() else C.ROOT / data_dir
+    data_dir = C.data_dir_for(cfg0)
     D.prepare_kinds(data_dir, json.loads((data_dir / "gen_meta.json").read_text())["params"], workers=32)
 
     workers = [(g, p) for g in args.gpus for p in range(args.procs_per_gpu)]

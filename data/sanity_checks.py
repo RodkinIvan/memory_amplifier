@@ -64,7 +64,7 @@ def merge_stats(a: dict, b: dict) -> dict:
     return out
 
 
-def oracle(ids: np.ndarray, w: int, n_keys: int, n_values: int):
+def oracle(ids: np.ndarray, w: int, n_keys: int, n_values: int, passkey_len: int = G.PASSKEY_LEN):
     """Brute-force re-derivation from input_ids alone.
 
     Returns (labels, answer_type codes, kind codes, per-example stats). `kind` refines `answer_type` by splitting
@@ -73,9 +73,10 @@ def oracle(ids: np.ndarray, w: int, n_keys: int, n_values: int):
     key0, val0 = G.KEY0, G.KEY0 + n_keys
     t = ids.tolist()
     n = len(t)
-    if not (n >= 12 and t[0] == G.BOS and t[1] == G.PK and t[-1] == G.EOS):
+    P = passkey_len
+    if not (n >= 2 * P + 4 and t[0] == G.BOS and t[1] == G.PK and t[-1] == G.EOS):
         raise OracleError("bad BOS/PK/EOS framing")
-    pk = t[2:6]
+    pk = t[2:2 + P]
     if not all(val0 <= x < val0 + n_values for x in pk):
         raise OracleError("passkey tokens are not value tokens")
     n_w = int(np.count_nonzero(ids == G.W))
@@ -87,7 +88,7 @@ def oracle(ids: np.ndarray, w: int, n_keys: int, n_values: int):
     exp_kinds: list[int] = []
     st = _zero_stats(w)
     w2 = 2 * w
-    c, i, last_q_c = 0, 6, 0
+    c, i, last_q_c = 0, 2 + P, 0
     keys_written, keys_queried = set(), set()
     while i < n and t[i] != G.PKQ:
         tok = t[i]
@@ -153,11 +154,11 @@ def oracle(ids: np.ndarray, w: int, n_keys: int, n_values: int):
             i += 3
         else:
             raise OracleError(f"unexpected token {tok} at {i}")
-    if i >= n or t[i] != G.PKQ or t[i + 1:i + 1 + G.PASSKEY_LEN] != pk or i + 2 + G.PASSKEY_LEN != n:
+    if i >= n or t[i] != G.PKQ or t[i + 1:i + 1 + P] != pk or i + 2 + P != n:
         raise OracleError("bad PKQ tail")
-    exp_lab[i + 1:i + 1 + G.PASSKEY_LEN] = pk
-    exp_types += [G.PASSKEY] * G.PASSKEY_LEN
-    exp_kinds += [0] * G.PASSKEY_LEN
+    exp_lab[i + 1:i + 1 + P] = pk
+    exp_types += [G.PASSKEY] * P
+    exp_kinds += [0] * P
 
     st["examples"], st["tokens"], st["tokens_max"], st["writes"] = 1, n, n, n_w
     st["distinct_keys_queried"], st["distinct_keys_written"] = len(keys_queried), len(keys_written)
@@ -205,7 +206,7 @@ def _verify_group(job):
         try:
             if int(n_writes[r]) != n_expected:
                 raise OracleError("n_writes column mismatch")
-            exp_lab, exp_ty, _, s = oracle(x, p.w, p.n_keys, p.n_values)
+            exp_lab, exp_ty, _, s = oracle(x, p.w, p.n_keys, p.n_values, p.passkey_len)
             if int(s["writes"]) != n_expected:
                 raise OracleError(f"stream has {s['writes']} writes, expected {n_expected}")
             if not np.array_equal(exp_lab, y):
@@ -224,7 +225,7 @@ def _verify_group(job):
             old = int(ym[pos])  # replace the answer by a different, valid-looking token
             xm[pos] = ym[pos] = p.val0 + ((old - p.val0 + 1) % p.n_values) if old >= p.val0 else p.val0
             try:
-                el, ety, _, _ = oracle(xm, p.w, p.n_keys, p.n_values)
+                el, ety, _, _ = oracle(xm, p.w, p.n_keys, p.n_values, p.passkey_len)
                 caught = not (np.array_equal(el, ym) and np.array_equal(ety, ty))
             except OracleError:
                 caught = True

@@ -65,6 +65,7 @@ def evaluate_packed(model, p: D.Packed, device, tokens_per_batch: int = 262144, 
 
     return {
         "passkey_acc": passkey_ok / len(p),
+        "passkey_token_acc": acc(n_ok[PASSKEY], n_tot[PASSKEY]),  # share of single passkey tokens right (teacher forcing); exact match needs all of them
         "ar_valid_acc": acc(n_ok[VALID], n_tot[VALID]),
         "ar_expired_acc": acc(n_ok[STALE] + n_ok[NEVER], n_tot[STALE] + n_tot[NEVER]),
         "ar_expired_stale_acc": acc(n_ok[STALE], n_tot[STALE]),

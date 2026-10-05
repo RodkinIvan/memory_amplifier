@@ -94,7 +94,7 @@ def _kinds_group(job):
     ids = ids.to_numpy()
     out = []
     for r in range(len(offs) - 1):
-        _, ty, kind, _ = S.oracle(ids[offs[r]:offs[r + 1]], params["w"], params["n_keys"], params["n_values"])
+        _, ty, kind, _ = S.oracle(ids[offs[r]:offs[r + 1]], params["w"], params["n_keys"], params["n_values"], params.get("passkey_len", G.PASSKEY_LEN))
         if not np.array_equal(ty, types[toffs[r]:toffs[r + 1]]):
             raise ValueError(f"{path}: oracle disagrees with stored answer_type (row group {rg}, row {r})")
         out.append(kind)
