@@ -38,6 +38,11 @@ def pick_best(runs: list[dict]) -> dict:
     return max(runs, key=lambda r: (_row(r, 16384, "validation")["passkey_acc"], _row(r, 4096, "validation")["passkey_acc"]))
 
 
+def pick_best_baseline(runs: list[dict]) -> dict:
+    """The baseline seed to compare the best checkpoint with, chosen the same way (on the validation split): highest validation passkey averaged over all N."""
+    return max(runs, key=lambda r: float(np.mean([x["passkey_acc"] for x in r["rows"] if x["split"] == "validation"])))
+
+
 def over_n(runs: list[dict], label: str, color: str, dashed: bool = False, width: float = 2.4, short: str = "") -> dict:
     cells = cells_for_row(runs, "test")
     pts = []
@@ -117,6 +122,7 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
     swa_g = {RG.setting(g, "model.window"): g for g in dgroups if g["kind"] == "swa" and RG.setting(g, "train.steps") == 50000 and RG.setting(g, "train.curriculum_stage_steps") == 2000
              and RG.setting(g, "model.n_layers") == 2 and set(g["diff"]) <= {"model.window", "train.steps", "train.curriculum_stage_steps"}}
     gdn = [r for r in raw if r["model"] == "gdn_fixed" and r["alpha"] == 1.0]
+    gdn_best = pick_best_baseline(gdn) if gdn else None
     mc, tc = best["cfg"]["model"], best["cfg"]["train"]
     seg, reach = mc["segment"], mc["n_layers"] * (mc["window"] - 1)
     train_max_tokens = round(max(tc["train_ns"]) * TOKENS_PER_WRITE + 12)
@@ -139,7 +145,8 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
     if 64 in swa_g:
         add("w64", f"plain SWA, window 64 (same size as ours)", swa_g[64]["runs"], "--muted", RG.label(swa_g[64]))
     if gdn:
-        add("gdn", "GDN α = 1 (recurrent), mean of 3 seeds", gdn, "--muted", "gated DeltaNet, no decay, 1 head, 30k steps, 3 seeds")
+        add("gdn_best", f"GDN α = 1, best seed ({gdn_best['seed']}, on validation)", [gdn_best], "--muted", f"{gdn_best['name']}: gated DeltaNet, no decay, 1 head, 30k steps, no curriculum, selected on the validation split")
+        add("gdn", f"GDN α = 1, mean of {len(gdn)} seeds", gdn, "--muted", "gated DeltaNet, no decay, 1 head, 30k steps, no curriculum")
     # same-key lookups used by the text
     cell = lambda key, n, f="passkey": results[key][str(n)][f]
     hz = lambda key: next((n for n in reversed(NS) if cell(key, n) is not None and cell(key, n) >= 0.9), None)
@@ -158,7 +165,8 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
     if 64 in swa_g:
         series.append(over_n(swa_g[64]["runs"], f"plain SWA, window 64 (reach {RG.reach(swa_g[64])} tokens)", "var(--ink-2)", width=2.2, short="SWA W64"))
     if gdn:
-        series.append(over_n(gdn, "GDN α = 1 (mean of 3 seeds)", "var(--ink-2)", dashed=True, width=2.0, short="GDN α=1"))
+        series.append(over_n([gdn_best], f"GDN α = 1, best seed ({gdn_best['seed']})", "var(--ink)", dashed=True, width=2.4, short="GDN best"))
+        series.append(over_n(gdn, f"GDN α = 1, mean of {len(gdn)} seeds", "var(--muted)", dashed=True, width=2.0, short="GDN avg"))
     chart_n = {"series": series, "xTicks": NS, "x0": 32, "x1": 16384, "xLabel": "stream length N (AR writes, log scale; 16,384 writes ≈ 61k tokens)", "yLabel": "passkey exact match (test)", "legendLine": True, "rightPad": 96,
                "vlines": [{"x": max(tc["train_ns"]), "label": "longest training stream", "dy": 0}], "aria": "Passkey accuracy against stream length for the best checkpoint, the setup averages and the baselines"}
 
@@ -213,7 +221,8 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
     sw1024_txt = (f"plain SWA with window 1024 (reach {RG.reach(swa_g[1024]):,} tokens) holds it only up to N = {hz('w1024')} (the longest training stream) and scores {f2(cell('w1024', 512))} at N = 512, though 512 writes (about {tok(512):,} tokens) are inside its reach"
                   if "w1024" in results and hz("w1024") is not None and hz("w1024") <= max(tc["train_ns"]) else "")
     started = lambda g: sum(_row(r, 256)["passkey_acc"] > 0.5 for r in g["runs"])
-    gdn_txt = f"; GDN α = 1 scores {f2(cell('gdn', 512))} at N = 512 and {f2(cell('gdn', n16))} at N = 16,384" if "gdn" in results else ""
+    gdn_txt = (f"; GDN α = 1 (441k parameters, 30k steps without the curriculum; best of {len(gdn)} seeds, picked on validation like our checkpoint) scores {f2(cell('gdn_best', 1024))} / {f2(cell('gdn_best', 2048))} / {f2(cell('gdn_best', 4096))} / {f2(cell('gdn_best', 8192))} "
+               f"at N = 1,024 / 2,048 / 4,096 / 8,192 and {f2(cell('gdn_best', n16))} at N = 16,384 (mean of its seeds {f2(cell('gdn', 2048))} at N = 2,048)") if "gdn" in results else ""
     tldr = [
         f"<b>Method.</b> A sliding-window transformer ({mc['n_layers']} layers, window {mc['window']}, {best['n_params'] // 1000}k parameters) sees only {reach} tokens back. We add <b>segment-level recurrence</b>: once per segment of {seg} tokens every layer compresses "
         f"its outputs into one vector m (RMSNorm, linear map, mean over the segment) and adds it, through a learned per-channel gain, to the input of every token of the next segment. Nothing else changes: the window and the attention are those of plain SWA.",

@@ -35,7 +35,15 @@ class BestReport(unittest.TestCase):
         self.b50 = [fake_run("swa_fb.yaml", ["model.gain_init=0", "model.nonlin=none", "model.segment=32", "train.steps=50000"], s, {256: 1.0, 1024: 0.6}, hist=h) for s in range(3)]
         self.swa = [fake_run("swa.yaml", ["model.n_layers=2", "train.steps=50000", "train.curriculum_stage_steps=2000", f"model.window={w}"], s, {32: 1.0, 256: 0.98 if w == 1024 else 0.0})
                     for w in (64, 1024) for s in range(3)]
-        self.runs = [*self.a50, *self.a20, *self.b50, *self.swa]
+        def gdn(seed, pk):
+            r = fake_run("exp1.yaml", ["model.alpha=1.0"], seed, pk)
+            r["model"], r["alpha"] = "gdn_fixed", 1.0
+            for row in r["rows"]:
+                if row["split"] == "validation":
+                    row["passkey_acc"] = pk.get(row["N"], 0.0)
+            return r
+        self.gdn = [gdn(0, {**{n: 1.0 for n in (32, 64, 128, 256, 512, 1024)}, 2048: 0.2}), gdn(1, {**{n: 1.0 for n in (32, 64, 128, 256, 512, 1024)}, 2048: 0.9}), gdn(2, {256: 1.0})]
+        self.runs = [*self.a50, *self.a20, *self.b50, *self.swa, *self.gdn]
 
     def build(self):
         return B.best_data(self.runs, {}, [])
@@ -51,7 +59,7 @@ class BestReport(unittest.TestCase):
     def test_setup_means_and_baselines_are_rows_and_their_values_are_means_of_the_seeds(self):
         data, _, _ = self.build()
         keys = [r["key"] for r in data["rows"]]
-        self.assertEqual(keys, ["best", "A50", "A20", "B50", "w1024", "w64"])
+        self.assertEqual(keys, ["best", "A50", "A20", "B50", "w1024", "w64", "gdn_best", "gdn"])
         self.assertAlmostEqual(data["results"]["A50"]["16384"]["passkey"], (0.95 + 0.0 + 0.90) / 3, places=6)
         self.assertEqual(data["results"]["A20"]["16384"]["per"]["passkey"], [0.9, 0.0, 0.7])
         self.assertTrue(data["hide_scatter"])
@@ -83,6 +91,16 @@ class BestReport(unittest.TestCase):
         self.assertIn("<svg", data["intro"])
         self.assertIn("one vector per layer and segment", data["intro"])
         self.assertTrue(any(f["key"] == "c1024" for f in data["extra_figs"]))  # validation curves from the stored history
+
+    def test_the_gdn_baseline_is_shown_as_its_best_seed_chosen_on_validation_and_as_the_mean(self):
+        data, _, _ = self.build()
+        self.assertEqual(B.pick_best_baseline(self.gdn)["seed"], 1)  # best average validation passkey, not seed 0
+        self.assertIn("best seed (1, on validation)", next(r["label"] for r in data["rows"] if r["key"] == "gdn_best"))
+        self.assertAlmostEqual(data["results"]["gdn_best"]["2048"]["passkey"], 0.9)
+        self.assertAlmostEqual(data["results"]["gdn"]["2048"]["passkey"], (0.2 + 0.9 + 0.0) / 3, places=6)
+        text = " ".join(data["tldr"])
+        self.assertIn("best of 3 seeds, picked on validation like our checkpoint", text)
+        self.assertIn("441k parameters, 30k steps without the curriculum", text)
 
     def test_only_setups_that_exist_are_shown(self):
         no_a50 = [r for r in self.runs if not (r["cfg"]["model"]["kind"] == "swa_fb" and r["cfg"]["model"]["segment"] == 8 and r["cfg"]["train"]["steps"] == 50000)]
