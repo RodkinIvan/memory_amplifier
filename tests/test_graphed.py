@@ -9,14 +9,17 @@ import torch
 from tests import _paths  # noqa: F401
 import graphed as G
 import train as T
-from models import build_swa_fb
+from models import build_swa_fb, build_swa_va
 
 TC = {"lr": 1e-3, "betas": [0.9, 0.95], "weight_decay": 0.01, "loop_lr_mult": 10.0, "grad_clip": 1.0}
 LOSS = lambda logits, labs: T.weighted_ce(logits, labs, 1.0)  # noqa: E731
 
 
-def model_and_opt(capturable: bool, segment=8, nonlin="tanh"):
+def model_and_opt(capturable: bool, segment=8, nonlin="tanh", kind="swa_fb"):
     torch.manual_seed(0)
+    if kind == "swa_va":  # value adaptation, switched on (gain 0.3): every parameter gets a gradient
+        m = build_swa_va(vocab_size=40, d_model=64, num_heads=2, window=16, segment=segment, gain_init=0.3, proj_std=0.2).cuda()
+        return m, T.make_optimizer(m, TC, capturable=capturable)
     m = build_swa_fb(vocab_size=40, d_model=64, num_heads=2, window=16, segment=segment, nonlin=nonlin, gain_init=0.1, proj_std=0.1).cuda()
     return m, T.make_optimizer(m, TC, capturable=capturable)
 
@@ -69,6 +72,21 @@ class GraphedStep(unittest.TestCase):
             m2, o2 = model_and_opt(True, segment, nonlin)
             graph_steps(m2, o2, data, [2e-4])
             self.assertLess(max_param_diff(m1, m2), 1e-6, (segment, nonlin))
+
+    def test_value_adaptation_model_is_captured_like_the_loop_model(self):
+        """`swa_va` (forward hooks, key/value cache, scalar gains) in a CUDA graph: one step equals the eager step, and the loss trace follows."""
+        data = batches([64])
+        m1, o1 = model_and_opt(False, 8, kind="swa_va")
+        eager_steps(m1, o1, data, [2e-4])
+        m2, o2 = model_and_opt(True, 8, kind="swa_va")
+        graph_steps(m2, o2, data, [2e-4])
+        self.assertLess(max_param_diff(m1, m2), 1e-6)
+        data, lrs = batches([32, 64, 32, 96, 64]), [2e-4, 4e-4, 6e-4, 8e-4, 1e-3]
+        m1, o1 = model_and_opt(False, 8, kind="swa_va")
+        l1 = eager_steps(m1, o1, data, lrs)
+        m2, o2 = model_and_opt(True, 8, kind="swa_va")
+        _, l2 = graph_steps(m2, o2, data, lrs)
+        self.assertLess(max(abs(a - b) for a, b in zip(l1, l2)), 2e-3, (l1, l2))
 
     def test_the_loss_trace_follows_the_eager_run_over_several_shapes(self):
         # Adam amplifies float rounding in parameters whose gradient is ~0, so weights drift apart after a few steps (an eager run and a

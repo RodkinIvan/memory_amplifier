@@ -18,6 +18,8 @@ from its result file, an unfinished one resumes from its checkpoint; an out-of-m
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import re
 import subprocess
@@ -35,16 +37,29 @@ NS = [32, 64, 128, 256]  # AR pairs: the training range of the checkpoint, nothi
 OUT = ROOT / "results" / "capacity.json"
 
 
-def stage_overrides(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0) -> list[str]:
-    """Overrides of configs/swa_fb.yaml for one stage: the model of the checkpoint (segment 8, no tanh, gain 0), a fine-tuning schedule, the passkey length."""
+MODELS = {  # what a stage fine-tunes: the config file, the wandb group, the model overrides (the checkpoint's architecture), the segment of the checkpoint (default)
+    "swa_fb": {"config": "configs/swa_fb.yaml", "experiment": "swa_fb_capacity", "segment": 8, "overrides": ["model.nonlin=none", "model.gain_init=0"]},
+    "swa_va": {"config": "configs/swa_va.yaml", "experiment": "swa_va_capacity", "segment": 32, "overrides": []},
+}
+
+
+def result_keys(model: str = "swa_fb") -> tuple[str, str]:
+    """Keys of capacity.json for the chain and for the single budget runs of a model. The first model keeps the original names (`stages`, `budget_runs`)."""
+    suffix = "" if model == "swa_fb" else f"_{model}"
+    return f"stages{suffix}", f"budget_runs{suffix}"
+
+
+def stage_overrides(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0, model: str = "swa_fb", segment: int | None = None) -> list[str]:
+    """Overrides of the model's config for one stage: the model of the checkpoint (for `swa_fb` segment 8, no tanh, gain 0), a fine-tuning schedule, the passkey length."""
     ns = "[" + ",".join(map(str, NS)) + "]"
-    return ["experiment=swa_fb_capacity", f"seed={seed}", "model.segment=8", "model.nonlin=none", "model.gain_init=0", f"passkey_len={P}", f"train.init_from={init}",
+    m = MODELS[model]
+    return [f"experiment={m['experiment']}", f"seed={seed}", f"model.segment={segment or m['segment']}", *m["overrides"], f"passkey_len={P}", f"train.init_from={init}",
             f"train.steps={steps}", f"train.lr={lr:g}", f"train.warmup_steps={warmup}", f"train.curriculum_stage_steps={curriculum}", "train.eval_every=1000",
             f"train.eval_ns={ns}", f"eval.ns={ns}"]
 
 
-def stage_name(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0) -> str:
-    cfg, explicit = C.load_config(ROOT / "configs" / "swa_fb.yaml", stage_overrides(P, init, steps, lr, seed, warmup, curriculum))
+def stage_name(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0, model: str = "swa_fb", segment: int | None = None) -> str:
+    cfg, explicit = C.load_config(ROOT / MODELS[model]["config"], stage_overrides(P, init, steps, lr, seed, warmup, curriculum, model, segment))
     return C.run_name(cfg, explicit)
 
 
@@ -83,29 +98,49 @@ def summarize(P: int, name: str, init: str, result: dict, threshold: float = THR
             "passed": rows[("validation", 256)]["passkey_acc"] >= threshold}
 
 
-def write_capacity(update: dict, budget_run: dict | None = None) -> None:
+@contextlib.contextmanager
+def file_lock(path: Path):
+    """Exclusive advisory lock on `path` (created if needed) for the length of the `with` block, across processes and threads."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def write_capacity(update: dict, budget_run: dict | None = None, budget_key: str = "budget_runs") -> None:
     """Merge `update` into results/capacity.json (the chain's `stages` and the separate `budget_runs` live in one file). `budget_run` is added to (or replaces the
     same run in) the `budget_runs` list. The read-modify-write is under a file lock: two budget runs (seeds) may finish at the same time."""
-    import fcntl
-    OUT.parent.mkdir(exist_ok=True)
-    with open(OUT.with_suffix(".lock"), "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with file_lock(OUT.with_suffix(".lock")):
         data = json.loads(OUT.read_text()) if OUT.exists() else {}
         data.update({"threshold": THRESHOLD, "criterion": "validation exact match of the passkey at N = 256", **update})
         if budget_run is not None:
-            data["budget_runs"] = [*(e for e in data.get("budget_runs", []) if e["run"] != budget_run["run"]), budget_run]
+            data[budget_key] = [*(e for e in data.get(budget_key, []) if e["run"] != budget_run["run"]), budget_run]
         tmp = OUT.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=1))
         tmp.replace(OUT)
 
 
-def chain(run_stage, first: int, max_len: int, init: str, threshold: float = THRESHOLD) -> list[dict]:
+def merge_positions(updates: dict[str, dict]) -> None:
+    """Write per-position results into the entries of capacity.json. `updates` = {run name: {split: {"positions": ..., "positions_ok": ...}}}. The file is read again under
+    the lock, so an entry another process added while the (slow) evaluation ran is kept (review L12)."""
+    with file_lock(OUT.with_suffix(".lock")):
+        data = json.loads(OUT.read_text())
+        for group in (k for k in data if k.startswith(("stages", "budget_runs"))):
+            for entry in data[group]:
+                for split, fields in updates.get(entry["run"], {}).items():
+                    entry[split].update(fields)
+        tmp = OUT.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=1))
+        tmp.replace(OUT)
+
+
+def chain(run_stage, first: int, max_len: int, init: str, threshold: float = THRESHOLD, key: str = "stages") -> list[dict]:
     """P = first, 2 first, 4 first, ... while the stage passes and P <= max_len. `run_stage(P, init)` returns (summary entry, path of the stage's weights)."""
     stages, P = [], first
     while P <= max_len:
         entry, weights = run_stage(P, init)
         stages.append(entry)
-        write_capacity({"stages": stages})
+        write_capacity({key: stages})
         ok = entry["validation"]["positions_ok"].get("256")
         print(f"passkey {P} tokens ({P * 4} bits): validation exact {entry['validation']['exact']['256']:.3f} at N = 256"
               + (f", {ok} of {P} positions at {POS_OK} or more" if ok is not None else "") + f" -> {'passed' if entry['passed'] else 'FAILED, stop'}", flush=True)
@@ -124,19 +159,22 @@ TRAIN_SIZE = 100_000  # streams per N: the size of the base dataset, so the pass
 
 
 def ensure_dataset(P: int, workers: int = 16, train_size: int = TRAIN_SIZE) -> Path:
+    """The dataset folder for passkeys of P tokens, generated (and sanity-checked) when it does not exist. Under a lock per folder, so two drivers that need the
+    same new dataset do not write the same files: the second waits and then finds it (review L13)."""
     out = C.data_dir_for({"data_dir": "data_cache/passkey_swar", "passkey_len": P})
-    if (out / "gen_meta.json").exists():
-        size = json.loads((out / "gen_meta.json").read_text())["sizes"]["train"]
-        if size != train_size:
-            raise SystemExit(f"{out} has {size} training streams per N, expected {train_size}: remove the folder to generate it again")
+    with file_lock(out.with_name(out.name + ".lock")):
+        if (out / "gen_meta.json").exists():
+            size = json.loads((out / "gen_meta.json").read_text())["sizes"]["train"]
+            if size != train_size:
+                raise SystemExit(f"{out} has {size} training streams per N, expected {train_size}: remove the folder to generate it again")
+            return out
+        import make_passkey_swar as G
+        import sanity_checks as S
+        ns = [str(n) for n in NS]
+        G.main(["--out-dir", str(out), "--ns", *ns, "--train-ns", *ns, "--train-size", str(train_size), "--workers", str(workers), "--passkey-len", str(P), "--skip-sanity"])
+        if not S.run(out, out / "reports", workers=workers):  # the oracle re-derives every label from the tokens; a dataset that fails is not used
+            raise SystemExit(f"sanity checks failed for {out}")
         return out
-    import make_passkey_swar as G
-    import sanity_checks as S
-    ns = [str(n) for n in NS]
-    G.main(["--out-dir", str(out), "--ns", *ns, "--train-ns", *ns, "--train-size", str(train_size), "--workers", str(workers), "--passkey-len", str(P), "--skip-sanity"])
-    if not S.run(out, out / "reports", workers=workers):  # the oracle re-derives every label from the tokens; a dataset that fails is not used
-        raise SystemExit(f"sanity checks failed for {out}")
-    return out
 
 
 def wait_for_memory(gpu: int, need_gb: float, poll: int = 60) -> None:
@@ -149,9 +187,9 @@ def wait_for_memory(gpu: int, need_gb: float, poll: int = 60) -> None:
         time.sleep(poll)
 
 
-def run_training(overrides: list[str], name: str, gpu: int, need_gb: float, log: Path, attempts: int = 30) -> None:
+def run_training(overrides: list[str], name: str, gpu: int, need_gb: float, log: Path, attempts: int = 30, config: str = "configs/swa_fb.yaml") -> None:
     """train.py in a subprocess on one GPU; after an out-of-memory crash wait for free memory and start again (it resumes from its checkpoint)."""
-    cmd = [sys.executable, "src/train.py", "--config", "configs/swa_fb.yaml", "--set", *overrides]
+    cmd = [sys.executable, "src/train.py", "--config", config, "--set", *overrides]
     log.parent.mkdir(parents=True, exist_ok=True)
     for attempt in range(1, attempts + 1):
         start = log.stat().st_size if log.exists() else 0
@@ -178,8 +216,9 @@ def reevaluate(gpu: int) -> None:
     import evaluate as E
     from models import build_from_config
     data = json.loads(OUT.read_text())
-    for group in ("stages", "budget_runs"):
-        for entry in data.get(group, []):
+    updates: dict[str, dict] = {}
+    for group in (k for k in data if k.startswith(("stages", "budget_runs"))):
+        for entry in data[group]:
             if entry["validation"].get("positions"):
                 continue
             res = json.loads((ROOT / "results" / "raw" / f"{entry['run']}.json").read_text())
@@ -189,19 +228,22 @@ def reevaluate(gpu: int) -> None:
             model = build_from_config(cfg["model"], json.loads((ddir / "vocab.json").read_text())["size"])
             model.load_state_dict(torch.load(ROOT / "runs" / entry["run"] / "model.pt", map_location="cpu", weights_only=True))
             model = model.cuda()
+            found = updates[entry["run"]] = {}
             for split in ("validation", "test"):
                 pos = {}
                 for n in NS:
                     m = E.evaluate_packed(model, D.load_packed(ddir / f"n{n}" / f"{split}.parquet", kinds=True), torch.device("cuda"), amp_dtype=torch.bfloat16)
                     pos[str(n)] = [round(x, 4) for x in m["passkey_pos_acc"]]
-                entry[split]["positions"] = pos
-                entry[split]["positions_ok"] = {n: sum(x >= POS_OK for x in v) for n, v in pos.items()}
-            print(f"{entry['run']}: positions at {POS_OK} or more at N = 256: validation {entry['validation']['positions_ok']['256']}, test {entry['test']['positions_ok']['256']}", flush=True)
-    OUT.write_text(json.dumps(data, indent=1))
+                found[split] = {"positions": pos, "positions_ok": {n: sum(x >= POS_OK for x in v) for n, v in pos.items()}}
+            print(f"{entry['run']}: positions at {POS_OK} or more at N = 256: validation {found['validation']['positions_ok']['256']}, test {found['test']['positions_ok']['256']}", flush=True)
+    if updates:
+        merge_positions(updates)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--model", choices=list(MODELS), default="swa_fb", help="the model kind of the checkpoint (swa_va: value adaptation; its results go under `stages_swa_va` / `budget_runs_swa_va`)")
+    ap.add_argument("--segment", type=int, default=None, help="segment of the checkpoint (default: 8 for swa_fb, 32 for swa_va)")
     ap.add_argument("--init", default="checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt", help="weights of the checkpoint trained on 4-token passkeys")
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--start", type=int, default=8)
@@ -219,23 +261,23 @@ def main() -> None:
 
     def run_stage(P: int, init: str):
         ensure_dataset(P)
-        overrides = stage_overrides(P, init, a.steps, a.lr, a.seed, a.warmup, a.curriculum)
-        cfg, explicit = C.load_config(ROOT / "configs" / "swa_fb.yaml", overrides)
+        overrides = stage_overrides(P, init, a.steps, a.lr, a.seed, a.warmup, a.curriculum, a.model, a.segment)
+        cfg, explicit = C.load_config(ROOT / MODELS[a.model]["config"], overrides)
         name = C.run_name(cfg, explicit)
         result_file = ROOT / "results" / "raw" / f"{name}.json"
         if not result_file.exists():
             wait_for_memory(a.gpu, C.footprint_gb(cfg))
             print(f"stage {P}: training {name} from {init}", flush=True)
-            run_training(overrides, name, a.gpu, C.footprint_gb(cfg), ROOT / "logs" / "capacity" / f"{name}.log")
+            run_training(overrides, name, a.gpu, C.footprint_gb(cfg), ROOT / "logs" / "capacity" / f"{name}.log", config=MODELS[a.model]["config"])
         result = json.loads(result_file.read_text())
         return summarize(P, name, init, result), str((ROOT / "runs" / name / "model.pt").relative_to(ROOT))
 
     if a.budget_run:
         entry, _ = run_stage(a.start, a.init)
-        write_capacity({}, budget_run=entry)
+        write_capacity({}, budget_run=entry, budget_key=result_keys(a.model)[1])
         print(f"budget run, passkey {a.start}: validation exact {entry['validation']['exact']['256']:.3f} at N = 256, positions at {POS_OK}+: {entry['validation']['positions_ok'].get('256')}/{a.start}", flush=True)
         return
-    chain(run_stage, a.start, a.max_len, a.init)
+    chain(run_stage, a.start, a.max_len, a.init, key=result_keys(a.model)[0])
 
 
 if __name__ == "__main__":

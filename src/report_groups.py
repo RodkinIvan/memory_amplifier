@@ -50,7 +50,7 @@ def setting(group: dict, key: str):
 
 def effective_segment(group: dict) -> int | None:
     seg = setting(group, "model.segment")
-    return None if group["kind"] != "swa_fb" else (seg or setting(group, "model.window"))
+    return None if group["kind"] not in ("swa_fb", "swa_va") else (seg or setting(group, "model.window"))
 
 
 def standard_key(group: dict) -> tuple | None:
@@ -90,6 +90,8 @@ def structure(group: dict) -> str:
         return f"plain SWA, window {w}, {nl} layers"
     if kind == "swa_fb":
         return f"window {w}, segment {effective_segment(group)}, {'tanh loop' if setting(group, 'model.nonlin') == 'tanh' else 'no-tanh loop'}"
+    if kind == "swa_va":
+        return f"value adaptation, window {w}, segment {effective_segment(group)}"
     if kind in ("gdn", "gdn2"):
         return "GDN-2 (learned decay)"
     return f"{kind}, alpha {setting(group, 'model.alpha'):g}"
@@ -106,6 +108,8 @@ def short_label(group: dict) -> str:
     rest = friendly_diff(group["diff"], drop=("model.segment", "model.nonlin", "model.window", "model.n_layers", "model.alpha"), compact=True)
     if group["kind"] == "swa_fb":
         head = f"window {setting(group, 'model.window')}, segment {effective_segment(group)} · {'tanh' if setting(group, 'model.nonlin') == 'tanh' else 'no tanh'}"
+    elif group["kind"] == "swa_va":
+        head = f"value adaptation, window {setting(group, 'model.window')}, segment {effective_segment(group)}"
     else:
         head = structure(group)
     return head + (f" · {rest}" if rest else "")

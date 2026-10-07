@@ -8,7 +8,7 @@ import unittest
 import torch
 
 from tests import _paths  # noqa: F401
-from models import FeedbackSWA, build_from_config, build_model, build_swa, build_swa_fb, swa_reach
+from models import FeedbackSWA, ValueAdaptSWA, build_from_config, build_model, build_swa, build_swa_fb, build_swa_va, swa_reach
 
 
 def naive_gated_delta(q, k, v, alpha, beta_logit, neg):
@@ -312,6 +312,214 @@ class KvCacheEquivalence(unittest.TestCase):
         a.base.config.max_position_embeddings = 64
         with self.assertRaises(ValueError):
             a(input_ids=torch.randint(1, 40, (1, 96), device="cuda"))
+
+
+def strong_adaptation(model: ValueAdaptSWA, gain=1.0, std=0.3):
+    """Switch the value adaptation on: random W_x, W_y of scale `std`, every gain `gain` (the default init has gain 0)."""
+    for loop in model.loops:
+        torch.nn.init.normal_(loop.wx.weight, std=std)
+        torch.nn.init.normal_(loop.wy.weight, std=std)
+        torch.nn.init.constant_(loop.gain, gain)
+
+
+class ValueAdaptBuilder(unittest.TestCase):
+    MC = {"kind": "swa_va", "d_model": 128, "n_layers": 2, "num_heads": 4, "window": 64}
+
+    def test_dispatch_defaults_and_parameter_names(self):
+        m = build_from_config({**self.MC, "segment": 32}, 40)
+        self.assertIsInstance(m, ValueAdaptSWA)
+        self.assertEqual((m.window, m.segment), (64, 32))
+        self.assertEqual(build_from_config(self.MC, 40).segment, 64)  # segment 0/absent -> one per window
+        plain = build_from_config({**self.MC, "kind": "swa"}, 40)
+        extra = sum(p.numel() for p in m.parameters()) - sum(p.numel() for p in plain.parameters())
+        self.assertEqual(extra, 2 * (128 + 128 * 128 + 128 * 128 + 1))  # per layer: norm weight, W_x, W_y, the gain scalar
+        self.assertTrue(all(float(l.gain) == 0.0 for l in m.loops))  # starts as plain SWA
+        base_names = {f"base.{n}" for n in plain.state_dict()}
+        self.assertEqual(set(m.state_dict()) - base_names, {f"loops.{i}.{k}" for i in range(2) for k in ("norm.weight", "wx.weight", "wy.weight", "gain")})
+        self.assertTrue(base_names <= set(m.state_dict()))  # a plain SWA checkpoint loads into `base` unchanged
+
+    def test_only_the_value_projection_is_hooked_and_the_tail_path_is_refused(self):
+        m = build_from_config(self.MC, 40)
+        for layer in m.base.model.layers:
+            a = layer.attn
+            self.assertEqual([len(p._forward_hooks) for p in (a.q_proj, a.k_proj, a.v_proj, a.o_proj)], [0, 0, 1, 0])
+        build_from_config({**self.MC, "kv_cache": True}, 40)
+        with self.assertRaises(ValueError):
+            build_from_config({**self.MC, "kv_cache": False}, 40)
+        with self.assertRaises(ValueError):
+            build_swa_va(vocab_size=40, window=16, segment=-1)
+
+    def test_a_deep_copy_has_its_own_hooks(self):
+        import copy
+        a = build_from_config({**self.MC, "window": 16, "segment": 8}, 40)
+        b = copy.deepcopy(a)
+        hook = b.base.model.layers[0].attn.v_proj._forward_hooks
+        (fn,) = hook.values()
+        self.assertIs(fn.func.__self__, b)  # bound to the copy, not to the original
+
+
+@unittest.skipUnless(torch.cuda.is_available(), "needs a CUDA GPU")
+class ValueAdaptBehaviour(unittest.TestCase):
+    def run_model(self, m, x):
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            return m(input_ids=x).logits.float()
+
+    def build(self, window=16, segment=8, layers=2, **kw):
+        return build_swa_va(vocab_size=40, d_model=64, n_layers=layers, num_heads=2, window=window, segment=segment, **kw).cuda().eval()
+
+    def test_zero_gain_equals_plain_swa(self):
+        """Gain 0 must reproduce the plain sliding-window forward: C < W, C = W, C > W and a length that is not a multiple of C."""
+        torch.manual_seed(0)
+        for window, segment, length in ((16, 8, 100), (16, 16, 100), (16, 24, 90), (16, 5, 77), (8, 24, 90), (64, 8, 300)):
+            m = self.build(window, segment)
+            torch.nn.init.normal_(m.loops[0].wx.weight, std=0.5)  # a big W_x / W_y does not matter at gain 0
+            x = torch.randint(8, 40, (2, length), device="cuda")
+            diff = (self.run_model(m, x) - self.run_model(m.base, x)).abs().max().item()
+            self.assertLess(diff, 5e-2, (window, segment, length, diff))
+
+    def test_adaptation_changes_the_output_and_is_off_for_the_first_segment(self):
+        torch.manual_seed(0)
+        m = self.build(16, 8)
+        strong_adaptation(m, gain=1.0)
+        x = torch.randint(8, 40, (2, 64), device="cuda")
+        d = (self.run_model(m, x) - self.run_model(m.base, x)).abs().amax(-1)
+        self.assertLess(float(d[:, :8].max()), 5e-2)  # dW_v = 0 for segment 0: only rounding of the cache path
+        self.assertGreater(float(d[:, 8:].max()), 0.1)
+
+    def test_causality(self):
+        torch.manual_seed(0)
+        m = self.build(8, 8)
+        strong_adaptation(m)
+        x = torch.randint(8, 40, (1, 96), device="cuda")
+        x2 = x.clone()
+        x2[0, 50] = 8 + (int(x[0, 50]) - 8 + 1) % 32
+        d = (self.run_model(m, x) - self.run_model(m, x2)).abs().amax(-1)[0]
+        self.assertEqual(float(d[:50].max()), 0.0)
+        self.assertGreater(float(d[50:].max()), 0.0)
+
+    def test_the_adaptation_carries_information_past_the_window_reach(self):
+        torch.manual_seed(0)
+        window, layers = 8, 2
+        R = swa_reach(window, layers)
+        x = torch.randint(8, 40, (1, 8 * 15), device="cuda")
+        x2 = x.clone()
+        x2[0, 1] = 8 + (int(x[0, 1]) - 8 + 1) % 32
+        far = slice(R + 2 * window, None)  # positions the window alone can never see
+        for gain, expect_leak in ((0.0, False), (1.0, True)):
+            m = self.build(window, window, layers)
+            strong_adaptation(m, gain=gain)
+            d = (self.run_model(m, x) - self.run_model(m, x2)).abs().amax(-1)[0, far]
+            self.assertEqual(bool((d > 0).any()), expect_leak, (gain, float(d.max())))
+
+    def record(self, m, x):
+        """Run `m` and record, per layer and segment call: the input h of v_proj, the output of v_proj (after the adaptation), the block output;
+        also the cache objects created. The recording hooks are registered after the model's own, so they see the adapted values."""
+        import models
+        rec = {"h": [[] for _ in m.loops], "v": [[] for _ in m.loops], "y": [[] for _ in m.loops], "cache": []}
+        handles = []
+
+        def v_hook(i):
+            def hook(mod, args, out):
+                rec["h"][i].append(args[0].detach().float())
+                rec["v"][i].append(out.detach().float())
+            return hook
+
+        def y_hook(i):
+            def hook(mod, args, out):
+                rec["y"][i].append(out[0].detach().float())
+            return hook
+
+        for i, layer in enumerate(m.base.model.layers):
+            handles.append(layer.attn.v_proj.register_forward_hook(v_hook(i)))
+            handles.append(layer.register_forward_hook(y_hook(i)))
+        real = models._TailCache
+
+        class Spy(real):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                rec["cache"].append(self)
+
+        models._TailCache = Spy
+        try:
+            logits = self.run_model(m, x)
+        finally:
+            models._TailCache = real
+            for h in handles:
+                h.remove()
+        return logits, rec
+
+    def test_a_value_is_computed_once_with_the_adaptation_of_its_own_segment(self):
+        """Rebuild every value from its definition (explicit matrix dW_v from the previous segment's block outputs) and compare with the value
+        the model used; then check that the cache holds exactly those values (nothing is recomputed when a later segment arrives)."""
+        torch.manual_seed(0)
+        W, C, L = 16, 8, 2
+        m = self.build(W, C, L)
+        strong_adaptation(m, gain=0.7, std=0.2)
+        x = torch.randint(8, 40, (2, 8 * 9), device="cuda")
+        _, rec = self.record(m, x)
+        for i in range(L):
+            ad, attn = m.loops[i], m.base.model.layers[i].attn
+            self.assertEqual(len(rec["v"][i]), 9)
+            for s in range(9):
+                h, v = rec["h"][i][s], rec["v"][i][s]
+                plain = torch.nn.functional.linear(h, attn.v_proj.weight.float())
+                if s == 0:
+                    expect = plain
+                else:
+                    o = rec["y"][i][s - 1]  # block output of the previous segment
+                    n = ad.norm(o)
+                    xj, yj = torch.tanh(ad.wx(n)), torch.tanh(ad.wy(n))  # (B, C, d_v), (B, C, d)
+                    dW = ad.gain * torch.einsum("bjv,bjd->bvd", xj, yj) / C  # explicit low-rank matrix
+                    self.assertLessEqual(torch.linalg.matrix_rank(dW[0].float()).item(), C)
+                    self.assertLessEqual(float(dW.abs().max()), abs(float(ad.gain)) + 1e-6)  # entries bounded by the gain
+                    expect = plain + torch.einsum("bvd,btd->btv", dW, h)
+                err, mag = float((v - expect).abs().max()), float(expect.abs().max())
+                self.assertLess(err, 0.02 * mag, (i, s, err, mag))  # v is bf16 (two roundings: dv, then the sum): 2% of the largest value
+        # the cache after the last segment holds the last W-1 values exactly as they were computed
+        cache = rec["cache"][-1]
+        for i in range(L):
+            used = torch.cat(rec["v"][i], dim=1)[:, -(W - 1):]
+            self.assertEqual(float((cache.v[i].float() - used).abs().max()), 0.0, i)
+
+    def test_gradients_reach_every_adapter_through_the_segments(self):
+        m = build_swa_va(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=8, segment=8).cuda()
+        x = torch.randint(8, 40, (2, 64), device="cuda")
+        for gain in (0.0, 0.5):
+            m.zero_grad()
+            if gain:
+                strong_adaptation(m, gain, 0.3)
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                m(input_ids=x).logits.float()[:, -1].sum().backward()  # the last token depends on the first segment only through the adaptation
+            for loop in m.loops:
+                self.assertGreater(float(loop.gain.grad.abs()), 0.0, gain)  # the gain can leave 0
+                for w in (loop.wx.weight, loop.wy.weight, loop.norm.weight):
+                    g = float(w.grad.abs().sum())
+                    self.assertEqual(g > 0.0, gain > 0.0, (gain, g))  # W_x, W_y get a gradient once the gain is not 0
+
+    def test_state_dict_roundtrip_and_a_plain_checkpoint_loads_into_base(self):
+        a, b = self.build(16, 8), self.build(16, 8)
+        strong_adaptation(a)
+        b.load_state_dict(a.state_dict())
+        x = torch.randint(8, 40, (1, 50), device="cuda")
+        self.assertEqual(float((self.run_model(a, x) - self.run_model(b, x)).abs().max()), 0.0)
+        plain = build_swa(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=16).cuda().eval()
+        c = self.build(16, 8)
+        c.base.load_state_dict(plain.state_dict())  # gain 0: identical to that plain SWA
+        self.assertLess((self.run_model(c, x) - self.run_model(plain, x)).abs().max().item(), 5e-2)
+
+    def test_long_streams_beyond_the_position_table_are_refused(self):
+        m = self.build(8, 8)
+        m.base.config.max_position_embeddings = 64
+        with self.assertRaises(ValueError):
+            m(input_ids=torch.randint(1, 40, (1, 96), device="cuda"))
+
+    def test_pending_state_is_cleared_after_a_failed_forward(self):
+        m = self.build(8, 8)
+        strong_adaptation(m)
+        with self.assertRaises(RuntimeError):
+            m.probe_hook = lambda s, i, st: (_ for _ in ()).throw(RuntimeError("boom"))
+            m(input_ids=torch.randint(8, 40, (1, 40), device="cuda"))
+        self.assertEqual(m._pending, [None, None])
 
 
 if __name__ == "__main__":

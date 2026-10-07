@@ -43,3 +43,9 @@ m9_b | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 3 --set experiment=
 h5_c_re | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --set experiment=swa_fb_h5 model.gain_init=0 model.segment=64 model.nonlin=tanh train.steps=50000 train.eval_ns=[32,64,128,256,512,1024,4096,16384] train.eval_examples_by_n=[[4096,100],[16384,32]] --sweep seed=0,1,2
 m9_a_re | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 1 --set experiment=swa_fb_m9 model.gain_init=0 model.nonlin=none train.steps=50000 train.eval_ns=[32,64,128,256,512,1024,4096,16384] train.eval_examples_by_n=[[4096,100],[16384,32]] --sweep model.segment=64,16 seed=0,1,2
 m9_b_re | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 1 --set experiment=swa_fb_m9 model.gain_init=0 model.nonlin=none model.segment=8 train.steps=50000 train.eval_ns=[32,64,128,256,512,1024,4096,16384] train.eval_examples_by_n=[[4096,100],[16384,32]] --sweep seed=1
+
+# ---- Design experiment E1 (2026-10-08): value adaptation of the short-term store (kind swa_va, frozen reference configs/ref/swa_va_v1.yaml).
+# Same recipe as H5 (window 64, 2 layers, 50k steps, curriculum 2000, lr 1e-3, adaptation parameters at 10x lr, gain 0); CUDA-graph step (part of the reference).
+# Segment 32 first (3 seeds, GPU 1), segment 8 (3 seeds, two workers on GPU 0 and two on GPU 1) started once the first one was running. Launched by hand with launch.py (no queue driver was running).
+va_32 | --config configs/swa_va.yaml --gpus 1 --procs-per-gpu 3 --set model.segment=32 --sweep seed=0,1,2
+va_8 | --config configs/swa_va.yaml --gpus 0 1 --procs-per-gpu 2 --set model.segment=8 --sweep seed=0,1,2

@@ -16,6 +16,7 @@ FROZEN = {  # sha256 of the reference files: they must never be edited (a new re
     "gdn2_v1": "57e8b32e19d2ce05fae3bb74512b67842fd5a604fae762a9ce1b3a5f92e10219",
     "swa_v1": "d9f7bbfcb1baf8db1969270e45c35f1a3800467756b85a0d9912e4a9a5823058",
     "swa_fb_v1": "bdaae668865cd05cc6d507b7303d5921cbdd94d6286b251f1e0679fe440fe6b5",
+    "swa_va_v1": "c8e9425c5d5a4c8012128e1a0bd36f1374ce5cd94f47cadf8feb9c4870d65154",
 }
 
 
@@ -40,6 +41,15 @@ class Diff(unittest.TestCase):
     def test_the_reference_recipe_has_an_empty_diff(self):
         self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml")), {})
         self.assertEqual(C.describe_diff({}), "reference recipe")
+
+    def test_the_value_adaptation_recipe_and_its_segment(self):
+        self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml")), {})
+        self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml", "model.segment=8", "seed=2")), {"model.segment": [32, 8]})
+        self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml", "model.segment=0")), {"model.segment": [32, 64]})  # 0 = one per window
+        self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml", "model.segment=32")), {})
+        self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml", "train.cuda_graph=false")), {"train.cuda_graph": [True, False]})
+        cfg, keys = C.load_config(ROOT / "configs" / "swa_va.yaml", ["model.segment=8", "seed=1"])
+        self.assertEqual(C.run_name(cfg, keys), "swa_va_seg8_s1")
 
     def test_changed_settings_are_listed_with_both_values(self):
         cfg = cfg_of("swa_fb.yaml", "model.gain_init=0", "train.steps=50000", "model.segment=32", "model.nonlin=none")

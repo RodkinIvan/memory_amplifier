@@ -142,6 +142,89 @@ class Records(unittest.TestCase):
         self.assertEqual(data["budget_runs"], [{"run": "b"}])
         self.assertEqual(data["threshold"], 0.9)
 
+    def test_a_re_evaluation_keeps_an_entry_that_another_process_wrote_meanwhile(self):
+        """Review L12: `reevaluate` reads the file, evaluates for minutes, then writes: an entry added in between (a budget run or a chain stage finishing) must survive."""
+        entry = lambda run: {"run": run, "validation": {"exact": {"256": 1.0}}, "test": {"exact": {"256": 1.0}}}  # noqa: E731
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(CAP, "OUT", Path(d) / "capacity.json"):
+            CAP.write_capacity({"stages": [entry("old")]})
+            snapshot = json.loads(CAP.OUT.read_text())  # what reevaluate saw when it started
+            CAP.write_capacity({}, budget_run=entry("finished-meanwhile"))  # another process finishes during the evaluation
+            found = {"validation": {"positions": {"256": [1.0, 0.1]}, "positions_ok": {"256": 1}}, "test": {"positions": {"256": [1.0, 0.0]}, "positions_ok": {"256": 1}}}
+            CAP.merge_positions({"old": found})
+            data = json.loads(CAP.OUT.read_text())
+        self.assertEqual(snapshot["stages"][0]["run"], "old")
+        self.assertEqual([e["run"] for e in data["budget_runs"]], ["finished-meanwhile"])  # not lost
+        self.assertEqual(data["stages"][0]["validation"]["positions_ok"], {"256": 1})      # and the re-evaluated fields are there
+        self.assertEqual(data["stages"][0]["validation"]["exact"], {"256": 1.0})           # existing fields are kept
+        self.assertNotIn("positions", data["budget_runs"][0]["validation"])                # entries without an update stay as they are
+
+    def test_two_drivers_needing_the_same_new_dataset_generate_it_once(self):
+        """Review L13: the second driver waits on the folder's lock and then finds the dataset."""
+        import sys
+        import threading
+        import time
+        calls = []
+
+        def slow_generate(argv):
+            calls.append(argv)
+            time.sleep(0.3)  # long enough for the second thread to arrive while this one is generating
+            out = Path(argv[argv.index("--out-dir") + 1])
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "gen_meta.json").write_text(json.dumps({"sizes": {"train": CAP.TRAIN_SIZE}}))
+
+        fake_G = mock.Mock(main=slow_generate)
+        fake_S = mock.Mock(run=lambda *a, **k: True)
+        results = []
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(C, "ROOT", Path(d)), mock.patch.dict(sys.modules, {"make_passkey_swar": fake_G, "sanity_checks": fake_S}):
+            ts = [threading.Thread(target=lambda: results.append(CAP.ensure_dataset(16))) for _ in range(2)]
+            [t.start() for t in ts]
+            [t.join() for t in ts]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0], results[1])
+
+
+class ValueAdaptationStage(unittest.TestCase):
+    """The same experiment for the value-adaptation model: another config, its own result keys, the default names of the first model unchanged."""
+
+    def test_a_value_adaptation_stage_fine_tunes_the_segment_32_model_with_its_own_config(self):
+        ov = CAP.stage_overrides(8, "runs/x/model.pt", 50000, 1e-3, 1, 500, 2000, model="swa_va")
+        cfg, explicit = C.load_config(_paths.ROOT / CAP.MODELS["swa_va"]["config"], ov)
+        self.assertEqual((cfg["model"]["kind"], cfg["model"]["segment"], cfg["passkey_len"], cfg["train"]["init_from"]), ("swa_va", 32, 8, "runs/x/model.pt"))
+        self.assertEqual((cfg["experiment"], cfg["train"]["train_ns"], cfg["eval"]["ns"], cfg["train"]["cuda_graph"]), ("swa_va_capacity", [32, 64, 128, 256], [32, 64, 128, 256], True))
+        self.assertNotIn("model.nonlin", ov)  # no loop nonlinearity in this model
+        self.assertEqual(CAP.stage_overrides(8, "i", 1, 1e-3, model="swa_va", segment=8)[2], "model.segment=8")
+        name = CAP.stage_name(8, "runs/x/model.pt", 50000, 1e-3, 1, 500, 2000, model="swa_va")
+        self.assertTrue(name.startswith("swa_va_seg32_pk8_"), name)
+        self.assertIn("steps50000", name)
+
+    def test_the_first_models_names_and_keys_are_unchanged(self):
+        self.assertTrue(CAP.stage_name(8, INIT, 10000, 3e-4).startswith("swa_fb_seg8_nlnone_gi0_pk8_steps10000"))
+        self.assertEqual(CAP.stage_overrides(8, INIT, 10000, 3e-4)[:5], ["experiment=swa_fb_capacity", "seed=0", "model.segment=8", "model.nonlin=none", "model.gain_init=0"])
+        self.assertEqual(CAP.result_keys("swa_fb"), ("stages", "budget_runs"))
+        self.assertEqual(CAP.result_keys("swa_va"), ("stages_swa_va", "budget_runs_swa_va"))
+
+    def test_results_of_two_models_share_the_file_without_overwriting_each_other(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(CAP, "OUT", Path(d) / "capacity.json"):
+            CAP.write_capacity({}, budget_run={"run": "fb-seed0"}, budget_key=CAP.result_keys("swa_fb")[1])
+            CAP.write_capacity({}, budget_run={"run": "va-seed0"}, budget_key=CAP.result_keys("swa_va")[1])
+            CAP.write_capacity({"stages_swa_va": [{"passkey_len": 8}]})
+            data = json.loads(CAP.OUT.read_text())
+        self.assertEqual([e["run"] for e in data["budget_runs"]], ["fb-seed0"])
+        self.assertEqual([e["run"] for e in data["budget_runs_swa_va"]], ["va-seed0"])
+        self.assertEqual(data["stages_swa_va"], [{"passkey_len": 8}])
+
+    def test_the_chain_writes_under_the_models_key_and_a_re_evaluation_reaches_every_group(self):
+        entry = lambda run: {"run": run, "validation": {}, "test": {}, "passkey_len": 8, "passed": False}  # noqa: E731
+        fake = lambda P, init: (dict(entry("r"), validation={"exact": {"256": 0.1}, "positions_ok": {}}), "w")  # noqa: E731
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(CAP, "OUT", Path(d) / "capacity.json"):
+            CAP.chain(fake, 8, 64, "init", key="stages_swa_va")
+            data = json.loads(CAP.OUT.read_text())
+            self.assertIn("stages_swa_va", data)
+            self.assertNotIn("stages", data)
+            CAP.merge_positions({"r": {"validation": {"positions": {"256": [1.0]}}}})
+            self.assertEqual(json.loads(CAP.OUT.read_text())["stages_swa_va"][0]["validation"]["positions"], {"256": [1.0]})
+
 
 class Defaults(unittest.TestCase):
     def test_the_chain_runs_on_gpu_0_and_waits_for_free_memory_before_a_stage(self):

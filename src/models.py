@@ -9,9 +9,13 @@ Everything except the mixer (embeddings, norms, MLP, head) is stock fla `GatedDe
 `swa_fb`     : the same sliding-window transformer plus a *segment feedback loop* ("memory amplification"): once per
                segment every layer turns its output into one vector, which is added to that layer's input at every
                token of the next segment. See `FeedbackSWA`.
+`swa_va`     : the sliding-window transformer run one segment at a time on a key/value cache, where the *values* of a segment are changed by a
+               low-rank associative read of the same layer's outputs on the previous segment (a test-time adaptation of `W_v`), and nothing
+               else crosses the segment boundary. See `ValueAdaptSWA`.
 """
 from __future__ import annotations
 
+import functools
 import math
 from types import SimpleNamespace
 
@@ -115,6 +119,11 @@ def build_from_config(mc: dict, vocab_size: int):
                             window=mc["window"], segment=mc.get("segment", 0), nonlin=mc.get("nonlin", "tanh"),
                             noise=mc.get("noise", 0.0), gain_init=mc.get("gain_init", 0.0), proj_std=mc.get("proj_std", 0.02),
                             kv_cache=mc.get("kv_cache", False))
+    if kind == "swa_va":
+        if mc.get("kv_cache", True) is not True:  # the tail-recompute path would recompute old values with the current adaptation (wrong by design)
+            raise ValueError("swa_va runs on the key/value cache only: model.kv_cache must not be false")
+        return build_swa_va(vocab_size=vocab_size, d_model=mc["d_model"], n_layers=mc["n_layers"], num_heads=mc["num_heads"], window=mc["window"],
+                            segment=mc.get("segment", 0), gain_init=mc.get("gain_init", 0.0), proj_std=mc.get("proj_std", 0.02))
     if kind == "swa":
         return build_swa(vocab_size=vocab_size, d_model=mc["d_model"], n_layers=mc["n_layers"],
                          num_heads=mc["num_heads"], window=mc["window"])
@@ -238,6 +247,105 @@ class FeedbackSWA(nn.Module):
             outs.append(h)
         hidden = self.base.model.norm(torch.cat(outs, dim=1)[:, :T])
         return SimpleNamespace(logits=self.base.lm_head(hidden))
+
+
+class ValueAdapter(nn.Module):
+    """Associative write of one layer for `ValueAdaptSWA`: the layer's outputs o_j for a segment become the pair of vectors
+    (tanh(W_y norm(o_j)), tanh(W_x norm(o_j))) = (key a_j in the input space of `v_proj`, value b_j in its output space).
+
+    The next segment's values are changed by the low-rank matrix  dW_v = (gain / C) * sum_j b_j a_j^T  (rank <= C, entries bounded by
+    |gain|): for a token with normalised input h,  dv = (gain / C) * sum_j b_j <a_j, h>  (`delta`, no matrix is formed). `gain` is one learned
+    scalar per layer; at 0 the layer is plain attention. Everything here runs in fp32, like `SegmentFeedback`."""
+
+    def __init__(self, d_model: int, d_value: int, gain_init: float = 0.0, proj_std: float = 0.02):
+        super().__init__()
+        self.norm = nn.RMSNorm(d_model)
+        self.wx = nn.Linear(d_model, d_value, bias=False)  # -> the value vectors b_j (output space of v_proj)
+        self.wy = nn.Linear(d_model, d_model, bias=False)  # -> the key vectors a_j (input space of v_proj)
+        self.gain = nn.Parameter(torch.tensor(float(gain_init)))
+        nn.init.normal_(self.wx.weight, std=proj_std)
+        nn.init.normal_(self.wy.weight, std=proj_std)
+
+    def encode(self, o: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:  # (B, C, d) -> keys a (B, C, d), values b (B, C, d_value)
+        with torch.autocast(o.device.type, enabled=False):
+            n = self.norm(o.float())
+            return torch.tanh(self.wy(n)), torch.tanh(self.wx(n))
+
+    def delta(self, h: torch.Tensor, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:  # h (B, T, d) -> dv (B, T, d_value)
+        with torch.autocast(h.device.type, enabled=False):
+            return (self.gain / a.shape[1]) * ((h.float() @ a.transpose(1, 2)) @ b)
+
+
+class ValueAdaptSWA(nn.Module):
+    """Sliding-window transformer, run one segment at a time on a key/value cache, whose *values* are adapted by the previous segment.
+
+    For segment s and layer i:  y = block_i(inp)  with  v_t = W_v h_t + dW_v(s) h_t  for every token t of s, where dW_v(s) is built by the
+    layer's `ValueAdapter` from the outputs y of the same layer on segment s - 1 (zero for the first segment). The window's keys and values
+    come from the cache; every value is computed once, with the dW_v of its own segment, and stays in the cache unchanged for the W - 1 tokens
+    it lives (so the memory is in the values of the short-term store, nothing else is carried between segments but the previous segment's
+    outputs). Queries and keys are untouched. The tail-recompute path of `FeedbackSWA` would recompute the tail's values with the current dW_v
+    every segment and is therefore not offered.
+
+    The change is injected by a forward hook on every layer's `v_proj`, so `self.base` is a stock sliding-window transformer with the stock
+    parameter names (with all gains at 0 this model computes exactly `self.base`)."""
+
+    def __init__(self, base: TransformerForCausalLM, window: int, segment: int, gain_init: float = 0.0, proj_std: float = 0.02):
+        super().__init__()
+        self.base, self.window, self.segment = base, window, segment
+        self.probe_hook = None  # probes only: called as hook(segment, layer, (a, b)) -> (a, b) on the vectors a segment hands to the next one
+        self.cache_hook = None  # probes only: called as hook(segment, cache) after every segment; may read or replace cache.k[i] / cache.v[i] (the window the next segment sees)
+        d = base.config.hidden_size
+        attn0 = base.model.layers[0].attn
+        self.loops = nn.ModuleList(ValueAdapter(d, attn0.kv_dim, gain_init, proj_std) for _ in base.model.layers)  # named `loops` for the optimizer's loop group
+        self._pending = [None] * len(self.loops)  # (a, b) for the segment being computed, per layer; None = no change
+        for i, layer in enumerate(base.model.layers):  # partial of a bound method (not a closure), so a deep copy of the model keeps its own hooks
+            layer.attn.v_proj.register_forward_hook(functools.partial(self._value_hook, i))
+
+    def _value_hook(self, i: int, module, args, out):
+        if self._pending[i] is None:
+            return out
+        a, b = self._pending[i]
+        return out + self.loops[i].delta(args[0], a, b).to(out.dtype)
+
+    def forward(self, input_ids: torch.Tensor, **_) -> SimpleNamespace:
+        B, T = input_ids.shape
+        C, W = self.segment, self.window
+        if T % C:  # right-pad with PAD (causal, so earlier outputs are unaffected)
+            input_ids = F.pad(input_ids, (0, C - T % C), value=0)
+        x = self.base.model.embeddings(input_ids)
+        layers = self.base.model.layers
+        if x.shape[1] > self.base.config.max_position_embeddings:
+            raise ValueError(f"the key/value cache uses absolute positions: {x.shape[1]} tokens exceed max_position_embeddings")
+        cache = _TailCache(W - 1, len(layers))
+        state = [None] * len(layers)  # per layer: (a, b) of the previous segment
+        outs = []
+        try:
+            for s in range(x.shape[1] // C):
+                h = x[:, s * C:(s + 1) * C]
+                for i, (layer, adapter) in enumerate(zip(layers, self.loops)):
+                    self._pending[i] = state[i]
+                    y = layer(h, past_key_values=cache, use_cache=True)[0]
+                    state[i] = adapter.encode(y)
+                    if self.probe_hook is not None:
+                        state[i] = self.probe_hook(s, i, state[i])
+                    h = y
+                outs.append(h)
+                if self.cache_hook is not None:
+                    self.cache_hook(s, cache)
+        finally:
+            self._pending = [None] * len(layers)
+        hidden = self.base.model.norm(torch.cat(outs, dim=1)[:, :T])
+        return SimpleNamespace(logits=self.base.lm_head(hidden))
+
+
+def build_swa_va(*, vocab_size: int, d_model: int = 128, n_layers: int = 2, num_heads: int = 4, window: int, segment: int = 0,
+                 gain_init: float = 0.0, proj_std: float = 0.02) -> ValueAdaptSWA:
+    """`segment` = 0 means one segment per window."""
+    segment = segment or window
+    if segment < 1:
+        raise ValueError(f"segment must be >= 1, got {segment}")
+    base = build_swa(vocab_size=vocab_size, d_model=d_model, n_layers=n_layers, num_heads=num_heads, window=window)
+    return ValueAdaptSWA(base, window=window, segment=segment, gain_init=gain_init, proj_std=proj_std)
 
 
 def build_swa_fb(*, vocab_size: int, d_model: int = 128, n_layers: int = 2, num_heads: int = 4, window: int,

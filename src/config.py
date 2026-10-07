@@ -91,7 +91,7 @@ def flatten(cfg: dict, prefix: str = "") -> dict:
 # ---- what differs from the reference recipe (review H7) --------------------------------------------------------------------------
 # Every run is labelled by the diff of its stored config against a frozen reference file of its model kind. Run names list only the
 # overrides of one launch (relative to whatever the YAML said then); the diff does not depend on that.
-REFERENCES = {"gdn_fixed": "gdn_fixed_v1", "gdn2": "gdn2_v1", "swa": "swa_v1", "swa_fb": "swa_fb_v1"}  # model.kind -> configs/ref/<name>.yaml (never edited)
+REFERENCES = {"gdn_fixed": "gdn_fixed_v1", "gdn2": "gdn2_v1", "swa": "swa_v1", "swa_fb": "swa_fb_v1", "swa_va": "swa_va_v1"}  # model.kind -> configs/ref/<name>.yaml (never edited)
 
 # Settings that do not change what is trained or how it is scored: seed, wandb grouping, logging, and the evaluation set / batch.
 # Everything else counts, also implementation switches such as model.kv_cache (equivalent results, but a different config).
@@ -130,9 +130,9 @@ def reference_diff(cfg: dict, ref: dict | None = None) -> dict:
 
 
 def effective_segment(flat: dict) -> dict:
-    """For the loop model, `model.segment` 0 (or absent) means one segment per window: replace it by the window, so a run that sets
+    """For the loop models, `model.segment` 0 (or absent) means one segment per window: replace it by the window, so a run that sets
     segment = window explicitly does not differ from the reference, which leaves it at 0 (review L10)."""
-    if flat.get("model.kind") == "swa_fb" and not flat.get("model.segment") and flat.get("model.window"):
+    if flat.get("model.kind") in ("swa_fb", "swa_va") and not flat.get("model.segment") and flat.get("model.window"):
         return {**flat, "model.segment": flat["model.window"]}
     return flat
 
@@ -164,6 +164,8 @@ def footprint_gb(cfg: dict) -> float:
     if mc["kind"] == "swa_fb":
         seg = mc.get("segment") or mc["window"]
         return 8.0 if seg <= 8 else 6.5 if seg <= 16 else 5.0
+    if mc["kind"] == "swa_va":  # CUDA-graph step, measured alone on an idle GPU: segment 8 7.0, segment 32 6.3 (peak of the nvidia-smi reading, evaluation up to N = 1024 included)
+        return 7.5 if (mc.get("segment") or mc["window"]) <= 8 else 6.5
     if mc["kind"] in ("gdn_fixed", "gdn", "gdn2"):
         return 4.5
     return 4.0

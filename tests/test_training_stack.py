@@ -327,6 +327,8 @@ class RestartWaitsForMemory(unittest.TestCase):
         self.assertEqual([C.footprint_gb(cfg(segment=s)) for s in (8, 16, 32, 64, 0)], [8.0, 6.5, 5.0, 5.0, 5.0])
         self.assertEqual(C.footprint_gb({"model": {"kind": "gdn2"}}), 4.5)
         self.assertEqual(C.footprint_gb({"model": {"kind": "swa", "window": 64}}), 4.0)
+        va = lambda s: C.footprint_gb({"model": {"kind": "swa_va", "window": 64, "segment": s}})  # measured with the CUDA-graph step: 7.0 at segment 8, 6.3 at 32
+        self.assertEqual([va(8), va(32), va(0)], [7.5, 6.5, 6.5])
 
 
 class WorkerScript(unittest.TestCase):

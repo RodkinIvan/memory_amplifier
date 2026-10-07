@@ -777,12 +777,16 @@ def fb_data() -> tuple[dict, str, str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("kind", choices=["gdn", "swa", "fb", "best"])
+    ap.add_argument("kind", choices=["gdn", "swa", "fb", "best", "va"])
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
     if a.kind == "best":
         import report_best  # the presentation sub-report (method and best checkpoint)
         render(*report_best.best_data(), a.out)
+        return
+    if a.kind == "va":
+        import report_va  # design experiment E1: value adaptation of the short-term store
+        render(*report_va.va_data(), a.out)
         return
     render(*{"gdn": gdn_data, "swa": swa_data, "fb": fb_data}[a.kind](), a.out)
 
