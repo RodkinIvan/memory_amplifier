@@ -108,5 +108,23 @@ class Aggregate(unittest.TestCase):
         self.assertEqual(A.cluster_points(many)[0][2], "\u03b1 1 \u2026 0.95 (6)")
 
 
+class OtherPasskeyLengths(unittest.TestCase):
+    """The capacity runs (passkey of 8, 16, ... tokens, N <= 256 only) must not leak into the benchmark tables and reports."""
+
+    def test_runs_on_another_passkey_length_are_left_out_unless_asked_for(self):
+        raw = Path(tempfile.mkdtemp())
+        try:
+            fake_run(raw, ["model.alpha=0.9"])
+            fake_run(raw, ["model.alpha=0.8", "passkey_len=8"])
+            self.assertEqual([r["alpha"] for r in A.load_runs(raw)], [0.9])
+            self.assertEqual(sorted(r["alpha"] for r in A.load_runs(raw, all_passkeys=True)), [0.8, 0.9])
+        finally:
+            shutil.rmtree(raw)
+
+    def test_the_committed_results_contain_no_run_that_a_report_would_trip_over(self):
+        for r in A.load_runs(_paths.ROOT / "results" / "raw"):
+            self.assertEqual({x["N"] for x in r["rows"]} >= {32, 256, 1024, 16384}, True, r["name"])  # every run in the reports has the full N range
+
+
 if __name__ == "__main__":
     unittest.main()

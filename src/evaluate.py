@@ -36,6 +36,7 @@ def evaluate_packed(model, p: D.Packed, device, tokens_per_batch: int = 262144, 
     n_ok = np.zeros(4, np.int64)  # correct positions per kind
     n_tot = np.zeros(4, np.int64)
     passkey_ok = 0
+    pos_ok = None  # correct predictions per passkey position (index 0 = first passkey token), summed over the examples
     L, B = eval_plan(p.lengths(), tokens_per_batch)
     for start in range(0, len(p), B):
         idx = np.arange(start, min(start + B, len(p)))
@@ -57,7 +58,9 @@ def evaluate_packed(model, p: D.Packed, device, tokens_per_batch: int = 262144, 
                 raise RuntimeError(f"example {i}: {len(c)} supervised positions but {len(k)} kinds")
             n_ok += np.bincount(k[c], minlength=4)
             n_tot += np.bincount(k, minlength=4)
-            passkey_ok += bool(c[k == PASSKEY].all())
+            pk = c[k == PASSKEY]  # the passkey positions in order, one flag per passkey token
+            passkey_ok += bool(pk.all())
+            pos_ok = pk.astype(np.int64) if pos_ok is None else pos_ok + pk
     model.train(was_training)
 
     def acc(ok, tot):
@@ -66,6 +69,7 @@ def evaluate_packed(model, p: D.Packed, device, tokens_per_batch: int = 262144, 
     return {
         "passkey_acc": passkey_ok / len(p),
         "passkey_token_acc": acc(n_ok[PASSKEY], n_tot[PASSKEY]),  # share of single passkey tokens right (teacher forcing); exact match needs all of them
+        "passkey_pos_acc": [float(x) / len(p) for x in pos_ok],  # the same per passkey position: tells which tokens are stored when the exact match is low
         "ar_valid_acc": acc(n_ok[VALID], n_tot[VALID]),
         "ar_expired_acc": acc(n_ok[STALE] + n_ok[NEVER], n_tot[STALE] + n_tot[NEVER]),
         "ar_expired_stale_acc": acc(n_ok[STALE], n_tot[STALE]),

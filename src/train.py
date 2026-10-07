@@ -127,8 +127,8 @@ def make_optimizer(model, tc: dict, capturable: bool = False):
     return torch.optim.AdamW(groups, lr=tc["lr"], betas=tuple(tc["betas"]))
 
 
-def weighted_ce(logits: torch.Tensor, labels: torch.Tensor, passkey_weight: float = 1.0) -> torch.Tensor:
-    """Cross-entropy on supervised positions (label != -100). The last 4 supervised tokens of every row are the passkey;
+def weighted_ce(logits: torch.Tensor, labels: torch.Tensor, passkey_weight: float = 1.0, passkey_len: int = 4) -> torch.Tensor:
+    """Cross-entropy on supervised positions (label != -100). The last `passkey_len` supervised tokens of every row are the passkey;
     `passkey_weight` multiplies their weight (1.0 = the plain mean over supervised tokens)."""
     tgt = labels[:, 1:]
     ce = F.cross_entropy(logits[:, :-1].reshape(-1, logits.size(-1)).float(), tgt.reshape(-1), ignore_index=-100, reduction="none")
@@ -137,7 +137,7 @@ def weighted_ce(logits: torch.Tensor, labels: torch.Tensor, passkey_weight: floa
     w = sup.float()
     if passkey_weight != 1.0:
         from_end = sup.flip(1).cumsum(1).flip(1)  # 1 for the last supervised token of a row, 2 for the one before, ...
-        w = w * (1.0 + (passkey_weight - 1.0) * (sup & (from_end <= 4)).float())
+        w = w * (1.0 + (passkey_weight - 1.0) * (sup & (from_end <= passkey_len)).float())
     return (ce * w).sum() / w.sum()
 
 
@@ -230,6 +230,7 @@ def main(argv=None) -> None:
         start += rows
     val = {n: D.load_packed(data_dir / f"n{n}" / "validation.parquet", kinds=True).subset(eval_examples_for(tc, n))
            for n in tc["eval_ns"]}
+    pk_len = int(cfg.get("passkey_len", 4))  # the last pk_len supervised tokens of a stream are the passkey (loss weighting)
     graph = bool(tc.get("cuda_graph", False))  # one CUDA graph per batch shape instead of ~33k kernel launches per step (src/graphed.py)
     if graph and float(tc.get("passkey_weight", 1.0)) != 1.0 and int(tc.get("passkey_weight_anneal_steps", 0)) > 0:
         sys.exit("train.cuda_graph needs a constant passkey weight (passkey_weight_anneal_steps = 0)")
@@ -246,7 +247,7 @@ def main(argv=None) -> None:
         n_acc, last, start, elapsed, resumed_at = state["n_acc"], state["last_loss"], state["step"] + 1, state["train_time_s"], [*state["resumed_at_steps"], state["step"]]
         history = state["history"]
         print(f"[{name}] resuming from step {state['step']} ({resume_file})", flush=True)
-    stepper = GraphedTrainStep(model, opt, lambda lg, lb: weighted_ce(lg, lb, passkey_weight_at(1, tc)), tc["grad_clip"], amp) if graph else None
+    stepper = GraphedTrainStep(model, opt, lambda lg, lb: weighted_ce(lg, lb, passkey_weight_at(1, tc), pk_len), tc["grad_clip"], amp) if graph else None
     git = git_state()  # of this start; a resumed run may have been started from another commit
     t0 = time.time() - elapsed  # the time of the earlier attempts counts as training time
     for step in range(start, tc["steps"] + 1):
@@ -261,7 +262,7 @@ def main(argv=None) -> None:
                 g["lr"] = v
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp is not None):
                 logits = model(input_ids=ids).logits
-            loss = weighted_ce(logits, labs, pk_w)
+            loss = weighted_ce(logits, labs, pk_w, pk_len)
             loss.backward()
             gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc["grad_clip"])
             opt.step()
@@ -278,14 +279,19 @@ def main(argv=None) -> None:
             n_acc = 0
         if step % tc["eval_every"] == 0 or step == tc["steps"]:
             logs = {}
+            pos_acc = {}
             for n, p in val.items():
                 m = evaluate_with_backoff(model, p, dev, PERIODIC_TOKENS_PER_BATCH, amp)
                 logs.update({f"val/n{n}/{k}": m[k] for k in METRICS})
+                logs[f"val/n{n}/passkey_pos_ok"] = sum(x >= 0.9 for x in m["passkey_pos_acc"])  # passkey positions that are right in at least 90% of the streams
+                logs[f"val/n{n}/passkey_pos_min"] = min(m["passkey_pos_acc"])
+                pos_acc[f"val/n{n}/passkey_pos_acc"] = m["passkey_pos_acc"]  # the full per-position list goes to the result file only
             wandb.log(logs, step=step)
-            history.append({"step": step, "train_loss": last, **logs})  # kept in the result file: the curves do not depend on wandb or on the logs
+            history.append({"step": step, "train_loss": last, **logs, **pos_acc})  # kept in the result file: the curves do not depend on wandb or on the logs
             print(f"[{name}] step {step} loss {last:.4f} | " + " ".join(
                 f"n{n}: pk {logs[f'val/n{n}/passkey_acc']:.2f} v {logs[f'val/n{n}/ar_valid_acc']:.2f} "
-                f"e {logs[f'val/n{n}/ar_expired_acc']:.2f}" for n in (32, 256, 1024, 4096, 16384) if n in val), flush=True)
+                f"e {logs[f'val/n{n}/ar_expired_acc']:.2f}" for n in (32, 256, 1024, 4096, 16384) if n in val)
+                  + (f" | passkey positions >= 0.9 at N = 256: {logs['val/n256/passkey_pos_ok']}/{len(pos_acc['val/n256/passkey_pos_acc'])}" if 256 in val else ""), flush=True)
             save_resume(resume_file, {"config": cfg, "step": step, "model": model.state_dict(), "opt": opt.state_dict(),
                                       "np_rng": rng.bit_generator.state, "torch_rng": torch.get_rng_state(), "cuda_rng": torch.cuda.get_rng_state(),
                                       "loss_acc": float(loss_acc), "n_acc": n_acc, "last_loss": last, "train_time_s": time.time() - t0,
@@ -305,7 +311,9 @@ def main(argv=None) -> None:
         print(f"[{name}] {split}: " + " ".join(f"n{r['N']}:{r['passkey_acc']:.2f}/{r['ar_expired_acc']:.2f}" for r in rows if r["split"] == split), flush=True)
 
     write_json_atomic(out_json, C.stamp_diff({"name": name, "config": cfg, "explicit_keys": explicit, "n_params": n_params,
-                                              "final_train_loss": last, "train_time_s": train_time, "resumed_at_steps": resumed_at, "git": git, "val_history": history, "rows": rows}))
+                                              "final_train_loss": last, "train_time_s": train_time, "resumed_at_steps": resumed_at, "git": git,
+                                              "dataset": {"dir": data_dir.name, "sizes": meta.get("sizes"), "params": meta["params"]},  # how big and how generated the data was (the config only names the folder)
+                                              "val_history": history, "rows": rows}))
     resume_file.unlink(missing_ok=True)  # the result file is the record now
     run.finish()
     print(f"[{name}] done in {time.time() - t0:.0f}s -> {out_json}", flush=True)

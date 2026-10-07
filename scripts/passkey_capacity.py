@@ -1,14 +1,18 @@
 #!/usr/bin/env python
 """How much fits in the memory the segment loop creates? Fine-tune a trained checkpoint on longer and longer passkeys.
 
-    python scripts/passkey_capacity.py --gpu 1 --init checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt
+    python scripts/passkey_capacity.py --init checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt          # the chain, on GPU 0
+    python scripts/passkey_capacity.py --budget-run --start 8 --steps 50000 --lr 1e-3 --warmup 500 --curriculum 2000   # one stage with the original recipe's budget
+    python scripts/passkey_capacity.py --reevaluate      # fill in the per-position accuracy of stages that were run before it existed
 
 The checkpoint was trained on streams of up to 256 AR pairs and a passkey of 4 tokens (4 bits each, so 16 bits). Stage P = 8, 16, 32, ... : generate the dataset with a passkey
 of P tokens and the same streams statistics (N = 32 ... 256 AR pairs), fine-tune the weights of the previous stage on it, and evaluate the exact match of the passkey (all P tokens
 right, teacher forced) on the validation and test split at N = 32 ... 256. The chain stops at the first stage whose validation exact match at N = 256 is below the threshold
 (0.9). No longer streams are evaluated here. Each stage starts from the weights of the stage before (the first from `--init`).
 
-Results: results/capacity.json (one entry per stage, rewritten after every stage), runs in results/raw/ as usual (wandb group swa_fb_capacity). Resumable: a finished stage is read
+Results: results/capacity.json (`stages`: one entry per stage, rewritten after every stage; `budget_runs`: single stages run with another budget), runs in results/raw/ as usual
+(wandb group swa_fb_capacity). Every entry has the exact match, the per-token accuracy and the accuracy of every passkey position (and how many positions are at 0.9 or more), per N,
+for both splits, plus the step at which each position first reached 0.9 at N = 256 (from the validation history). Datasets have the base dataset's sizes (100,000 training streams per N). Resumable: a finished stage is read
 from its result file, an unfinished one resumes from its checkpoint; an out-of-memory crash waits for free memory and starts again.
 """
 from __future__ import annotations
@@ -31,27 +35,68 @@ NS = [32, 64, 128, 256]  # AR pairs: the training range of the checkpoint, nothi
 OUT = ROOT / "results" / "capacity.json"
 
 
-def stage_overrides(P: int, init: str, steps: int, lr: float, seed: int = 0) -> list[str]:
+def stage_overrides(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0) -> list[str]:
     """Overrides of configs/swa_fb.yaml for one stage: the model of the checkpoint (segment 8, no tanh, gain 0), a fine-tuning schedule, the passkey length."""
     ns = "[" + ",".join(map(str, NS)) + "]"
     return ["experiment=swa_fb_capacity", f"seed={seed}", "model.segment=8", "model.nonlin=none", "model.gain_init=0", f"passkey_len={P}", f"train.init_from={init}",
-            f"train.steps={steps}", f"train.lr={lr:g}", "train.warmup_steps=200", "train.curriculum_stage_steps=0", "train.eval_every=1000",
+            f"train.steps={steps}", f"train.lr={lr:g}", f"train.warmup_steps={warmup}", f"train.curriculum_stage_steps={curriculum}", "train.eval_every=1000",
             f"train.eval_ns={ns}", f"eval.ns={ns}"]
 
 
-def stage_name(P: int, init: str, steps: int, lr: float, seed: int = 0) -> str:
-    cfg, explicit = C.load_config(ROOT / "configs" / "swa_fb.yaml", stage_overrides(P, init, steps, lr, seed))
+def stage_name(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0) -> str:
+    cfg, explicit = C.load_config(ROOT / "configs" / "swa_fb.yaml", stage_overrides(P, init, steps, lr, seed, warmup, curriculum))
     return C.run_name(cfg, explicit)
 
 
+POS_OK = 0.9  # a passkey position counts as stored when it is right in at least this share of the streams
+
+
+def position_switch_on(history: list[dict], n: int = 256, thr: float = POS_OK) -> list[int | None]:
+    """For every passkey position the first validation step at which its accuracy at stream length n reached `thr` (None: never)."""
+    key = f"val/n{n}/passkey_pos_acc"
+    pts = [(h["step"], h[key]) for h in history if key in h]
+    if not pts:
+        return []
+    return [next((st for st, acc in pts if acc[j] >= thr), None) for j in range(len(pts[0][1]))]
+
+
 def summarize(P: int, name: str, init: str, result: dict, threshold: float = THRESHOLD) -> dict:
-    """One entry of capacity.json from a result file: exact match and per-token accuracy of the passkey at every N, both splits."""
+    """One entry of capacity.json from a result file: exact match, per-token accuracy and per-position accuracy of the passkey at every N, both splits."""
     rows = {(r["split"], r["N"]): r for r in result["rows"]}
     metric = lambda split, key: {str(n): round(rows[(split, n)][key], 4) for n in NS}
+
+    def positions(split):
+        if "passkey_pos_acc" not in rows[(split, 256)]:
+            return {}  # a result written before the per-position metric existed (see --reevaluate)
+        return {str(n): [round(x, 4) for x in rows[(split, n)]["passkey_pos_acc"]] for n in NS}
+
+    def block(split):
+        pos = positions(split)
+        return {"exact": metric(split, "passkey_acc"), "token": metric(split, "passkey_token_acc"), "ar_valid": metric(split, "ar_valid_acc"),
+                "positions": pos, "positions_ok": {n: sum(x >= POS_OK for x in v) for n, v in pos.items()}}
+
     return {"passkey_len": P, "bits": P * 4, "run": name, "init": init, "train_time_s": round(result["train_time_s"]), "steps": result["config"]["train"]["steps"],
-            "validation": {"exact": metric("validation", "passkey_acc"), "token": metric("validation", "passkey_token_acc"), "ar_valid": metric("validation", "ar_valid_acc")},
-            "test": {"exact": metric("test", "passkey_acc"), "token": metric("test", "passkey_token_acc"), "ar_valid": metric("test", "ar_valid_acc")},
+            "train_size": (result.get("dataset") or {}).get("sizes", {}).get("train"),  # streams per N in the data the stage was trained on (None: not recorded)
+            "recipe": {k: result["config"]["train"].get(k) for k in ("lr", "warmup_steps", "curriculum_stage_steps")},
+            "validation": block("validation"), "test": block("test"),
+            "switch_on_step": position_switch_on(result.get("val_history") or []),
             "passed": rows[("validation", 256)]["passkey_acc"] >= threshold}
+
+
+def write_capacity(update: dict, budget_run: dict | None = None) -> None:
+    """Merge `update` into results/capacity.json (the chain's `stages` and the separate `budget_runs` live in one file). `budget_run` is added to (or replaces the
+    same run in) the `budget_runs` list. The read-modify-write is under a file lock: two budget runs (seeds) may finish at the same time."""
+    import fcntl
+    OUT.parent.mkdir(exist_ok=True)
+    with open(OUT.with_suffix(".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        data = json.loads(OUT.read_text()) if OUT.exists() else {}
+        data.update({"threshold": THRESHOLD, "criterion": "validation exact match of the passkey at N = 256", **update})
+        if budget_run is not None:
+            data["budget_runs"] = [*(e for e in data.get("budget_runs", []) if e["run"] != budget_run["run"]), budget_run]
+        tmp = OUT.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=1))
+        tmp.replace(OUT)
 
 
 def chain(run_stage, first: int, max_len: int, init: str, threshold: float = THRESHOLD) -> list[dict]:
@@ -60,9 +105,10 @@ def chain(run_stage, first: int, max_len: int, init: str, threshold: float = THR
     while P <= max_len:
         entry, weights = run_stage(P, init)
         stages.append(entry)
-        OUT.parent.mkdir(exist_ok=True)
-        OUT.write_text(json.dumps({"threshold": threshold, "criterion": "validation exact match of the passkey at N = 256", "stages": stages}, indent=1))
-        print(f"passkey {P} tokens ({P * 4} bits): validation exact {entry['validation']['exact']['256']:.3f} at N = 256 -> {'passed' if entry['passed'] else 'FAILED, stop'}", flush=True)
+        write_capacity({"stages": stages})
+        ok = entry["validation"]["positions_ok"].get("256")
+        print(f"passkey {P} tokens ({P * 4} bits): validation exact {entry['validation']['exact']['256']:.3f} at N = 256"
+              + (f", {ok} of {P} positions at {POS_OK} or more" if ok is not None else "") + f" -> {'passed' if entry['passed'] else 'FAILED, stop'}", flush=True)
         if not entry["passed"]:
             break
         init, P = weights, P * 2
@@ -74,17 +120,33 @@ def free_gb(gpu: int) -> float:
     return float(r.stdout.split()[0]) / 1024
 
 
-def ensure_dataset(P: int, workers: int = 16) -> Path:
+TRAIN_SIZE = 100_000  # streams per N: the size of the base dataset, so the passkey length is the only difference between the data of a stage and the checkpoint's
+
+
+def ensure_dataset(P: int, workers: int = 16, train_size: int = TRAIN_SIZE) -> Path:
     out = C.data_dir_for({"data_dir": "data_cache/passkey_swar", "passkey_len": P})
     if (out / "gen_meta.json").exists():
+        size = json.loads((out / "gen_meta.json").read_text())["sizes"]["train"]
+        if size != train_size:
+            raise SystemExit(f"{out} has {size} training streams per N, expected {train_size}: remove the folder to generate it again")
         return out
     import make_passkey_swar as G
     import sanity_checks as S
     ns = [str(n) for n in NS]
-    G.main(["--out-dir", str(out), "--ns", *ns, "--train-ns", *ns, "--train-size", "30000", "--workers", str(workers), "--passkey-len", str(P), "--skip-sanity"])
+    G.main(["--out-dir", str(out), "--ns", *ns, "--train-ns", *ns, "--train-size", str(train_size), "--workers", str(workers), "--passkey-len", str(P), "--skip-sanity"])
     if not S.run(out, out / "reports", workers=workers):  # the oracle re-derives every label from the tokens; a dataset that fails is not used
         raise SystemExit(f"sanity checks failed for {out}")
     return out
+
+
+def wait_for_memory(gpu: int, need_gb: float, poll: int = 60) -> None:
+    """Block until the GPU has `need_gb` free: the GPU is shared with other people's jobs, so a stage does not start on a full one."""
+    shown = False
+    while (free := free_gb(gpu)) < need_gb:
+        if not shown:
+            print(f"waiting for {need_gb:.0f} GB free on GPU {gpu} ({free:.1f} GB now)", flush=True)
+            shown = True
+        time.sleep(poll)
 
 
 def run_training(overrides: list[str], name: str, gpu: int, need_gb: float, log: Path, attempts: int = 30) -> None:
@@ -107,29 +169,72 @@ def run_training(overrides: list[str], name: str, gpu: int, need_gb: float, log:
     raise SystemExit(f"{name}: gave up after {attempts} starts")
 
 
+def reevaluate(gpu: int) -> None:
+    """Add the per-position passkey accuracy to the stages of capacity.json that were run before it existed: evaluates their final weights on the validation and test split."""
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu)
+    import torch
+    import data as D
+    import evaluate as E
+    from models import build_from_config
+    data = json.loads(OUT.read_text())
+    for group in ("stages", "budget_runs"):
+        for entry in data.get(group, []):
+            if entry["validation"].get("positions"):
+                continue
+            res = json.loads((ROOT / "results" / "raw" / f"{entry['run']}.json").read_text())
+            cfg = res["config"]
+            ddir = C.data_dir_for(cfg)
+            D.prepare_kinds(ddir, json.loads((ddir / "gen_meta.json").read_text())["params"], workers=8)  # the per-position kinds of the eval files (no-op when cached)
+            model = build_from_config(cfg["model"], json.loads((ddir / "vocab.json").read_text())["size"])
+            model.load_state_dict(torch.load(ROOT / "runs" / entry["run"] / "model.pt", map_location="cpu", weights_only=True))
+            model = model.cuda()
+            for split in ("validation", "test"):
+                pos = {}
+                for n in NS:
+                    m = E.evaluate_packed(model, D.load_packed(ddir / f"n{n}" / f"{split}.parquet", kinds=True), torch.device("cuda"), amp_dtype=torch.bfloat16)
+                    pos[str(n)] = [round(x, 4) for x in m["passkey_pos_acc"]]
+                entry[split]["positions"] = pos
+                entry[split]["positions_ok"] = {n: sum(x >= POS_OK for x in v) for n, v in pos.items()}
+            print(f"{entry['run']}: positions at {POS_OK} or more at N = 256: validation {entry['validation']['positions_ok']['256']}, test {entry['test']['positions_ok']['256']}", flush=True)
+    OUT.write_text(json.dumps(data, indent=1))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--init", default="checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt", help="weights of the checkpoint trained on 4-token passkeys")
-    ap.add_argument("--gpu", type=int, default=1)
+    ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--start", type=int, default=8)
     ap.add_argument("--max-len", type=int, default=512)
     ap.add_argument("--steps", type=int, default=10000)
     ap.add_argument("--lr", type=float, default=3e-4)
+    ap.add_argument("--warmup", type=int, default=200, help="warm-up steps (the original recipe: 500)")
+    ap.add_argument("--curriculum", type=int, default=0, help="steps per stream-length stage, 0 = all lengths from the start (the original recipe: 2000)")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--budget-run", action="store_true", help="run only the stage --start with the given budget and record it under `budget_runs` (no chain, no stop rule)")
+    ap.add_argument("--reevaluate", action="store_true", help="fill in the per-position accuracy of recorded stages and exit")
     a = ap.parse_args()
+    if a.reevaluate:
+        return reevaluate(a.gpu)
 
     def run_stage(P: int, init: str):
         ensure_dataset(P)
-        overrides = stage_overrides(P, init, a.steps, a.lr, a.seed)
+        overrides = stage_overrides(P, init, a.steps, a.lr, a.seed, a.warmup, a.curriculum)
         cfg, explicit = C.load_config(ROOT / "configs" / "swa_fb.yaml", overrides)
-        name, result_file = C.run_name(cfg, explicit), None
+        name = C.run_name(cfg, explicit)
         result_file = ROOT / "results" / "raw" / f"{name}.json"
         if not result_file.exists():
+            wait_for_memory(a.gpu, C.footprint_gb(cfg))
             print(f"stage {P}: training {name} from {init}", flush=True)
             run_training(overrides, name, a.gpu, C.footprint_gb(cfg), ROOT / "logs" / "capacity" / f"{name}.log")
         result = json.loads(result_file.read_text())
         return summarize(P, name, init, result), str((ROOT / "runs" / name / "model.pt").relative_to(ROOT))
 
+    if a.budget_run:
+        entry, _ = run_stage(a.start, a.init)
+        write_capacity({}, budget_run=entry)
+        print(f"budget run, passkey {a.start}: validation exact {entry['validation']['exact']['256']:.3f} at N = 256, positions at {POS_OK}+: {entry['validation']['positions_ok'].get('256')}/{a.start}", flush=True)
+        return
     chain(run_stage, a.start, a.max_len, a.init)
 
 

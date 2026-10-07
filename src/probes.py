@@ -48,15 +48,15 @@ def make_packed(p: G.GenParams, n_writes: int, n_examples: int, split_seed: int 
                     a(kinds, np.int8))
 
 
-def query_distances(packed: D.Packed) -> tuple[np.ndarray, np.ndarray]:
+def query_distances(packed: D.Packed, passkey_len: int = G.PASSKEY_LEN) -> tuple[np.ndarray, np.ndarray]:
     """Token distance from the queried key's latest write (its value token) to the query's key token.
 
-    Returns (distances of valid queries, distances of stale-expired queries). Needs packed.kinds."""
+    Returns (distances of valid queries, distances of stale-expired queries). Needs packed.kinds. `passkey_len` is the dataset's passkey length (tokens)."""
     valid, stale = [], []
     for i in range(len(packed)):
         t = packed.ids[packed.offs[i]:packed.offs[i + 1]].astype(int).tolist()
-        ks = packed.kinds[packed.toffs[i]:packed.toffs[i + 1]][:-G.PASSKEY_LEN]  # drop the passkey positions
-        last_value_pos, j, q = {}, 6, 0
+        ks = packed.kinds[packed.toffs[i]:packed.toffs[i + 1]][:-passkey_len]  # drop the passkey positions
+        last_value_pos, j, q = {}, 2 + passkey_len, 0  # the stream starts after BOS PK and the passkey
         while t[j] != G.PKQ:
             if t[j] == G.W:
                 last_value_pos[t[j + 1]] = j + 2
@@ -72,11 +72,11 @@ def query_distances(packed: D.Packed) -> tuple[np.ndarray, np.ndarray]:
     return np.asarray(valid), np.asarray(stale)
 
 
-def reach_ceilings(packed: D.Packed, reaches: list[int]) -> dict[int, dict[str, float]]:
+def reach_ceilings(packed: D.Packed, reaches: list[int], passkey_len: int = G.PASSKEY_LEN) -> dict[int, dict[str, float]]:
     """For a model that can pass information over `R` tokens (and no further): the share of valid answers whose write is
     reachable, and the share of stale writes that are still visible (those the model must recognise as expired by
     counting, since a pure window cannot tell they are older than 2w writes)."""
-    valid, stale = query_distances(packed)
+    valid, stale = query_distances(packed, passkey_len)
     return {int(r): {"valid_reachable": float(np.mean(valid <= r)), "stale_visible": float(np.mean(stale <= r))}
             for r in reaches}
 
@@ -86,8 +86,7 @@ def load_run(name: str, device="cuda"):
     import torch
     from models import build_from_config
     cfg = json.loads((C.ROOT / "results" / "raw" / f"{name}.json").read_text())["config"]
-    data_dir = Path(cfg["data_dir"])
-    data_dir = data_dir if data_dir.is_absolute() else C.ROOT / data_dir
+    data_dir = C.data_dir_for(cfg)
     vocab = json.loads((data_dir / "vocab.json").read_text())["size"]
     model = build_from_config(cfg["model"], vocab).to(device)
     model.load_state_dict(torch.load(C.ROOT / "runs" / name / "model.pt", map_location=device))
@@ -95,15 +94,15 @@ def load_run(name: str, device="cuda"):
 
 
 def token_profile(hits: np.ndarray) -> dict:
-    """hits: [examples, 4] bool, is each passkey token right. Exact match = all 4; `hist[k]` = share of examples with exactly k right.
-    A memory that decays gradually leaves many examples with 1 to 3 right tokens; one that retains or loses the whole passkey
-    puts almost all examples at 0 or 4."""
+    """hits: [examples, P] bool, is each passkey token right (P = the passkey length). Exact match = all P; `hist[k]` = share of examples with exactly k right.
+    A memory that decays gradually leaves many examples with 1 to P-1 right tokens; one that retains or loses the whole passkey
+    puts almost all examples at 0 or P."""
     return {"exact": float(hits.all(1).mean()), "per_token": [float(x) for x in hits.mean(0)],
             "hist": [float(x) for x in np.bincount(hits.sum(1), minlength=hits.shape[1] + 1) / len(hits)]}
 
 
 def passkey_token_hits(model, p: D.Packed, device, tokens_per_batch: int = 1 << 20, amp_dtype=None) -> np.ndarray:
-    """[examples, 4] bool: is each of the 4 passkey tokens predicted correctly under teacher forcing (same batching as the evaluator)."""
+    """[examples, P] bool: is each of the P passkey tokens predicted correctly under teacher forcing (same batching as the evaluator)."""
     import torch
     import evaluate as E
     L, B = E.eval_plan(p.lengths(), tokens_per_batch)
@@ -131,8 +130,7 @@ def passkey_profile(name: str, ns: list[int], split: str = "test") -> list[dict]
     import torch
     model, cfg = load_run(name)
     amp = torch.bfloat16 if cfg["train"].get("precision", "fp32") == "bf16" else None
-    data_dir = Path(cfg["data_dir"])
-    data_dir = data_dir if data_dir.is_absolute() else C.ROOT / data_dir
+    data_dir = C.data_dir_for(cfg)
     out = []
     for n in ns:
         p = D.load_packed(data_dir / f"n{n}" / f"{split}.parquet", kinds=True)

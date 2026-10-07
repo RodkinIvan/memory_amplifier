@@ -19,13 +19,19 @@ spec.loader.exec_module(CAP)
 INIT = "checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt"
 
 
-def fake_result(exact256: float, token256: float = None) -> dict:
+def fake_result(exact256: float, token256: float = None, pos256=None, history=None, train_size=100_000) -> dict:
     rows = []
     for split in ("validation", "test"):
         for n in CAP.NS:
             e = exact256 if n == 256 else 1.0
-            rows.append({"split": split, "N": n, "passkey_acc": e, "passkey_token_acc": token256 if (n == 256 and token256 is not None) else e, "ar_valid_acc": 0.99})
-    return {"rows": rows, "train_time_s": 3600.4, "config": {"train": {"steps": 10000}}}
+            row = {"split": split, "N": n, "passkey_acc": e, "passkey_token_acc": token256 if (n == 256 and token256 is not None) else e, "ar_valid_acc": 0.99}
+            if pos256 is not None:
+                row["passkey_pos_acc"] = list(pos256) if n == 256 else [1.0] * len(pos256)
+            rows.append(row)
+    res = {"rows": rows, "train_time_s": 3600.4, "config": {"train": {"steps": 10000, "lr": 0.0003, "warmup_steps": 200, "curriculum_stage_steps": 0}}, "val_history": history or []}
+    if train_size is not None:
+        res["dataset"] = {"dir": "passkey_swar_pk8", "sizes": {"train": train_size, "validation": 1000, "test": 1000}}
+    return res
 
 
 class StageSetup(unittest.TestCase):
@@ -66,6 +72,99 @@ class Summary(unittest.TestCase):
             if row["split"] == "test" and row["N"] == 256:
                 row["passkey_acc"] = 0.1
         self.assertTrue(CAP.summarize(8, "x", INIT, r)["passed"])
+
+
+POS = [1.0, 0.04, 1.0, 1.0, 0.03, 1.0, 1.0, 0.06]  # the pattern found in the first P = 8 stage: every third position is at chance
+
+
+class PerPosition(unittest.TestCase):
+    """Review C1: a stage that fails must be readable position by position."""
+
+    def test_the_entry_has_the_accuracy_of_every_position_and_how_many_are_at_0_9(self):
+        e = CAP.summarize(8, "run8", INIT, fake_result(0.0, 0.645, POS))
+        self.assertEqual(e["validation"]["positions"]["256"], POS)
+        self.assertEqual(e["validation"]["positions"]["32"], [1.0] * 8)
+        self.assertEqual(e["validation"]["positions_ok"], {"32": 8, "64": 8, "128": 8, "256": 5})
+        self.assertEqual(e["test"]["positions_ok"]["256"], 5)
+        self.assertFalse(e["passed"])  # the stop rule is still the exact match at N = 256
+
+    def test_a_result_from_before_the_metric_existed_gives_empty_positions_instead_of_failing(self):
+        e = CAP.summarize(8, "old", INIT, fake_result(0.95))
+        self.assertEqual((e["validation"]["positions"], e["validation"]["positions_ok"]), ({}, {}))
+
+    def test_the_step_at_which_each_position_switched_on_comes_from_the_validation_history(self):
+        hist = [{"step": 1000, "val/n256/passkey_pos_acc": [0.9, 0.05, 0.3]}, {"step": 2000, "val/n256/passkey_pos_acc": [1.0, 0.4, 0.95]},
+                {"step": 3000, "val/n256/passkey_pos_acc": [1.0, 0.6, 1.0]}]
+        self.assertEqual(CAP.position_switch_on(hist), [1000, None, 2000])  # position 2 never reached 0.9
+        self.assertEqual(CAP.position_switch_on([{"step": 1, "val/n32/passkey_acc": 1.0}]), [])
+        e = CAP.summarize(3, "r", INIT, fake_result(0.5, 0.8, [1.0, 0.6, 1.0], history=hist))
+        self.assertEqual(e["switch_on_step"], [1000, None, 2000])
+
+
+class Records(unittest.TestCase):
+    def test_the_training_set_size_of_a_stage_is_in_its_entry_and_the_recipe_too(self):
+        self.assertEqual(CAP.summarize(8, "r", INIT, fake_result(0.95, train_size=100_000))["train_size"], 100_000)
+        self.assertIsNone(CAP.summarize(8, "r", INIT, fake_result(0.95, train_size=None))["train_size"])
+        self.assertEqual(CAP.summarize(8, "r", INIT, fake_result(0.95))["recipe"], {"lr": 0.0003, "warmup_steps": 200, "curriculum_stage_steps": 0})
+
+    def test_a_dataset_with_another_training_size_is_refused_not_used(self):
+        """Review C2: the data of a stage has the base dataset's sizes; an old 30,000-stream folder must not be picked up silently."""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d) / "data_cache" / "passkey_swar_pk8"  # where data_dir_for puts it under the (patched) repository root
+            base.mkdir(parents=True)
+            (base / "gen_meta.json").write_text(json.dumps({"sizes": {"train": 30000, "validation": 1000, "test": 1000}}))
+            with mock.patch.object(C, "ROOT", Path(d)), self.assertRaises(SystemExit) as cm:
+                CAP.ensure_dataset(8)
+            self.assertIn("30000", str(cm.exception))
+            (base / "gen_meta.json").write_text(json.dumps({"sizes": {"train": CAP.TRAIN_SIZE, "validation": 1000, "test": 1000}}))
+            with mock.patch.object(C, "ROOT", Path(d)):
+                self.assertEqual(CAP.ensure_dataset(8), base)
+        self.assertEqual(CAP.TRAIN_SIZE, 100_000)
+
+    def test_two_budget_runs_finishing_together_both_end_up_in_the_file(self):
+        import threading
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(CAP, "OUT", Path(d) / "capacity.json"):
+            ts = [threading.Thread(target=CAP.write_capacity, args=({},), kwargs={"budget_run": {"run": f"seed{i}"}}) for i in range(12)]
+            [x.start() for x in ts]
+            [x.join() for x in ts]
+            data = json.loads(CAP.OUT.read_text())
+            self.assertEqual(sorted(e["run"] for e in data["budget_runs"]), sorted(f"seed{i}" for i in range(12)))
+            CAP.write_capacity({}, budget_run={"run": "seed3", "again": True})  # the same run replaces its entry
+            self.assertEqual(len(json.loads(CAP.OUT.read_text())["budget_runs"]), 12)
+
+    def test_the_chain_and_a_budget_run_share_one_file_without_overwriting_each_other(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(CAP, "OUT", Path(d) / "capacity.json"):
+            CAP.write_capacity({"stages": [{"passkey_len": 8}]})
+            CAP.write_capacity({"budget_runs": [{"run": "b"}]})
+            CAP.write_capacity({"stages": [{"passkey_len": 8}, {"passkey_len": 16}]})
+            data = json.loads(CAP.OUT.read_text())
+        self.assertEqual([s["passkey_len"] for s in data["stages"]], [8, 16])
+        self.assertEqual(data["budget_runs"], [{"run": "b"}])
+        self.assertEqual(data["threshold"], 0.9)
+
+
+class Defaults(unittest.TestCase):
+    def test_the_chain_runs_on_gpu_0_and_waits_for_free_memory_before_a_stage(self):
+        """Review C3."""
+        import io, contextlib
+        with mock.patch("sys.argv", ["x", "--help"]), contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit):
+            CAP.main()
+        text = out.getvalue()
+        self.assertIn("--gpu GPU", text)
+        self.assertRegex(" ".join(text.split()), r"--gpu GPU.*?(?=--start)")
+        self.assertEqual(CAP.argparse.ArgumentParser.__name__, "ArgumentParser")
+        self.assertNotIn("--gpu 1", CAP.__doc__)
+        waits = []
+        with mock.patch.object(CAP, "free_gb", side_effect=[3.0, 5.0, 9.0]), mock.patch.object(CAP.time, "sleep", side_effect=lambda s: waits.append(s)), mock.patch("builtins.print"):
+            CAP.wait_for_memory(0, 8.0, poll=7)
+        self.assertEqual(waits, [7, 7])  # two readings below 8 GB, then it starts
+
+    def test_the_budget_stage_is_the_original_recipe(self):
+        cfg, _ = C.load_config(_paths.ROOT / "configs" / "swa_fb.yaml", CAP.stage_overrides(8, INIT, 50000, 1e-3, 0, 500, 2000))
+        self.assertEqual((cfg["train"]["steps"], cfg["train"]["lr"], cfg["train"]["warmup_steps"], cfg["train"]["curriculum_stage_steps"]), (50000, 1e-3, 500, 2000))
+        self.assertEqual(cfg["train"]["eval_every"], 1000)
+        self.assertEqual(cfg["train"]["eval_ns"], [32, 64, 128, 256])
+        self.assertIn("steps50000_lr0.001_warmup_steps500_cur2000", CAP.stage_name(8, INIT, 50000, 1e-3, 0, 500, 2000))
 
 
 class Chain(unittest.TestCase):

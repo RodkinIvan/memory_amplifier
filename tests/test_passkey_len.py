@@ -133,6 +133,55 @@ class DatasetsAndEvaluation(unittest.TestCase):
         self.assertEqual(part["ar_valid_acc"], 1.0)
 
 
+class PerPositionAndLongPasskeys(DatasetsAndEvaluation):
+    """Review C1 and C4 on the P = 8 dataset of the class above."""
+
+    def test_per_position_accuracy_is_one_number_per_passkey_token_and_means_the_token_accuracy(self):
+        p = D.load_packed(self.out / "n32" / "validation.parquet", kinds=True)
+        full = E.evaluate_packed(Peek(), p, torch.device("cpu"), tokens_per_batch=4096)
+        self.assertEqual(full["passkey_pos_acc"], [1.0] * self.P)
+        part = E.evaluate_packed(Peek(break_after_value=True), p, torch.device("cpu"), tokens_per_batch=4096)
+        self.assertEqual(part["passkey_pos_acc"], [1.0] + [0.0] * (self.P - 1))   # only the first passkey token follows PKQ, the rest follow a value token
+        self.assertAlmostEqual(np.mean(part["passkey_pos_acc"]), part["passkey_token_acc"])
+
+    def test_batching_does_not_change_the_per_position_accuracy(self):
+        p = D.load_packed(self.out / "n32" / "validation.parquet", kinds=True)
+        L, _ = E.eval_plan(p.lengths(), 1)
+        ref = E.evaluate_packed(Peek(break_after_value=True), p, torch.device("cpu"), tokens_per_batch=1)
+        for B in (7, 40):
+            self.assertEqual(E.evaluate_packed(Peek(break_after_value=True), p, torch.device("cpu"), tokens_per_batch=B * L)["passkey_pos_acc"], ref["passkey_pos_acc"])
+
+    def test_the_passkey_weight_applies_to_the_last_p_supervised_tokens_not_the_last_4(self):
+        import train as T
+        torch.manual_seed(0)
+        P, n_ar = 8, 5
+        labels = torch.full((1, 40), -100)
+        labels[0, 3:3 + n_ar] = torch.randint(8, 40, (n_ar,))               # AR answers
+        labels[0, 20:20 + P] = torch.randint(8, 40, (P,))                    # the passkey: the last P supervised positions
+        logits = torch.randn(1, 40, 40)
+        ce = F.cross_entropy(logits[0, :-1].float(), labels[0, 1:], ignore_index=-100, reduction="none")
+        sup = labels[0, 1:] != -100
+        w = torch.ones(39)
+        w[19:19 + P] = 10.0                                                  # target positions 20..27 shifted by one
+        expect = (ce * w * sup).sum() / (w * sup).sum()
+        self.assertAlmostEqual(float(T.weighted_ce(logits, labels, 10.0, P)), float(expect), places=5)
+        self.assertNotAlmostEqual(float(T.weighted_ce(logits, labels, 10.0, 4)), float(expect), places=3)   # the default of 4 would weight the wrong tokens
+
+    def test_probes_scan_the_stream_after_a_passkey_of_any_length(self):
+        import probes as PR
+        from probes import make_packed
+        for P in (4, 8):
+            gp = G.GenParams(passkey_len=P)
+            packed = make_packed(gp, 100, 6)
+            valid, stale = PR.query_distances(packed, P)
+            self.assertGreater(len(valid), 0)
+            n_q = int(sum((packed.kinds[packed.toffs[i]:packed.toffs[i + 1]][:-P] > 0).sum() for i in range(len(packed))))
+            self.assertEqual(len(valid) + len(stale) + sum(int((packed.kinds[packed.toffs[i]:packed.toffs[i + 1]][:-P] == 3).sum()) for i in range(len(packed))), n_q)  # every query is told apart
+        v4, _ = PR.query_distances(make_packed(G.GenParams(passkey_len=4), 100, 6), 4)
+        with self.assertRaises((KeyError, IndexError, ValueError)):
+            PR.query_distances(make_packed(G.GenParams(passkey_len=8), 100, 6), 4)   # reading an 8-token dataset as 4 tokens does not give silent nonsense
+
+
 class Peek(torch.nn.Module):
     """Predicts the true next token; with break_after_value it predicts NULL whenever the current token is a value token."""
 

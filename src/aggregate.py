@@ -37,11 +37,15 @@ SURFACE, INK, INK2, MUTED, GRID, AXIS = "#fcfcfb", "#0b0b0b", "#52514e", "#89878
 BLUE_RAMP = ["#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#256abf", "#184f95", "#0d366b"]  # light -> dark
 
 
-def load_runs(raw_dir: Path) -> list[dict]:
+def load_runs(raw_dir: Path, all_passkeys: bool = False) -> list[dict]:
+    """The runs of a results folder. Runs on a dataset with another passkey length than the default 4 (the capacity experiment: other N, other data) are left out unless
+    `all_passkeys`: the summary tables and the reports compare runs on the same benchmark."""
     runs = []
     for f in sorted(Path(raw_dir).glob("*.json")):
         r = json.loads(f.read_text())
         cfg, kind = r["config"], r["config"]["model"]["kind"]
+        if not all_passkeys and int(cfg.get("passkey_len", 4)) != 4:
+            continue
         variant = [k for k in C.name_keys(r["explicit_keys"]) if k != "model.alpha"]  # alpha has its own column
         label = kind + "".join(f"_{C.SHORT.get(k, k.split('.')[-1])}{C.fmt(C.get_nested(cfg, k))}" for k in variant)
         runs.append({"name": r["name"], "model": label, "alpha": cfg["model"]["alpha"] if kind == "gdn_fixed" else np.nan,
