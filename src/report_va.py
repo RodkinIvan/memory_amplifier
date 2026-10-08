@@ -22,7 +22,7 @@ import aggregate as A  # noqa: E402
 import config as C  # noqa: E402
 import report_groups as RG  # noqa: E402
 import report_rounds as RR  # noqa: E402
-from report_best import _row, mean_curve, over_n, pick_best  # noqa: E402
+from report_best import mean_curve, over_n  # noqa: E402
 from report_groups import NS, cells_for_row, number_figures  # noqa: E402
 
 f2 = lambda x: f"{x:.2f}"
@@ -67,53 +67,70 @@ def method_svg() -> str:
 
 
 def load_probes(directory: Path = PROBE_DIR) -> dict:
-    """{'cache': ..., 'delta': ..., 'perturb': ...} from results/probes/va_*.json (whatever exists)."""
-    out = {}
-    for key, name in (("cache", "va_cache_probe.json"), ("delta", "va_delta_w.json"), ("perturb", "va_perturb.json")):
-        f = directory / name
-        if f.exists():
-            out[key] = json.loads(f.read_text())
+    """{'cache': ..., 'delta': ..., 'perturb': ...} from results/probes/va_cache_probe*.json, va_delta_w*.json, va_perturb*.json (whatever exists; several files of one kind,
+    e.g. one per segment length, are merged by run name)."""
+    out: dict = {}
+    for key, stem in (("cache", "va_cache_probe"), ("delta", "va_delta_w"), ("perturb", "va_perturb")):
+        for f in sorted(directory.glob(f"{stem}*.json")):
+            out.setdefault(key, {}).update(json.loads(f.read_text()))
     return out
 
 
 def probe_figures(probes: dict) -> list[dict]:
-    """Tables of the three diagnostics, for the runs that were probed (empty when none was)."""
+    """One figure per kind of diagnostic, all probed runs in it (empty when nothing was probed)."""
     figs = []
-    for run, res in probes.get("cache", {}).items():
+    cache = probes.get("cache", {})
+    if cache:
+        runs = list(cache)
+        first = cache[runs[0]]
+        dists = list(first["models"]["model"]["by_distance"])
+        tokens = [first["models"]["model"]["by_distance"][d]["tokens"] for d in dists]
+        ctl = next((res["models"]["control"] for res in cache.values() if "control" in res["models"]), None)
+        head = ["run"] + [f"{t:,} tokens" for t in tokens]
+
+        def table(feature: str) -> str:
+            rows = [[html.escape(r)] + [f2(cache[r]["models"]["model"]["by_distance"][d][feature]["mean"]) if feature in cache[r]["models"]["model"]["by_distance"][d] else "–" for d in dists] for r in runs]
+            if ctl:
+                rows.append([f"control: {html.escape(ctl['run'])}"] + [f2(ctl["by_distance"][d][feature]["mean"]) if feature in ctl["by_distance"][d] else "–" for d in dists])
+            return RR._table(head, rows)
+        reach = first["models"]["model"]["reach"]
+        figs.append({"key": "probe_cache", "title": "Passkey read out of the cached window",
+                     "sub": f"Linear (ridge) read-out of each passkey token from the {reach // 2} cached positions of both layers, at growing numbers of tokens after the passkey; mean accuracy over the {first['passkey_len']} tokens, chance {first['chance']:.3f}; "
+                            f"{first['n_train']} streams to fit, {first['n_test']} to test. Tables: cached values, cached keys, the adaptation matrix ΔW_v.",
+                     "caption": "<p>The read-out never sees the passkey tokens themselves, only the cached values (or keys, or ΔW_v) after the given number of tokens. A plain window model with these dimensions reaches "
+                                f"{reach} tokens" + (f"; the control ({html.escape(ctl['run'])}) is a plain sliding-window model, whose cache cannot hold the passkey beyond that." if ctl else ".") + "</p>"
+                                , "spec": None, "html": "<p><b>Values</b></p>" + table("v") + "<p><b>Keys</b></p>" + table("k") + "<p><b>ΔW_v</b></p>" + table("dw")})
+    delta = probes.get("delta", {})
+    if delta:
         rows = []
-        for d, e in res["models"]["model"]["by_distance"].items():
-            ctl = res["models"].get("control", {}).get("by_distance", {}).get(d)
-            rows.append([f"{int(d):,}", f"{e['tokens']:,}", f2(e["v"]["mean"]), f2(e["k"]["mean"]), f2(e["dw"]["mean"]) if "dw" in e else "–"]
-                        + ([f2(ctl["v"]["mean"]), f2(ctl["k"]["mean"])] if ctl else []))
-        ctl_run = res["models"].get("control", {}).get("run")
-        head = ["distance after the passkey (tokens)", "cut at token", "values", "keys", "ΔW_v"] + (["control: values", "control: keys"] if ctl_run else [])
-        figs.append({"key": f"probe_cache_{run}", "title": f"Passkey read out of the cached window: {run}",
-                     "sub": f"Linear (ridge) read-out of each passkey token from the {res['models']['model']['reach'] // 2} cached positions of both layers; mean accuracy over the {res['passkey_len']} tokens, chance {res['chance']:.3f}; "
-                            f"{res['n_train']} streams to fit, {res['n_test']} to test.",
-                     "caption": "<p>The read-out never sees the passkey tokens themselves, only the cached values (or keys, or the adaptation matrix) after the given number of tokens. "
-                                f"The reach of a plain window model with these dimensions is {res['models']['model']['reach']} tokens" + (f"; the control ({html.escape(ctl_run)}) is a plain sliding-window model, whose cache cannot hold the passkey beyond that." if ctl_run else ".") + "</p>",
-                     "spec": None, "html": RR._table(head, rows)})
-    for run, res in probes.get("delta", {}).items():
-        rows = []
-        for i, layer in enumerate(res["layers"]):
-            for frac, e in layer["at"].items():
-                rows.append([str(i), f"{float(frac):.0%}", f"{e['segment']:,}", f"{layer['gain']:.3f}", f"{e['fro']:.3f}", f2(e["fro_over_w_v"]), f"{e['spectral']:.3f}", f"{e['rank']:.1f}", f"{e['max_entry']:.3f}",
-                                 f2(e["mean_share"]) if "mean_share" in e else "–", f2(e["cov_fro_over_w_v"]) if "cov_fro_over_w_v" in e else "–", f2(e["saturated"]) if "saturated" in e else "–", f2(e["cos_next"]), f2(e["cos_lag16"])])
-        figs.append({"key": f"probe_delta_{run}", "title": f"Size, rank and drift of ΔW_v along a stream: {run}",
-                     "sub": f"{res['n_writes']:,} writes per stream (segments: {res['segments']:,}), mean over the probe streams; rank = participation ratio of the singular values (at most C = {res['segment']}).",
+        for run, res in delta.items():
+            for i, layer in enumerate(res["layers"]):
+                e = layer["at"].get("0.5") or next(iter(layer["at"].values()))
+                rows.append([html.escape(run), str(i), f"{layer['gain']:.3f}", f2(e["fro_over_w_v"]), f"{e['spectral']:.2f}", f"{e['rank']:.1f}", f"{e['max_entry']:.3f}",
+                             f2(e["mean_share"]) if "mean_share" in e else "–", f2(e["cov_fro_over_w_v"]) if "cov_fro_over_w_v" in e else "–", f2(e["saturated"]) if "saturated" in e else "–", f2(e["cos_next"]), f2(e["cos_lag16"])])
+        res0 = next(iter(delta.values()))
+        figs.append({"key": "probe_delta", "title": "Size, rank and drift of ΔW_v along a stream",
+                     "sub": f"{res0['n_writes']:,} writes per stream, taken in the middle of the stream, mean over the probe streams; rank = participation ratio of the singular values (at most C).",
                      "caption": "<p>Size is relative to the layer's own W_v. The mean part is the outer product of the average value vector and the average key vector of the segment (the same for every token); the token-specific part is the rest, where stream content can live. "
-                                "Saturated entries: share of key and value entries with |tanh| above 0.95. A cosine near 1 between ΔW_v of consecutive segments (or 16 segments apart) means the adaptation has settled into a fixed point; near 0 that it is rewritten every segment.</p>", "spec": None,
-                     "html": RR._table(["layer", "position in stream", "segment", "gain g", "‖ΔW_v‖_F", "÷ ‖W_v‖_F", "spectral norm", "rank", "largest entry", "share of the mean part", "token-specific part ÷ ‖W_v‖_F", "saturated entries", "cos next", "cos +16"], rows)})
-    for run, res in probes.get("perturb", {}).items():
-        ex = res["exact"]
-        eps = sorted({float(k.split("_")[1]) for k in ex if k.split("_")[0] in ("values", "state", "both") and k.split("_")[1] != "zero"})
-        rows = [[who] + [f2(ex[f"{key}_{e:g}"]) for e in eps] + [f2(ex[f"{key}_zero"])] for who, key in (("cached values", "values"), ("previous segment's encoding (state)", "state"), ("both", "both"))]
-        con = res["contraction"]
-        figs.append({"key": f"probe_perturb_{run}", "title": f"Perturbing the memory in mid-stream: {run}",
-                     "sub": f"Passkey exact match at N = {res['n_writes']:,} (clean: {f2(ex['clean'])}); the kick lands after segment {res['s_star']:,} (token {res['s_star_tokens']:,}), far beyond the reach. Columns: noise of ε × the tensor's RMS, and zeroing.",
-                     "caption": "<p>Distance between the cached values of a clean and a perturbed run, relative to right after the kick (median over streams), after "
-                                + ", ".join(f"{k} segments: {v:.2f}" for k, v in con.items()) + ". Well below 1 means the memory pulls itself back to the clean trajectory; near 1 that the kick is carried along unchanged.</p>", "spec": None,
-                     "html": RR._table(["perturbed"] + [f"ε = {e:g}" for e in eps] + ["zeroed"], rows)})
+                                "Saturated: share of key and value entries with |tanh| above 0.95. A cosine near 1 between ΔW_v of consecutive segments (or 16 segments apart) means the adaptation has settled into a fixed point; near 0 that it is rewritten every segment.</p>",
+                     "spec": None, "html": RR._table(["run", "layer", "gain g", "‖ΔW_v‖ ÷ ‖W_v‖", "spectral norm", "rank", "largest entry", "share of the mean part", "token-specific part ÷ ‖W_v‖", "saturated", "cos next", "cos +16"], rows)})
+    pert = {r: res for r, res in probes.get("perturb", {}).items() if res["exact"]["clean"] >= 0.05}
+    if pert:
+        rows = []
+        for run, res in pert.items():
+            ex = res["exact"]
+            eps = sorted({float(k.split("_")[1]) for k in ex if k.split("_")[0] in ("values", "state", "both") and k.split("_")[1] != "zero"})
+            for who, key in (("cached values", "values"), ("previous encoding", "state"), ("both", "both")):
+                rows.append([html.escape(run), who, f2(ex["clean"])] + [f2(ex[f"{key}_{e:g}"]) for e in eps] + [f2(ex[f"{key}_zero"])]
+                            + ([" / ".join(f"{v:.2f}" for v in res["contraction"].values())] if key == "values" else [""]))
+        res0 = next(iter(pert.values()))
+        eps0 = sorted({float(k.split("_")[1]) for k in res0["exact"] if k.split("_")[0] == "values" and k.split("_")[1] != "zero"})
+        figs.append({"key": "probe_perturb", "title": "Perturbing the memory in mid-stream",
+                     "sub": f"Passkey exact match at N = {res0['n_writes']:,}; the kick lands after segment {res0['s_star']:,} (token {res0['s_star_tokens']:,}), far beyond the reach. Columns: noise of ε × the tensor's RMS, and zeroing. Only runs that hold the passkey (clean 0.05 or more).",
+                     "caption": "<p>The last column: distance between the cached values of a clean and a perturbed run, relative to right after the kick (median over streams), after "
+                                + " / ".join(res0["contraction"]) + " segments. Well below 1 means the memory pulls itself back to the clean trajectory; near 1 that the kick is carried along unchanged. "
+                                "Runs whose passkey exact match is below 0.05 are not shown (nothing to perturb).</p>", "spec": None,
+                     "html": RR._table(["run", "perturbed", "clean"] + [f"ε = {e:g}" for e in eps0] + ["zeroed", "kick size after later segments"], rows)})
     return figs
 
 
@@ -164,6 +181,61 @@ def probe_bullets(probes: dict) -> list[str]:
     return out
 
 
+def probe_sentence8(g8: dict, probes: dict) -> str:
+    """What the probes say about the segment-8 runs: the cached-value read-out far beyond the reach, per run, with the run's associative-recall accuracy."""
+    cache = probes.get("cache", {})
+    parts = []
+    for r in g8["runs"]:
+        res = cache.get(r["name"])
+        if not res:
+            continue
+        m = res["models"]["model"]
+        far = max(m["by_distance"], key=int)
+        parts.append(f"seed {r['seed']} (AR valid {RG.per_seed([r], 256, 'ar_valid_acc')[0]:.2f}): {f2(m['by_distance'][far]['v']['mean'])}")
+    return (f" Read-out of the passkey from the cached values {m['by_distance'][far]['tokens']:,} tokens after it was shown: " + "; ".join(parts) + f" (chance {res['chance']:.2f}).") if parts else ""
+
+
+def next_text(va: dict, fb: dict, logs: dict, probes: dict) -> str:
+    """The open issues, from the numbers: what the runs did at the end of training, what failed, what the diagnostics point to. Suggestions are marked as not run."""
+    paras = []
+    seen = lambda g, n, step: [dict(RR.curve(r, logs, n)).get(step) for r in g["runs"]]
+    g32 = va.get(32)
+    if g32 and all(len(r.get("val_history") or []) > 0 for r in g32["runs"]):
+        last = max(h["step"] for h in g32["runs"][0]["val_history"])
+        early = last - 12000
+        a, b = seen(g32, 256, early), seen(g32, 256, last)
+        if None not in a + b:
+            paras.append(f"<p><b>Training length.</b> At segment 32 the validation passkey at N = 256 was {RG.seeds_text(a)} per seed at step {early:,} and {RG.seeds_text(b)} at step {last:,}, "
+                         f"with the learning rate already cosine-decayed to {g32['runs'][0]['cfg']['train']['min_lr_ratio']:.0%} at the end: the runs were still improving when the schedule ended, so a longer schedule is the first thing to try (not run).</p>")
+    g8 = va.get(8)
+    if g8:
+        valid = RG.per_seed(g8["runs"], 256, "ar_valid_acc")
+        pk = RG.per_seed(g8["runs"], 256)
+        pk32 = RG.per_seed(g8["runs"], 32)
+        paras.append(f"<p><b>Segment 8.</b> Value adaptation does not work here: passkey at N = 256 per seed {RG.seeds_text(pk)} (at N = 32: {RG.seeds_text(pk32)}), AR valid accuracy {RG.seeds_text(valid)}. "
+                     + (f"The vector loop m at segment 8, the best configuration of the earlier rounds, scores {RG.seeds_text(RG.per_seed(fb[8]['runs'], 16384))} per seed at N = 16,384. " if 8 in fb else "")
+                     + f"A seed that never learned the associative-recall half (valid {min(valid):.2f}) has the only passkey signal, which decays with N."
+                     + probe_sentence8(g8, probes) + f" Whether the narrower channel (rank at most {RG.effective_segment(g8)} per segment, against 32) is the cause is not tested.</p>")
+    delta = probes.get("delta", {})
+    sat = [e["saturated"] for res in delta.values() for l in res["layers"] for e in l["at"].values() if "saturated" in e]
+    big = [(res["layers"][0]["at"].get("0.5") or next(iter(res["layers"][0]["at"].values()))) for res in delta.values()]
+    big = [e for e in big if e["fro_over_w_v"] >= 1.0]
+    if sat:
+        paras.append(f"<p><b>Saturated codes.</b> In the probed runs {np.mean(sat):.0%} of the key and value entries are saturated (|tanh| above 0.95)"
+                     + (f"; in the {len(big)} runs where the layer-0 update is at least as large as W_v ({min(e['fro_over_w_v'] for e in big):.1f}–{max(e['fro_over_w_v'] for e in big):.1f} × ‖W_v‖) it is mostly one or two directions "
+                        f"(participation rank {min(e['rank'] for e in big):.1f}–{max(e['rank'] for e in big):.1f})" if big else "")
+                     + ". The adaptation behaves like a binary hash with a large constant part rather than a graded associative memory. "
+                       "Keeping the codes unsaturated (a scale or a norm before the tanh) or removing the segment mean are the natural variants (not run).</p>")
+    cache = probes.get("cache", {})
+    per_tok = [np.array(m["by_distance"][max(m["by_distance"], key=int)]["v"]["per_token"]) for res in cache.values() for m in [res["models"]["model"]] if "seg32" in res["models"]["model"]["run"]]
+    if per_tok:
+        mean_tok = np.mean(per_tok, axis=0)
+        paras.append(f"<p><b>Which passkey tokens are kept.</b> At the longest cut the read-out of the four passkey tokens from the cached values is {' / '.join(f2(x) for x in mean_tok)} (mean over the probed segment-32 runs): "
+                     "an alternating pattern, as the loop model showed a period-3 pattern at 8 passkey tokens. Why the stored positions alternate is not explained here.</p>")
+    paras.append("<p><b>Seeds.</b> Both families switch their memory on in some seeds only; the means above are the summary, not the best seed.</p>")
+    return "".join(paras)
+
+
 def va_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dict | None = None) -> tuple[dict, str, str]:
     raw = raw if raw is not None else A.load_runs(C.ROOT / "results" / "raw")
     logs = logs if logs is not None else RR.log_curves(C.ROOT / "logs")
@@ -187,10 +259,7 @@ def va_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
     add = lambda key, label, runs, color, long=None: (rows.append({"key": key, "label": label, "color": color, "long": long or label}), results.__setitem__(key, cells_for_row(runs, "test")))
     for seg in segs:
         g = va[seg]
-        best = pick_best(g["runs"]) if all(any(x["N"] == 16384 and x["split"] == "validation" for x in r["rows"]) for r in g["runs"]) else g["runs"][0]
         add(f"va{seg}", f"value adaptation, segment {seg}, mean of {seeds_lbl(g)}", g["runs"], COLORS[f"va{seg}"], f"{RG.label(g)} ({seeds_lbl(g)}: {', '.join(r['name'] for r in g['runs'])})")
-        if len(g["runs"]) > 1:
-            add(f"va{seg}_best", f"value adaptation, segment {seg}, best seed ({best['seed']})", [best], COLORS[f"va{seg}"], f"{best['name']} (best seed by validation passkey at N = 16,384)")
     for seg in segs:
         if seg in fb:
             g = fb[seg]
@@ -256,7 +325,7 @@ def va_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         key = f"va{seg}"
         h = hz(key)
         tldr.append(f"<b>Segment {seg}.</b> Value adaptation ({seeds_lbl(va[seg])}) scores passkey exact match {f2(cell(key, 256))} / {f2(cell(key, 1024))} / {f2(cell(key, 4096))} / {f2(cell(key, 16384))} (mean, test) at N = 256 / 1,024 / 4,096 / 16,384; "
-                    f"per seed at N = 16,384 {RG.seeds_text(per(key, 16384))}; the mean stays at 0.9 or above up to " + (f"N = {h:,}" if h else "no N") + ". "
+                    f"per seed at N = 16,384 {RG.seeds_text(per(key, 16384))}; " + (f"the mean stays at 0.9 or above up to N = {h:,}" if h else "the mean never reaches 0.9") + ". "
                     + (f"The vector loop m at the same segment ({seeds_lbl(fb[seg])}) scores {f2(cell(f'fb{seg}', 256))} / {f2(cell(f'fb{seg}', 1024))} / {f2(cell(f'fb{seg}', 4096))} / {f2(cell(f'fb{seg}', 16384))} (per seed at 16,384: {RG.seeds_text(per(f'fb{seg}', 16384))})." if seg in fb else ""))
     base = []
     if swa64:
@@ -280,9 +349,9 @@ def va_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
                   "<figcaption>The adaptation is a low-rank test-time update of W_v, ΔW_v = (g / C) Σ b_j a_jᵀ, built from the previous segment and never formed as a matrix (Δv_t = (g / C) Σ_j b_j ⟨a_j, h_t⟩). "
                   "The first segment is plain attention. The model runs on a key/value cache: a value computed for a token keeps the adaptation of its own segment for as long as it stays in the window.</figcaption></figure>"),
         "results_intro": "Value adaptation against the vector loop m at the same segment, plain SWA and GDN-2, all with the same recipe (50k steps, stream-length curriculum, 2 layers, window 64).",
-        "fig1_title": "1. Accuracy by configuration and stream length", "fig1_sub": "Rows: value adaptation (mean of the seeds and best seed), the vector loop at the same segments, baselines. Columns: stream length N. Darker is higher.",
+        "fig1_title": "1. Accuracy by configuration and stream length", "fig1_sub": "Rows: value adaptation (mean of the seeds), the vector loop at the same segments, baselines. Columns: stream length N. Darker is higher.",
         "valid_title": "AR valid accuracy (key written within the last 16 writes)", "stale_title": "AR expired accuracy, stale keys only (last write more than 32 writes ago)",
         "cap1": "<p>Top grid: passkey. Middle and bottom grids: the associative-recall half.</p>", "cap2": "", "extra_figs": figs, "next_title": "Open issues",
-        "next": "<p><b>Seeds.</b> Both model families switch their memory on in some seeds only; the means above are the summary, not the best seed.</p>",
+        "next": next_text(va, fb, logs, probes),
     }
     return number_figures(data, first=2), "SWA Value Adaptation Report", "Value adaptation of the sliding-window store: a memory in the values of the cache"

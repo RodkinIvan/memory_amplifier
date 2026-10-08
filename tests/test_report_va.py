@@ -29,7 +29,7 @@ class VaReport(unittest.TestCase):
 
     def test_the_value_adaptation_runs_are_rows_next_to_the_loop_and_the_baseline(self):
         data, title, h1 = self.build()
-        self.assertEqual([r["key"] for r in data["rows"]], ["va32", "va32_best", "va8", "va8_best", "fb32", "fb8", "w64", "gdn2"])
+        self.assertEqual([r["key"] for r in data["rows"]], ["va32", "va8", "fb32", "fb8", "w64", "gdn2"])
         self.assertEqual(title, "SWA Value Adaptation Report")
         self.assertEqual(data["results"]["va32"]["16384"]["per"]["passkey"], [0.0, 0.1, 0.2])
         self.assertAlmostEqual(data["results"]["fb8"]["16384"]["passkey"], (0.05 + 0.05 + 0.99) / 3, places=6)  # means of the seeds of one configuration
@@ -54,6 +54,35 @@ class VaReport(unittest.TestCase):
     def test_without_value_adaptation_runs_there_is_nothing_to_report(self):
         with self.assertRaises(ValueError):
             V.va_data(self.fb32, {}, {})
+
+    def test_open_issues_are_written_from_the_runs(self):
+        long_hist = lambda a, b: history({38000: a, 50000: b}, {38000: a / 2, 50000: b / 2})  # noqa: E731
+        va32 = [fake_run("swa_va.yaml", ["model.segment=32"], s, {256: 0.5, 1024: 0.1, 16384: 0.0}, hist=long_hist(0.2 + 0.1 * s, 0.4 + 0.1 * s)) for s in range(3)]
+        va8 = [fake_run("swa_va.yaml", ["model.segment=8"], s, {32: 0.5 if s == 0 else 0.0}, valid=0.01 if s == 0 else 0.99, hist=long_hist(0.0, 0.0)) for s in range(3)]
+        delta = {"r": {"n_writes": 4096, "segments": 400, "segment": 32, "layers": [{"gain": 1.0, "w_v_fro": 3.0, "at": {"0.5": {"segment": 2, "fro": 1.0, "fro_over_w_v": 0.4, "spectral": 0.5, "rank": 1.0, "max_entry": 0.3,
+                                                                                                                       "cos_next": 0.9, "cos_lag16": 0.6, "saturated": 0.99, "mean_share": 0.5, "cov_fro_over_w_v": 0.1}}}]},
+                 "big": {"n_writes": 4096, "segments": 400, "segment": 32, "layers": [{"gain": 1.0, "w_v_fro": 3.0, "at": {"0.5": {"segment": 2, "fro": 20.0, "fro_over_w_v": 6.5, "spectral": 19.0, "rank": 1.3, "max_entry": 1.0,
+                                                                                                                       "cos_next": 0.9, "cos_lag16": 0.6, "saturated": 0.99, "mean_share": 0.5, "cov_fro_over_w_v": 2.1}}}]}}
+        data, _, _ = V.va_data([*va32, *va8, *self.fb8, *self.swa], {}, {"delta": delta})
+        text = data["next"]
+        self.assertIn("0.20 / 0.30 / 0.40 per seed at step 38,000 and 0.40 / 0.50 / 0.60 at step 50,000", text)  # the runs were still improving
+        self.assertIn("0.00 / 0.00 / 0.00", text)                      # segment-8 passkey at N = 256 per seed
+        self.assertIn("0.01 / 0.99 / 0.99", text)                      # AR valid per seed: seed 0 never learned recall
+        self.assertIn("99%", text)                                     # saturation of the codes, from the probe
+        self.assertIn("in the 1 runs where the layer-0 update is at least as large as W_v (6.5–6.5 × ‖W_v‖)", text)  # and only the run with a big update is described as such
+        self.assertNotIn("NaN", text)
+        self.assertEqual(data["next"], V.va_data([*va32, *va8, *self.fb8, *self.swa], {}, {"delta": delta})[0]["next"])  # deterministic
+
+    def test_probe_files_of_one_kind_are_merged_by_run(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "va_delta_w.json").write_text(json.dumps({"a": {"x": 1}}))
+            (Path(d) / "va_delta_w_seg8.json").write_text(json.dumps({"b": {"x": 2}}))
+            (Path(d) / "va_perturb.json").write_text(json.dumps({"a": {"y": 3}}))
+            (Path(d) / "other.json").write_text(json.dumps({"z": 1}))
+            got = V.load_probes(Path(d))
+        self.assertEqual(got, {"delta": {"a": {"x": 1}, "b": {"x": 2}}, "perturb": {"a": {"y": 3}}})
 
     def test_probe_results_become_tables(self):
         probes = {
@@ -81,8 +110,8 @@ class VaReport(unittest.TestCase):
         self.assertIn("plain SWA: 0.07", text)                   # ... and the control
         self.assertIn("keeps 0.90 clean", text)
         cache = next(f for f in data["extra_figs"] if "read out" in f["title"])
-        self.assertIn("0.99", cache["html"])
-        self.assertIn("control: values", cache["html"])
+        self.assertIn("0.99", cache["html"])                    # the value read-out of the probed run ...
+        self.assertIn("control: swa_w64", cache["html"])         # ... next to the plain-SWA control row
         self.assertIn("0.07", cache["html"])
 
 
