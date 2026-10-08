@@ -69,6 +69,24 @@ class MatrixStats(unittest.TestCase):
         self.assertAlmostEqual(float(PV.matrix_stats(one)["rank"]), 1.0, places=4)  # rank one
 
 
+class CommonMode(unittest.TestCase):
+    def test_identical_tokens_are_all_mean_and_independent_tokens_are_not(self):
+        g = torch.Generator().manual_seed(0)
+        a = torch.tanh(2 * torch.randn(3, 32, 16, generator=g))
+        b = torch.tanh(2 * torch.randn(3, 32, 16, generator=g))
+        same = PV.common_mode(a[:, :1].repeat(1, 32, 1), b[:, :1].repeat(1, 32, 1))
+        self.assertTrue(torch.allclose(same["mean_share"], torch.ones(3), atol=1e-5))
+        self.assertLess(float(same["cov_fro"].max()), 1e-4)
+        rnd = PV.common_mode(a, b)
+        self.assertLess(float(rnd["mean_share"].max()), 0.5)  # independent tokens: most of the energy is in the covariance part
+        # the two parts add up exactly: mean outer product + covariance = the full matrix
+        full = torch.einsum("bjv,bjd->bvd", b, a) / 32
+        mean = torch.einsum("bv,bd->bvd", b.mean(1), a.mean(1))
+        self.assertTrue(torch.allclose((full - mean).flatten(1).norm(dim=1), rnd["cov_fro"], atol=1e-5))
+        sat = PV.common_mode(torch.ones(1, 4, 8), torch.zeros(1, 4, 8))
+        self.assertAlmostEqual(float(sat["saturated"]), 0.5)  # all of a saturated, none of b
+
+
 @unittest.skipUnless(CUDA, "needs a CUDA GPU")
 class Hooks(unittest.TestCase):
     def model(self, W=16, C=8):

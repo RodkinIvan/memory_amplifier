@@ -284,7 +284,7 @@ def segment_study(std: dict, logs: dict, steps: int = 50000, gain: float = 0.0) 
 # --------------------------------------------------------------------------------------------------------------- H7
 def configuration_appendix(dgroups: list[dict]) -> dict:
     """Every configuration of the report's model kinds, one row each, with the diff against the reference and the per-seed numbers."""
-    order = sorted(dgroups, key=lambda g: (g["kind"] != "swa", RG.setting(g, "model.window"), RG.effective_segment(g) or 0, g["kind"], str(sorted(g["diff"].items(), key=str))))
+    order = sorted(dgroups, key=lambda g: (g["kind"] != "swa", RG.setting(g, "model.window") or 0, RG.effective_segment(g) or 0, g["kind"], str(sorted(g["diff"].items(), key=str))))
     return {"key": "appendix", "title": "Every configuration and what differs from the reference recipe",
             "sub": f"{sum(len(g['runs']) for g in dgroups)} runs in {len(dgroups)} configurations: runs are grouped by the diff of their stored config against the frozen reference (swa_v1 / swa_fb_v1, "
                    "seed, logging and evaluation settings ignored), so runs that differ in any other setting are never averaged. Hover the first column for the run names.",

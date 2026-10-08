@@ -122,6 +122,18 @@ def matrix_stats(dw) -> dict:
     return {"fro": fro2.sqrt(), "spectral": sv[:, 0], "rank": fro2 ** 2 / ((sv ** 4).sum(-1) + 1e-30), "max_entry": dw.abs().amax((-1, -2))}
 
 
+def common_mode(a, b) -> dict:
+    """Split (1/C) sum_j b_j a_j^T into the outer product of the means (b-bar a-bar^T: the same for every token of the segment, content-free if the means do not depend on the stream)
+    and the covariance part (1/C) sum_j (b_j - b-bar)(a_j - a-bar)^T, which is where token-specific information can live. a [examples, C, d], b [examples, C, d_value].
+    Returns per example: the share of the squared Frobenius norm in the mean part, the Frobenius norm of the covariance part, and the share of entries of a and b with |value| > 0.95."""
+    import torch
+    full = torch.einsum("bjv,bjd->bvd", b, a) / a.shape[1]
+    mean_part = torch.einsum("bv,bd->bvd", b.mean(1), a.mean(1))
+    cov = full - mean_part
+    return {"mean_share": mean_part.pow(2).sum((-1, -2)) / full.pow(2).sum((-1, -2)).clamp_min(1e-30), "cov_fro": cov.flatten(1).norm(dim=1),
+            "saturated": 0.5 * ((a.abs() > 0.95).float().mean((-1, -2)) + (b.abs() > 0.95).float().mean((-1, -2)))}
+
+
 def autocast(model_cfg: dict, device):
     import torch
     return torch.autocast(device.type, dtype=torch.bfloat16, enabled=model_cfg["train"].get("precision", "fp32") == "bf16")
@@ -151,7 +163,10 @@ def delta_profile(name: str, n_writes: int = 4096, n_examples: int = 8, fraction
         for f in fractions:
             s = min(n_seg - 1, int(f * (n_seg - 1)))
             st = matrix_stats(dws[s])
+            cm = common_mode(*hook.state[(s, i)])
+            gain = abs(float(model.loops[i].gain))
             layer["at"][f"{f:g}"] = {"segment": s, **{k: float(v.mean()) for k, v in st.items()}, "fro_over_w_v": float(st["fro"].mean() / w_v.norm()),
+                                     "mean_share": float(cm["mean_share"].mean()), "cov_fro_over_w_v": float(gain * cm["cov_fro"].mean() / w_v.norm()), "saturated": float(cm["saturated"].mean()),
                                      "cos_next": cos(dws[s], dws[min(s + 1, n_seg - 1)]), "cos_lag16": cos(dws[s], dws[min(s + 16, n_seg - 1)])}
         out["layers"].append(layer)
     return out

@@ -21,14 +21,15 @@ class VaReport(unittest.TestCase):
         self.fb32 = [fake_run("swa_fb.yaml", [*FB, "model.segment=32"], s, {256: 1.0, 1024: 0.6}, hist=H(0.1, 0.5)) for s in range(3)]
         self.fb8 = [fake_run("swa_fb.yaml", [*FB, "model.segment=8"], s, {256: 1.0, 1024: 1.0, 4096: 0.9, 16384: 0.99 if s == 2 else 0.05}, hist=H(0.2, 0.9)) for s in range(3)]
         self.swa = [fake_run("swa.yaml", ["model.n_layers=2", "train.steps=50000", "train.curriculum_stage_steps=2000"], s, {32: 1.0}) for s in range(3)]
-        self.runs = [*self.va32, *self.va8, *self.fb32, *self.fb8, *self.swa]
+        self.gdn2 = [fake_run("gdn2.yaml", ["train.steps=50000", "train.curriculum_stage_steps=2000"], s, {256: 1.0, 1024: 0.9, 4096: 0.2}) for s in range(2)]
+        self.runs = [*self.va32, *self.va8, *self.fb32, *self.fb8, *self.swa, *self.gdn2]
 
     def build(self, probes=None):
         return V.va_data(self.runs, {}, probes if probes is not None else {})
 
     def test_the_value_adaptation_runs_are_rows_next_to_the_loop_and_the_baseline(self):
         data, title, h1 = self.build()
-        self.assertEqual([r["key"] for r in data["rows"]], ["va32", "va32_best", "va8", "va8_best", "fb32", "fb8", "w64"])
+        self.assertEqual([r["key"] for r in data["rows"]], ["va32", "va32_best", "va8", "va8_best", "fb32", "fb8", "w64", "gdn2"])
         self.assertEqual(title, "SWA Value Adaptation Report")
         self.assertEqual(data["results"]["va32"]["16384"]["per"]["passkey"], [0.0, 0.1, 0.2])
         self.assertAlmostEqual(data["results"]["fb8"]["16384"]["passkey"], (0.05 + 0.05 + 0.99) / 3, places=6)  # means of the seeds of one configuration

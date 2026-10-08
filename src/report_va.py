@@ -39,7 +39,8 @@ def method_svg() -> str:
          ".to2{font:11.5px var(--mono);fill:var(--s2)}</style>",
          "<defs><marker id='ah' viewBox='0 0 10 10' refX='8' refY='5' markerWidth='7' markerHeight='7' orient='auto-start-reverse'><path d='M0 0L10 5L0 10z' fill='var(--ink-2)'/></marker>"
          "<marker id='ao' viewBox='0 0 10 10' refX='8' refY='5' markerWidth='7' markerHeight='7' orient='auto-start-reverse'><path d='M0 0L10 5L0 10z' fill='var(--s2)'/></marker></defs>",
-         "<text x='16' y='16' class='t'>per layer and segment: keys a_j = tanh(W_y·norm(o_j)), values b_j = tanh(W_x·norm(o_j)) from the block outputs o_j; ΔW_v = (g / C) Σ_j b_j a_jᵀ</text>"]
+         "<text x='16' y='16' class='t'>from the block outputs o_j of segment s−1:  a_j = tanh(W_y·norm(o_j)),  b_j = tanh(W_x·norm(o_j))</text>",
+         "<text x='16' y='32' class='t'>ΔW_v = (g / C) Σ_j b_j a_jᵀ is added to W_v for segment s; g: one learned scalar per layer, 0 at the start</text>"]
     # left: segment s-1
     s.append("<text x='120' y='318' text-anchor='middle' class='tb'>segment s−1 (C tokens)</text>")
     s.append(tok(40, 270, "tk"))
@@ -49,17 +50,17 @@ def method_svg() -> str:
     s.append(tok(40, 76, "to"))
     s.append("<text x='120' y='64' text-anchor='middle' class='t'>outputs o_j</text>")
     # middle: the matrix
-    s.append("<path d='M212 86 L292 112' class='ar' marker-end='url(#ah)'/>")
-    s.append("<rect x='296' y='84' width='150' height='62' rx='4' class='bl'/><text x='371' y='108' text-anchor='middle' class='tb'>ΔW_v</text>")
-    s.append("<text x='371' y='126' text-anchor='middle' class='t'>(g/C) Σ b_j a_jᵀ</text><text x='371' y='140' text-anchor='middle' class='t'>rank ≤ C, |entries| ≤ |g|</text>")
+    s.append("<path d='M212 86 L282 112' class='ar' marker-end='url(#ah)'/>")
+    s.append("<rect x='286' y='84' width='172' height='66' rx='4' class='bl'/><text x='372' y='106' text-anchor='middle' class='tb'>ΔW_v</text>")
+    s.append("<text x='372' y='124' text-anchor='middle' class='t'>(g/C) Σ b_j a_jᵀ</text><text x='372' y='140' text-anchor='middle' class='t'>rank ≤ C, |entry| ≤ |g|</text>")
     # right: segment s
     s.append("<text x='640' y='318' text-anchor='middle' class='tb'>segment s</text>")
     s.append(tok(560, 270, "tk"))
     s.append("<path d='M640 266 L640 206' class='ar' marker-end='url(#ah)'/>")
-    s.append("<rect x='530' y='132' width='220' height='72' rx='4' class='bl'/><text x='640' y='156' text-anchor='middle' class='tb'>layer ℓ</text><text x='640' y='174' text-anchor='middle' class='t'>v_t = W_v h_t + ΔW_v h_t</text><text x='640' y='192' text-anchor='middle' class='to2'>stored once in the window's cache</text>")
+    s.append("<rect x='530' y='132' width='220' height='72' rx='4' class='bl'/><text x='640' y='156' text-anchor='middle' class='tb'>layer ℓ</text><text x='640' y='174' text-anchor='middle' class='t'>v_t = W_v h_t + ΔW_v h_t</text><text x='640' y='192' text-anchor='middle' class='to2'>stored once in the cache</text>")
     s.append("<path d='M640 130 L640 98' class='ar' marker-end='url(#ah)'/>")
     s.append(tok(560, 76, "to"))
-    s.append("<path d='M448 112 L526 150' class='fb' marker-end='url(#ao)'/>")
+    s.append("<path d='M460 118 L526 152' class='fb' marker-end='url(#ao)'/>")
     s.append("<text x='474' y='214' class='to2'>queries and keys unchanged;</text><text x='474' y='228' class='to2'>no other path between segments</text>")
     s.append("</svg>")
     return "".join(s)
@@ -96,11 +97,13 @@ def probe_figures(probes: dict) -> list[dict]:
         rows = []
         for i, layer in enumerate(res["layers"]):
             for frac, e in layer["at"].items():
-                rows.append([str(i), f"{float(frac):.0%}", f"{e['segment']:,}", f"{layer['gain']:.3f}", f"{e['fro']:.3f}", f2(e["fro_over_w_v"]), f"{e['spectral']:.3f}", f"{e['rank']:.1f}", f"{e['max_entry']:.3f}", f2(e["cos_next"]), f2(e["cos_lag16"])])
+                rows.append([str(i), f"{float(frac):.0%}", f"{e['segment']:,}", f"{layer['gain']:.3f}", f"{e['fro']:.3f}", f2(e["fro_over_w_v"]), f"{e['spectral']:.3f}", f"{e['rank']:.1f}", f"{e['max_entry']:.3f}",
+                                 f2(e["mean_share"]) if "mean_share" in e else "–", f2(e["cov_fro_over_w_v"]) if "cov_fro_over_w_v" in e else "–", f2(e["saturated"]) if "saturated" in e else "–", f2(e["cos_next"]), f2(e["cos_lag16"])])
         figs.append({"key": f"probe_delta_{run}", "title": f"Size, rank and drift of ΔW_v along a stream: {run}",
                      "sub": f"{res['n_writes']:,} writes per stream (segments: {res['segments']:,}), mean over the probe streams; rank = participation ratio of the singular values (at most C = {res['segment']}).",
-                     "caption": "<p>Size is relative to the layer's own W_v. A cosine near 1 between ΔW_v of consecutive segments (or 16 segments apart) means the adaptation has settled into a fixed point; near 0 that it is rewritten every segment.</p>", "spec": None,
-                     "html": RR._table(["layer", "position in stream", "segment", "gain g", "‖ΔW_v‖_F", "÷ ‖W_v‖_F", "spectral norm", "rank", "largest entry", "cos next", "cos +16"], rows)})
+                     "caption": "<p>Size is relative to the layer's own W_v. The mean part is the outer product of the average value vector and the average key vector of the segment (the same for every token); the token-specific part is the rest, where stream content can live. "
+                                "Saturated entries: share of key and value entries with |tanh| above 0.95. A cosine near 1 between ΔW_v of consecutive segments (or 16 segments apart) means the adaptation has settled into a fixed point; near 0 that it is rewritten every segment.</p>", "spec": None,
+                     "html": RR._table(["layer", "position in stream", "segment", "gain g", "‖ΔW_v‖_F", "÷ ‖W_v‖_F", "spectral norm", "rank", "largest entry", "share of the mean part", "token-specific part ÷ ‖W_v‖_F", "saturated entries", "cos next", "cos +16"], rows)})
     for run, res in probes.get("perturb", {}).items():
         ex = res["exact"]
         eps = sorted({float(k.split("_")[1]) for k in ex if k.split("_")[0] in ("values", "state", "both") and k.split("_")[1] != "zero"})
@@ -112,6 +115,49 @@ def probe_figures(probes: dict) -> list[dict]:
                                 + ", ".join(f"{k} segments: {v:.2f}" for k, v in con.items()) + ". Well below 1 means the memory pulls itself back to the clean trajectory; near 1 that the kick is carried along unchanged.</p>", "spec": None,
                      "html": RR._table(["perturbed"] + [f"ε = {e:g}" for e in eps] + ["zeroed"], rows)})
     return figs
+
+
+def probe_bullets(probes: dict) -> list[str]:
+    """Summary sentences of the diagnostics (numbers from the probe files; one sentence per kind of probe, over the probed runs)."""
+    out = []
+    cache = probes.get("cache", {})
+    if cache:
+        parts = []
+        for run, res in cache.items():
+            m, ctl = res["models"]["model"], res["models"].get("control")
+            far = [d for d, e in m["by_distance"].items() if e["tokens"] >= 2 * m["reach"]]
+            if not far:
+                continue
+            d0, d1 = far[0], far[-1]
+            txt = f"{html.escape(run)}: {f2(m['by_distance'][d0]['v']['mean'])} / {f2(m['by_distance'][d1]['v']['mean'])} at {m['by_distance'][d0]['tokens']:,} / {m['by_distance'][d1]['tokens']:,} tokens"
+            if ctl:
+                txt += f" (plain SWA: {f2(ctl['by_distance'][d0]['v']['mean'])} / {f2(ctl['by_distance'][d1]['v']['mean'])})"
+            parts.append(txt)
+        if parts:
+            ex = next(iter(cache.values()))
+            out.append(f"<b>Where the passkey is.</b> A linear read-out of each passkey token from the cached <i>values</i> of the last window (no passkey token in sight; mean accuracy over the {ex['passkey_len']} tokens, chance {ex['chance']:.2f}) reaches "
+                       + "; ".join(parts) + f". The window itself is at most {ex['models']['model']['reach'] // 2} tokens, so what is read out was carried by the adaptation. Per-token accuracies are in the probe table.")
+    delta = probes.get("delta", {})
+    if delta:
+        parts = []
+        for run, res in delta.items():
+            l0 = res["layers"][0]
+            e = l0["at"].get("0.5") or next(iter(l0["at"].values()))
+            parts.append(f"{html.escape(run)}: layer 0 has ‖ΔW_v‖ = {e['fro_over_w_v']:.1f} × ‖W_v‖, participation rank {e['rank']:.1f} (of at most {res['segment']})"
+                         + (f", {e['saturated']:.0%} of the key and value entries saturated, {e['mean_share']:.0%} of its energy in the segment-mean part" if "saturated" in e else ""))
+        out.append("<b>What the adaptation looks like.</b> " + "; ".join(parts) + ".")
+    pert = probes.get("perturb", {})
+    if pert:
+        parts = []
+        for run, res in pert.items():
+            ex = res["exact"]
+            if ex["clean"] < 0.05:
+                continue  # no memory to perturb
+            parts.append(f"{html.escape(run)} keeps {f2(ex['clean'])} clean, {f2(ex.get('values_1', float('nan')))} with its cached values kicked by 1 × RMS, {f2(ex.get('state_zero', float('nan')))} with the previous segment's encoding zeroed, {f2(ex.get('both_zero', float('nan')))} with both zeroed; "
+                         f"a kick to the cached values shrinks to {res['contraction'].get('16', float('nan')):.2f} of its size after 16 segments")
+        if parts:
+            out.append("<b>Perturbation in mid-stream</b> (far beyond the reach): " + "; ".join(parts) + ".")
+    return out
 
 
 def va_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dict | None = None) -> tuple[dict, str, str]:
@@ -215,6 +261,7 @@ def va_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         base.append(f"GDN-2 (mean of {seeds_lbl(gdn2)}) {f2(cell('gdn2', 1024))} / {f2(cell('gdn2', 4096))} / {f2(cell('gdn2', 16384))} at N = 1,024 / 4,096 / 16,384")
     if base:
         tldr.append("<b>Baselines, same recipe.</b> " + "; ".join(base) + ".")
+    tldr += probe_bullets(probes)
     data = {
         "ns": NS, "rows": rows, "results": results, "scatter_ns": [], "hide_scatter": True, "label_w": 352, "row_name": "configuration", "row_prefix": "",
         "meta": f"Design experiment E1, results of {time.strftime('%d %b %Y, %H:%M')}. Test split, N counts AR writes, one write is about 3.75 tokens. Every row is one configuration; seeds are averaged only within a configuration.",

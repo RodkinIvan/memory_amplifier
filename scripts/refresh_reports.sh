@@ -12,6 +12,7 @@ fi
   date
   "$PY" src/config.py results/raw/*.json results/explore/*.json
   "$PY" src/aggregate.py --no-plots
-  for r in gdn swa fb; do "$PY" src/report.py "$r" --out "reports/${r}_report.html"; done
+  for r in gdn swa fb best; do "$PY" src/report.py "$r" --out "reports/${r}_report.html"; done
+  ls results/raw/swa_va_*.json >/dev/null 2>&1 && "$PY" src/report.py va --out reports/va_report.html  # only once a value-adaptation run has finished
   date
 } >> logs/refresh.log 2>&1
