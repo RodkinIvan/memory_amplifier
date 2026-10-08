@@ -129,9 +129,13 @@ def probe_bullets(probes: dict) -> list[str]:
             if not far:
                 continue
             d0, d1 = far[0], far[-1]
-            txt = f"{html.escape(run)}: {f2(m['by_distance'][d0]['v']['mean'])} / {f2(m['by_distance'][d1]['v']['mean'])} at {m['by_distance'][d0]['tokens']:,} / {m['by_distance'][d1]['tokens']:,} tokens"
+            at = lambda d: m["by_distance"][d]["v"]["mean"]
+            tok = lambda d: f"{m['by_distance'][d]['tokens']:,}"
+            both = d0 != d1
+            txt = (f"{html.escape(run)}: {f2(at(d0))}" + (f" / {f2(at(d1))}" if both else "") + f" at {tok(d0)}" + (f" / {tok(d1)}" if both else "")
+                   + f" tokens (token by token at {tok(d1)}: {' / '.join(f2(x) for x in m['by_distance'][d1]['v']['per_token'])})")
             if ctl:
-                txt += f" (plain SWA: {f2(ctl['by_distance'][d0]['v']['mean'])} / {f2(ctl['by_distance'][d1]['v']['mean'])})"
+                txt += f" (plain SWA: {f2(ctl['by_distance'][d0]['v']['mean'])}" + (f" / {f2(ctl['by_distance'][d1]['v']['mean'])}" if both else "") + ")"
             parts.append(txt)
         if parts:
             ex = next(iter(cache.values()))
@@ -262,9 +266,12 @@ def va_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
     if base:
         tldr.append("<b>Baselines, same recipe.</b> " + "; ".join(base) + ".")
     tldr += probe_bullets(probes)
+    done = {r["name"] for r in raw}
+    running = [f"{nm} (step {max(st):,})" for nm, st in sorted(logs.items()) if nm.startswith("swa_va_") and nm not in done]
     data = {
         "ns": NS, "rows": rows, "results": results, "scatter_ns": [], "hide_scatter": True, "label_w": 352, "row_name": "configuration", "row_prefix": "",
-        "meta": f"Design experiment E1, results of {time.strftime('%d %b %Y, %H:%M')}. Test split, N counts AR writes, one write is about 3.75 tokens. Every row is one configuration; seeds are averaged only within a configuration.",
+        "meta": f"Design experiment E1, results of {time.strftime('%d %b %Y, %H:%M')}. Test split, N counts AR writes, one write is about 3.75 tokens. Every row is one configuration; seeds are averaged only within a configuration."
+                + (f" Still training (not in the tables): {', '.join(running)}." if running else ""),
         "tldr": tldr, "tested": [], "results_title": "Results",
         "intro": ("<h2>Method</h2><p>The task: remember a 4-token passkey shown once at the start of a stream and repeat it at the end, while answering associative-recall queries about recent key–value writes. "
                   "A plain sliding-window model cannot do the first part beyond its window. Here the long-term memory is meant to live in the short-term store itself: the values of the cached window are adapted, "

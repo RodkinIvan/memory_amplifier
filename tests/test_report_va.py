@@ -59,8 +59,8 @@ class VaReport(unittest.TestCase):
         probes = {
             "cache": {"swa_va_seg32_s0": {"passkey_len": 4, "chance": 0.0625, "n_train": 3000, "n_test": 500, "distances": [96, 1024],
                       "models": {"model": {"run": "swa_va_seg32_s0", "reach": 126, "segment": 32, "by_distance": {
-                          "96": {"cut_segment": 3, "tokens": 90, "v": {"mean": 0.99}, "k": {"mean": 0.9}, "dw": {"mean": 0.97}},
-                          "1024": {"cut_segment": 32, "tokens": 1018, "v": {"mean": 0.8}, "k": {"mean": 0.1}, "dw": {"mean": 0.7}}}},
+                          "96": {"cut_segment": 3, "tokens": 90, "v": {"mean": 0.99, "per_token": [1.0, 1.0, 1.0, 0.96]}, "k": {"mean": 0.9}, "dw": {"mean": 0.97}},
+                          "1024": {"cut_segment": 32, "tokens": 1018, "v": {"mean": 0.8, "per_token": [0.9, 0.5, 0.9, 0.9]}, "k": {"mean": 0.1}, "dw": {"mean": 0.7}}}},
                                  "control": {"run": "swa_w64", "reach": 126, "segment": 32, "by_distance": {
                                      "96": {"cut_segment": 3, "tokens": 90, "v": {"mean": 0.9}, "k": {"mean": 0.9}},
                                      "1024": {"cut_segment": 32, "tokens": 1018, "v": {"mean": 0.07}, "k": {"mean": 0.06}}}}}}},
@@ -75,6 +75,11 @@ class VaReport(unittest.TestCase):
         self.assertTrue(any("read out of the cached window" in t for t in titles))
         self.assertTrue(any("Perturbing the memory" in t for t in titles))
         self.assertTrue(any("Size, rank and drift" in t for t in titles))
+        text = " ".join(data["tldr"])
+        self.assertIn("0.80 at 1,018 tokens", text)             # the read-out at the farthest cut ...
+        self.assertIn("0.90 / 0.50 / 0.90 / 0.90", text)         # ... token by token ...
+        self.assertIn("plain SWA: 0.07", text)                   # ... and the control
+        self.assertIn("keeps 0.90 clean", text)
         cache = next(f for f in data["extra_figs"] if "read out" in f["title"])
         self.assertIn("0.99", cache["html"])
         self.assertIn("control: values", cache["html"])

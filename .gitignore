@@ -13,3 +13,4 @@ wandb_token
 *.token
 .env
 *.key
+results/capacity.lock
