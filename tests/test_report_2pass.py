@@ -99,5 +99,72 @@ class TwoPassReport(unittest.TestCase):
         self.assertIn("1.00 / 0.30", pert["html"])
 
 
+class LongerTraining(unittest.TestCase):
+    """E4: the arms, the two rates (thresholds fixed before the runs), the switch-on step, the diff on every row, runs still in training."""
+
+    BASE = ["model.segment=32", "model.pass_output=1"]
+
+    def mk(self, extra, seed, pk256, pk4096, switch=None, **kw):
+        hist = [{"step": st, "val/n256/passkey_acc": (1.0 if switch is not None and st >= switch else 0.1), "val/n256/ar_valid_acc": 0.99, "val/n4096/passkey_acc": 0.05, "val/n4096/ar_valid_acc": 0.99} for st in (2000, 4000, 6000, 8000)]
+        return fake_run("swa_2pass.yaml", [*self.BASE, *extra], seed, {32: 1.0, 256: pk256, 1024: pk4096, 4096: pk4096, 16384: 0.0}, hist=hist, **kw)
+
+    def setUp(self):
+        # arm 50k: 6 seeds: learn (>= 0.9 at N = 256): seeds 0, 2, 3; extrapolate (>= 0.5 at N = 4096): seed 0 only
+        v50 = [(1.0, 0.7, 4000), (0.6, 0.0, None), (0.95, 0.1, 6000), (0.9, 0.0, 8000), (0.3, 0.0, None), (0.89, 0.49, None)]
+        self.a50 = [self.mk([], s, a, b, sw) for s, (a, b, sw) in enumerate(v50)]
+        # arm 150k: 6 seeds: learn: all but seed 4; extrapolate: seeds 0, 1, 2, 5
+        v150 = [(1.0, 0.8, 2000), (1.0, 0.6, 4000), (1.0, 0.5, 4000), (0.99, 0.2, 6000), (0.5, 0.0, None), (1.0, 0.9, 2000)]
+        self.a150 = [self.mk(["train.steps=150000"], s, a, b, sw) for s, (a, b, sw) in enumerate(v150)]
+        self.cont = [self.mk(["train.steps=50000", "train.init_from=runs/swa_2pass_seg32_po1_s1/model.pt"], 1, 0.95, 0.55, 2000)]
+        self.other = [fake_run("swa_2pass.yaml", ["model.segment=64", "model.pass_output=1"], 0, {256: 1.0, 4096: 1.0}), fake_run("swa_2pass.yaml", ["model.segment=32", "model.pass_output=2"], 0, {256: 1.0, 4096: 1.0}),
+                      fake_run("swa_2pass.yaml", [*self.BASE, "train.loop_lr_mult=1"], 0, {256: 1.0, 4096: 1.0})]
+        self.runs = [*self.a50, *self.a150, *self.cont, *self.other]
+
+    def test_runs_are_sorted_into_arms_and_other_runs_are_left_out(self):
+        arms = R2.e4_runs(self.runs, {})
+        self.assertEqual([r["seed"] for r in arms["50k"]["done"]], [0, 1, 2, 3, 4, 5])
+        self.assertEqual([r["seed"] for r in arms["150k"]["done"]], [0, 1, 2, 3, 4, 5])
+        self.assertEqual([r["name"] for r in arms["cont"]["done"]], ["swa_2pass_seg32_po1_steps50000_s1"])
+        self.assertEqual({R2.e4_arm(r) for r in self.other}, {None})  # segment 64, output 2 and a changed gain learning rate are not E4 runs
+
+    def test_the_rates_use_the_thresholds_fixed_in_advance(self):
+        figs, sentences = R2.longer_training(self.runs, {})
+        self.assertEqual(sentences[0], "50k steps: 3 of 6 finished seeds learn the training range, 1 of 6 extrapolate")   # 0.89 at 256 and 0.49 at 4096 do not count
+        self.assertEqual(sentences[1], "150k steps: 5 of 6 finished seeds learn the training range, 4 of 6 extrapolate")
+        self.assertIn("1 of 1 finished seeds learn the training range, 1 of 1 extrapolate", sentences[2])
+        table = figs[0]["html"]
+        self.assertIn("<b>50k steps: 3 of 6 learn, 1 of 6 extrapolate</b>", table)
+        self.assertIn("<b>150k steps: 5 of 6 learn, 4 of 6 extrapolate</b>", table)
+
+    def test_every_run_row_has_its_diff_its_values_at_all_n_and_its_switch_on_step(self):
+        figs, _ = R2.longer_training(self.runs, {})
+        table = figs[0]["html"]
+        self.assertIn("steps 50000 → 150000", table)             # the 150k rows say what differs from the reference ...
+        self.assertIn("pass_output 2 → 1", table)                 # ... and so does every row
+        self.assertIn("init_from None → runs/swa_2pass_seg32_po1_s1/model.pt", table)
+        for n in ("N = 32", "N = 2,048", "N = 8,192", "N = 16,384"):
+            self.assertIn(n, table)                               # all ten stream lengths
+        self.assertIn("4,000", table)                             # seed 0 of the 50k arm switches on at the validation at step 4,000
+        self.assertIn("never", table)                             # seeds that never reach 0.9 at N = 256 in validation
+        self.assertEqual(R2.switch_on_step(self.a50[2], {}), 6000)
+        self.assertIsNone(R2.switch_on_step(self.a50[4], {}))
+
+    def test_runs_still_in_training_are_listed_and_not_counted(self):
+        logs = {"swa_2pass_seg32_po1_steps150000_s6": {2000: {256: {"pk": 0.2, "v": 0.99, "e": 1.0}, 4096: {"pk": 0.0, "v": 0.99, "e": 1.0}}, 4000: {256: {"pk": 0.9, "v": 0.99, "e": 1.0}, 4096: {"pk": 0.1, "v": 0.99, "e": 1.0}}}}
+        figs, sentences = R2.longer_training(self.runs, logs)
+        self.assertIn("(1 more still training)", sentences[1])
+        self.assertIn("still training", figs[0]["html"])
+        self.assertIn("seed 6 (step 4,000)", figs[0]["html"])
+        self.assertEqual([f["key"] for f in figs], ["e4_table", "e4_c256", "e4_c4096"])
+
+    def test_the_report_carries_the_section_and_it_is_absent_without_e4_runs(self):
+        data, _, _ = R2.p2_data(self.runs, {}, {})
+        self.assertTrue(any(f["key"] == "e4_table" for f in data["extra_figs"]))
+        self.assertIn("Longer training (E4", " ".join(data["tldr"]))
+        data, _, _ = R2.p2_data([r for r in self.runs if R2.e4_arm(r) is None], {}, {})
+        self.assertFalse(any(f["key"] == "e4_table" for f in data["extra_figs"]))
+        self.assertEqual(R2.longer_training([], {}), ([], []))
+
+
 if __name__ == "__main__":
     unittest.main()

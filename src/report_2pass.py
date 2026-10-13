@@ -54,7 +54,7 @@ def method_svg() -> str:
     s.append("<path d='M322 295 L286 295 L286 154 L366 154' class='ar' marker-end='url(#ah)'/><text x='292' y='146' class='t'>h</text>")
     s.append("<path d='M383 138 L383 112' class='ar' marker-end='url(#ah)'/>")
     s.append("<rect x='305' y='68' width='156' height='42' rx='4' class='bl'/><text x='383' y='86' text-anchor='middle' class='tb'>pass 2: block(h2)</text><text x='383' y='102' text-anchor='middle' class='t'>same weights, writes K, V</text>")
-    s.append("<path d='M383 66 L383 40' class='ar' marker-end='url(#ah)'/><text x='392' y='54' class='t'>y2 → next layer (or y1)</text>")
+    s.append("<path d='M383 66 L383 40' class='ar' marker-end='url(#ah)'/><text x='392' y='54' class='t'>y2 or y1 → next layer</text>")
     # reads and the write
     s.append("<path d='M172 205 L301 226' class='rd' marker-end='url(#ah)'/><text x='186' y='214' class='t'>read</text>")
     s.append("<path d='M172 124 L301 96' class='rd' marker-end='url(#ah)'/><text x='186' y='108' class='t'>read</text>")
@@ -120,6 +120,105 @@ def perturb_bullet(probes: dict) -> list[str]:
     return ["<b>Perturbation in mid-stream</b> (far beyond the reach): " + "; ".join(parts) + "."] if parts else []
 
 
+LEARN_N, LEARN_MIN = 256, 0.9      # E4 metric (fixed before the runs): a seed "learns the training range" when its test passkey at N = 256 is at least 0.9 ...
+EXTRA_N, EXTRA_MIN = 4096, 0.5     # ... and "extrapolates" when its test passkey at N = 4,096 is at least 0.5.
+SWITCH_N, SWITCH_MIN = 256, 0.9    # the loop "switches on" at the first periodic validation with passkey >= 0.9 at N = 256.
+E4_ARMS = [("50k steps", "50k"), ("150k steps", "150k"), ("50k + 50k more", "cont")]  # (label, key); seeds 0-5 in each of the first two, the continuation of seeds 1 and 2
+
+
+def e4_arm(run: dict) -> str | None:
+    """Which E4 arm a finished run belongs to ('50k', '150k', 'cont'), None if it is not one of them (segment 32, output of pass 1, gain 0, the standard recipe otherwise)."""
+    d = RG.diff_of(run)
+    if run["cfg"]["model"]["kind"] != "swa_2pass" or RG.setting({"kind": "swa_2pass", "diff": d}, "model.segment") != 32:
+        return None
+    if set(d) - {"model.pass_output", "train.steps", "train.init_from"} or "model.pass_output" not in d or d["model.pass_output"][1] != 1:
+        return None
+    steps, init = run["cfg"]["train"]["steps"], run["cfg"]["train"].get("init_from")
+    return "cont" if init and steps == 50000 else "150k" if steps == 150000 and not init else "50k" if steps == 50000 and not init else None
+
+
+def switch_on_step(run: dict, logs: dict) -> int | None:
+    """First periodic validation with passkey >= SWITCH_MIN at N = SWITCH_N (None if there is none)."""
+    return next((st for st, v in RR.curve(run, logs, SWITCH_N) if v >= SWITCH_MIN), None)
+
+
+def e4_runs(raw: list[dict], logs: dict) -> dict[str, dict]:
+    """{arm key: {"done": [finished runs], "running": [stub runs with the name and seed only, for the curves of runs still in training]}}."""
+    import re
+    arms = {k: {"done": [], "running": []} for _, k in E4_ARMS}
+    for r in raw:
+        k = e4_arm(r)
+        if k:
+            arms[k]["done"].append(r)
+    done = {r["name"] for r in raw}
+    pattern = {"50k": r"swa_2pass_seg32_po1_s(\d+)", "150k": r"swa_2pass_seg32_po1_steps150000_s(\d+)", "cont": r"swa_2pass_seg32_po1_steps50000_s(\d+)"}
+    for name in sorted(logs):
+        for k, pat in pattern.items():
+            m = re.fullmatch(pat, name)
+            if m and name not in done:
+                arms[k]["running"].append({"name": name, "seed": int(m.group(1))})
+    for v in arms.values():
+        v["done"].sort(key=lambda r: r["seed"])
+        v["running"].sort(key=lambda r: r["seed"])
+    return arms
+
+
+def longer_training(raw: list[dict], logs: dict) -> tuple[list[dict], list[str]]:
+    """E4: one table with the arms, per seed (test passkey at every N, the step at which the loop switches on) and the two rates per arm, the configuration diff on every row; two curve charts
+    (validation passkey at N = 256 and N = 4,096 against the step, mean of an arm with bars from the worst to the best seed). Returns (figures, summary sentences); nothing when there are no E4 runs."""
+    arms = e4_runs(raw, logs)
+    if not any(v["done"] or v["running"] for v in arms.values()):
+        return [], []
+    n_cols = [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+    head = ["arm / seed", "configuration (differs from swa_2pass_v1)"] + [f"N = {n:,}" for n in n_cols] + ["switch-on step", "learns N = 256 (≥ 0.9)", "extrapolates N = 4,096 (≥ 0.5)"]
+    rows, rates, sentences = [], {}, []
+    for label, key in E4_ARMS:
+        done = arms[key]["done"]
+        if not done and not arms[key]["running"]:
+            continue
+        diff_txt = html.escape(C.describe_diff(RG.diff_of(done[0]))) if done else ""
+        learn = extra = 0
+        for r in done:
+            row = {x["N"]: x["passkey_acc"] for x in r["rows"] if x["split"] == "test"}
+            sw = switch_on_step(r, logs)
+            ok_l, ok_e = row[LEARN_N] >= LEARN_MIN, row[EXTRA_N] >= EXTRA_MIN
+            learn, extra = learn + ok_l, extra + ok_e
+            diff_r = html.escape(C.describe_diff(RG.diff_of(r)))
+            rows.append([f"{label}, seed {r['seed']}", diff_r] + [f2(row[n]) for n in n_cols] + [f"{sw:,}" if sw else "never", "yes" if ok_l else "no", "yes" if ok_e else "no"])
+        run_txt = ", ".join(f"seed {r['seed']} (step {max(logs[r['name']]):,})" for r in arms[key]["running"] if logs.get(r["name"]))
+        n_total = len(done) + len(arms[key]["running"])
+        rows.append([f"<b>{label}: {learn} of {len(done)} learn, {extra} of {len(done)} extrapolate</b>", diff_txt] + [""] * len(n_cols)
+                    + [f"mean switch-on {np.mean([s for s in (switch_on_step(r, logs) for r in done) if s]):,.0f}" if any(switch_on_step(r, logs) for r in done) else "–", f"{learn} / {len(done)}", f"{extra} / {len(done)}"])
+        if arms[key]["running"]:
+            rows.append([f"<i>{label}: still training</i>", "", *[""] * len(n_cols), "", run_txt, ""])
+        rates[key] = (learn, extra, len(done), n_total)
+    figs = [{"key": "e4_table", "title": "E4: does longer training fix the seed instability?",
+             "sub": f"Two-pass layer, segment 32, output of pass 1. Test split. A seed learns the training range when its passkey at N = {LEARN_N} is at least {LEARN_MIN}, extrapolates when its passkey at N = {EXTRA_N:,} is at least {EXTRA_MIN}; "
+                    f"the loop switches on at the first periodic validation with passkey at least {SWITCH_MIN} at N = {SWITCH_N}.",
+             "caption": "<p>Rows are runs, labelled with the diff of their stored config against the frozen reference; the bold rows are the per-arm rates. The 150k arm uses the same warm-up, a cosine decay to 10% at its last step and a curriculum stage "
+                        "every 2,000 steps, so it is not the 50k run continued. The continuation row starts from the final weights of a 50k run and warms the learning rate up again: it is its own row, not the 100k point of a curve.</p>",
+             "spec": None, "html": RR._table(head, rows, "wide")}]
+    for n, key in ((256, "e4_c256"), (4096, "e4_c4096")):
+        sr = []
+        for (label, k), col in zip(E4_ARMS, ("var(--s2)", "var(--s1)", "var(--s3)")):
+            runs = arms[k]["done"] + arms[k]["running"]
+            if runs:
+                c = mean_curve(runs, logs, n, f"{label}, mean of {len(runs)} seed{'s' if len(runs) != 1 else ''} (bars: worst to best)", col, width=2.6, short=label)
+                if c:
+                    sr.append(c)
+        if sr:
+            x1 = max(p["x"] for s_ in sr for p in s_["points"])
+            figs.append({"key": key, "title": f"E4: validation passkey at N = {n:,} against the training step",
+                         "sub": "Validation streams, every 2,000 steps (N = 4,096: 100 streams). Runs still in training are included up to the step they have reached; the bars come from the steps all runs of an arm share.",
+                         "caption": "", "spec": {"series": sr, "xTicks": list(range(0, x1 + 1, 25000)), "x0": 0, "x1": x1, "xLog": False, "xLabel": "training step", "yLabel": f"validation passkey, N = {n:,}", "legendLine": True, "rightPad": 70,
+                                                  "aria": f"Validation passkey at N = {n} during training for the E4 arms"}})
+    for label, key in E4_ARMS:
+        if key in rates:
+            learn, extra, nd, nt = rates[key]
+            sentences.append(f"{label}: {learn} of {nd} finished seeds learn the training range, {extra} of {nd} extrapolate" + (f" ({nt - nd} more still training)" if nt > nd else ""))
+    return figs, sentences
+
+
 def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dict | None = None) -> tuple[dict, str, str]:
     raw = raw if raw is not None else A.load_runs(C.ROOT / "results" / "raw")
     logs = logs if logs is not None else RR.log_curves(C.ROOT / "logs")
@@ -137,6 +236,7 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
                  and set(g["diff"]) <= {"train.steps", "train.curriculum_stage_steps"}), None)
     order = sorted(p2, key=lambda k: (k[0], -k[1], k[2]))  # segment 32 first, pass 2 before pass 1, gain 0 before a nonzero gain
     ref = C.load_reference({"model": {"kind": "swa_2pass"}})
+    default_po = int(C.load_config(C.ROOT / "configs" / "swa_2pass.yaml", [])[0]["model"]["pass_output"])  # the working config's default (E3); the reference keeps its own
     reach = ref["model"]["n_layers"] * (ref["model"]["window"] - 1)
     tc = next(iter(p2.values()))["runs"][0]["cfg"]["train"]
     seeds_lbl = lambda g: f"{len(g['runs'])} seed{'s' if len(g['runs']) != 1 else ''}"
@@ -204,7 +304,8 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         if c:
             figs.append({"key": key, "title": f"Training: validation passkey at N = {n:,}", "sub": "Validation streams, every 2,000 steps (N = 4,096: 100 streams, N = 16,384: 32 streams). Solid = two-pass, dashed = the vector loop m at the same segment; bars from the worst to the best seed.",
                          "caption": "", "spec": c})
-    figs += V.probe_figures(probes, kinds=("cache",)) + perturb_figure(probes)
+    e4_figs, e4_sentences = longer_training(raw, logs)
+    figs += e4_figs + V.probe_figures(probes, kinds=("cache",)) + perturb_figure(probes)
     figs.append(RR.configuration_appendix([g for g in dgroups if g["kind"] == "swa_2pass" or g in list(fb.values()) + [x for x in (va32, swa64, gdn2) if x]]))
 
     # ---------------------------------------------------------------- text
@@ -213,7 +314,8 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         "<b>Idea.</b> No loop vector, no adaptation matrix: the only thing that crosses a segment boundary is the sliding-window key/value cache, and the cache is re-written with what the layer read. "
         "Per segment every layer runs twice: pass 1 reads the window (cached entries plus the segment, causal) and stores nothing; pass 2 re-runs the same block on h + g ⊙ (y1 − h), the input plus the gained update of pass 1, "
         "with queries, keys and values all from that new input, and only its keys and values are stored. Memory persists only by being re-read and re-written. "
-        f"g is one learned gain per channel and layer (0 at the start, so the model starts as plain SWA); the next layer gets the output of pass 2 (default) or of pass 1. {first['runs'][0]['n_params']:,} parameters, window {ref['model']['window']}, {ref['model']['n_layers']} layers.",
+        f"g is one learned gain per channel and layer (0 at the start, so the model starts as plain SWA); the next layer gets the output of pass {default_po} (the default of the working config since E3) or of pass {3 - default_po} "
+        f"(the frozen reference recipe uses pass {ref['model']['pass_output']}; runs of the working config carry that difference in their diff). {first['runs'][0]['n_params']:,} parameters, window {ref['model']['window']}, {ref['model']['n_layers']} layers.",
     ]
     for k in order:
         key = f"p2_{tag(k)}"
@@ -234,6 +336,8 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         base.append(f"GDN-2 (mean of {seeds_lbl(gdn2)}) {f2(cell('gdn2', 1024))} / {f2(cell('gdn2', 4096))} / {f2(cell('gdn2', 16384))} at N = 1,024 / 4,096 / 16,384")
     if base:
         tldr.append("<b>For comparison, same recipe.</b> " + "; ".join(base) + ".")
+    if e4_sentences:
+        tldr.append("<b>Longer training (E4, segment 32, output of pass 1).</b> " + "; ".join(e4_sentences) + ". Per-seed values and the switch-on steps are in the E4 table.")
     tldr += cache_bullet(probes) + perturb_bullet(probes)
     running = [f"{nm} (step {max(st):,})" for nm, st in sorted(logs.items()) if nm.startswith("swa_2pass_") and nm not in {r["name"] for r in raw}]
     data = {
