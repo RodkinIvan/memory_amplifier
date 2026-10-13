@@ -9,7 +9,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 
 # short names for the run name; any other key falls back to its last path component
-SHORT = {"model.alpha": "a", "model.window": "w", "model.segment": "seg", "model.nonlin": "nl", "model.noise": "noise", "model.kv_cache": "kv", "train.cuda_graph": "cg", "passkey_len": "pk", "train.init_from": "init", "model.gain_init": "gi", "model.proj_std": "ps", "train.loop_lr_mult": "llr", "train.passkey_weight": "pkw", "train.passkey_weight_anneal_steps": "pka", "train.curriculum_stage_steps": "cur", "model.norm_eps": "eps", "model.head_dim": "hd", "model.num_heads": "nh",
+SHORT = {"model.alpha": "a", "model.window": "w", "model.segment": "seg", "model.nonlin": "nl", "model.noise": "noise", "model.kv_cache": "kv", "train.cuda_graph": "cg", "passkey_len": "pk", "train.init_from": "init", "model.gain_init": "gi", "model.proj_std": "ps", "model.pass_output": "po", "train.loop_lr_mult": "llr", "train.passkey_weight": "pkw", "train.passkey_weight_anneal_steps": "pka", "train.curriculum_stage_steps": "cur", "model.norm_eps": "eps", "model.head_dim": "hd", "model.num_heads": "nh",
          "model.d_model": "d", "model.n_layers": "L", "model.expand_v": "ev", "model.allow_neg_eigval": "neg",
          "train.lr": "lr",
          "train.steps": "steps", "train.batch_size": "bs", "seed": "s"}
@@ -91,7 +91,7 @@ def flatten(cfg: dict, prefix: str = "") -> dict:
 # ---- what differs from the reference recipe (review H7) --------------------------------------------------------------------------
 # Every run is labelled by the diff of its stored config against a frozen reference file of its model kind. Run names list only the
 # overrides of one launch (relative to whatever the YAML said then); the diff does not depend on that.
-REFERENCES = {"gdn_fixed": "gdn_fixed_v1", "gdn2": "gdn2_v1", "swa": "swa_v1", "swa_fb": "swa_fb_v1", "swa_va": "swa_va_v1"}  # model.kind -> configs/ref/<name>.yaml (never edited)
+REFERENCES = {"gdn_fixed": "gdn_fixed_v1", "gdn2": "gdn2_v1", "swa": "swa_v1", "swa_fb": "swa_fb_v1", "swa_va": "swa_va_v1", "swa_2pass": "swa_2pass_v1"}  # model.kind -> configs/ref/<name>.yaml (never edited)
 
 # Settings that do not change what is trained or how it is scored: seed, wandb grouping, logging, and the evaluation set / batch.
 # Everything else counts, also implementation switches such as model.kv_cache (equivalent results, but a different config).
@@ -101,7 +101,7 @@ IGNORED_PREFIXES = ("eval.",)
 
 # What the code uses for a key a stored config does not have (configs written before the key existed): `.get(key, default)` in
 # models.py / train.py. Keep in sync with those calls.
-CODE_DEFAULTS = {"model.segment": 0, "model.nonlin": "tanh", "model.noise": 0.0, "model.gain_init": 0.0, "model.proj_std": 0.02,
+CODE_DEFAULTS = {"model.segment": 0, "model.nonlin": "tanh", "model.noise": 0.0, "model.gain_init": 0.0, "model.proj_std": 0.02, "model.pass_output": 2,
                  "model.kv_cache": False, "train.cuda_graph": False, "passkey_len": 4, "train.init_from": None, "train.precision": "fp32", "train.loop_lr_mult": 1.0, "train.passkey_weight": 1.0,
                  "train.passkey_weight_anneal_steps": 0, "train.curriculum_stage_steps": 0}
 
@@ -132,7 +132,7 @@ def reference_diff(cfg: dict, ref: dict | None = None) -> dict:
 def effective_segment(flat: dict) -> dict:
     """For the loop models, `model.segment` 0 (or absent) means one segment per window: replace it by the window, so a run that sets
     segment = window explicitly does not differ from the reference, which leaves it at 0 (review L10)."""
-    if flat.get("model.kind") in ("swa_fb", "swa_va") and not flat.get("model.segment") and flat.get("model.window"):
+    if flat.get("model.kind") in ("swa_fb", "swa_va", "swa_2pass") and not flat.get("model.segment") and flat.get("model.window"):
         return {**flat, "model.segment": flat["model.window"]}
     return flat
 
@@ -166,6 +166,8 @@ def footprint_gb(cfg: dict) -> float:
         return 8.0 if seg <= 8 else 6.5 if seg <= 16 else 5.0
     if mc["kind"] == "swa_va":  # CUDA-graph step, measured alone on an idle GPU: segment 8 7.0, segment 32 6.3 (peak of the nvidia-smi reading, evaluation up to N = 1024 included)
         return 7.5 if (mc.get("segment") or mc["window"]) <= 8 else 6.5
+    if mc["kind"] == "swa_2pass":  # CUDA-graph step, measured alone on an idle GPU (nvidia-smi peak, evaluation up to N = 1024 included): segment 32 6.5, segment 64 6.1
+        return 7.0 if (mc.get("segment") or mc["window"]) <= 32 else 6.5
     if mc["kind"] in ("gdn_fixed", "gdn", "gdn2"):
         return 4.5
     return 4.0

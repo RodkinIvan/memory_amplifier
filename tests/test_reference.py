@@ -17,6 +17,7 @@ FROZEN = {  # sha256 of the reference files: they must never be edited (a new re
     "swa_v1": "d9f7bbfcb1baf8db1969270e45c35f1a3800467756b85a0d9912e4a9a5823058",
     "swa_fb_v1": "bdaae668865cd05cc6d507b7303d5921cbdd94d6286b251f1e0679fe440fe6b5",
     "swa_va_v1": "c8e9425c5d5a4c8012128e1a0bd36f1374ce5cd94f47cadf8feb9c4870d65154",
+    "swa_2pass_v1": "510a4dff03154811a4a1926adeeaecbdee07dc86ca03697a0ea71e839ea1ea2c",
 }
 
 
@@ -50,6 +51,15 @@ class Diff(unittest.TestCase):
         self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml", "train.cuda_graph=false")), {"train.cuda_graph": [True, False]})
         cfg, keys = C.load_config(ROOT / "configs" / "swa_va.yaml", ["model.segment=8", "seed=1"])
         self.assertEqual(C.run_name(cfg, keys), "swa_va_seg8_s1")
+
+    def test_the_two_pass_recipe_and_its_choices(self):
+        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml")), {})
+        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.pass_output=1", "seed=2")), {"model.pass_output": [2, 1]})
+        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.pass_output=2")), {})
+        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.segment=64", "model.gain_init=0.1")), {"model.segment": [32, 64], "model.gain_init": [0.0, 0.1]})
+        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.segment=0")), {"model.segment": [32, 64]})  # 0 = one per window
+        cfg, keys = C.load_config(ROOT / "configs" / "swa_2pass.yaml", ["model.pass_output=1", "model.segment=64", "seed=1"])
+        self.assertEqual(C.run_name(cfg, keys), "swa_2pass_po1_seg64_s1")
 
     def test_changed_settings_are_listed_with_both_values(self):
         cfg = cfg_of("swa_fb.yaml", "model.gain_init=0", "train.steps=50000", "model.segment=32", "model.nonlin=none")

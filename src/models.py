@@ -12,6 +12,9 @@ Everything except the mixer (embeddings, norms, MLP, head) is stock fla `GatedDe
 `swa_va`     : the sliding-window transformer run one segment at a time on a key/value cache, where the *values* of a segment are changed by a
                low-rank associative read of the same layer's outputs on the previous segment (a test-time adaptation of `W_v`), and nothing
                else crosses the segment boundary. See `ValueAdaptSWA`.
+`swa_2pass`  : the sliding-window transformer run one segment at a time on a key/value cache where every layer runs twice per segment: pass 1 reads the window
+               (and stores nothing), pass 2 re-runs the block on the input plus the gained update of pass 1 and is the only one that writes keys and values
+               to the cache. Nothing is carried between segments but the cache. See `TwoPassSWA`.
 """
 from __future__ import annotations
 
@@ -124,6 +127,11 @@ def build_from_config(mc: dict, vocab_size: int):
             raise ValueError("swa_va runs on the key/value cache only: model.kv_cache must not be false")
         return build_swa_va(vocab_size=vocab_size, d_model=mc["d_model"], n_layers=mc["n_layers"], num_heads=mc["num_heads"], window=mc["window"],
                             segment=mc.get("segment", 0), gain_init=mc.get("gain_init", 0.0), proj_std=mc.get("proj_std", 0.02))
+    if kind == "swa_2pass":
+        if mc.get("kv_cache", True) is not True:  # the tail-recompute path would recompute stored entries with the wrong context
+            raise ValueError("swa_2pass runs on the key/value cache only: model.kv_cache must not be false")
+        return build_swa_2pass(vocab_size=vocab_size, d_model=mc["d_model"], n_layers=mc["n_layers"], num_heads=mc["num_heads"], window=mc["window"],
+                               segment=mc.get("segment", 0), gain_init=mc.get("gain_init", 0.0), pass_output=mc.get("pass_output", 2))
     if kind == "swa":
         return build_swa(vocab_size=vocab_size, d_model=mc["d_model"], n_layers=mc["n_layers"],
                          num_heads=mc["num_heads"], window=mc["window"])
@@ -346,6 +354,88 @@ def build_swa_va(*, vocab_size: int, d_model: int = 128, n_layers: int = 2, num_
         raise ValueError(f"segment must be >= 1, got {segment}")
     base = build_swa(vocab_size=vocab_size, d_model=d_model, n_layers=n_layers, num_heads=num_heads, window=window)
     return ValueAdaptSWA(base, window=window, segment=segment, gain_init=gain_init, proj_std=proj_std)
+
+
+class _PeekCache:
+    """Read-only view of a `_TailCache` for one layer call (pass 1 of `TwoPassSWA`): the interface fla's `Attention` calls, but `update` returns the cached keys and values
+    followed by the new ones without storing anything, and `get_seq_length` (the RoPE offset) is the cache's and does not move. So a layer run through the view sees exactly the
+    window the real cache would give it and leaves the cache as it was."""
+
+    def __init__(self, cache: "_TailCache"):
+        self.cache = cache
+
+    def get_seq_length(self, layer_idx: int = 0) -> int:
+        return self.cache.get_seq_length(layer_idx)
+
+    def update(self, attn_state, layer_idx: int, offset: int = 1, cache_kwargs=None, **_) -> dict:
+        k_new, v_new = attn_state
+        if self.cache.k[layer_idx] is None:
+            return {"attn_state": (k_new, v_new)}
+        return {"attn_state": (torch.cat([self.cache.k[layer_idx], k_new], dim=1), torch.cat([self.cache.v[layer_idx], v_new], dim=1))}
+
+
+class PassGain(nn.Module):
+    """The learned per-channel gain g of one layer of `TwoPassSWA` (a module of its own so that the optimizer finds it in the `loops` group)."""
+
+    def __init__(self, d_model: int, gain_init: float = 0.0):
+        super().__init__()
+        self.gain = nn.Parameter(torch.full((d_model,), float(gain_init)))
+
+
+class TwoPassSWA(nn.Module):
+    """Sliding-window transformer run one segment at a time on a key/value cache, every layer twice per segment (rehearsal inside the layer).
+
+    For segment s and layer i, with h the layer's input for the segment:
+      pass 1 (read):   y1 = block_i(h), attention over the cached window plus the segment itself (causal); nothing is written to the cache.
+      pass 2 (write):  y2 = block_i(h + g * (y1 - h)), the same block with the same weights, queries, keys and values all from the new input; its keys and values
+                       are the ones stored (the entries later segments see).
+    Only the update y1 - h is fed back, so with g = 0 pass 2 equals pass 1 and the model is plain sliding-window attention. The next layer's input is y2
+    (`pass_output` 2, default) or y1 (`pass_output` 1); the cache always holds the keys and values of pass 2. Both passes use the same RoPE positions (the view of
+    pass 1 does not advance the cache). Nothing but the cache crosses a segment boundary. Key/value cache path only: the tail-recompute path of `FeedbackSWA` would
+    recompute stored entries with the wrong context."""
+
+    def __init__(self, base: TransformerForCausalLM, window: int, segment: int, gain_init: float = 0.0, pass_output: int = 2):
+        super().__init__()
+        if pass_output not in (1, 2):
+            raise ValueError(f"pass_output must be 1 or 2, got {pass_output!r}")
+        self.base, self.window, self.segment, self.pass_output = base, window, segment, pass_output
+        self.cache_hook = None  # probes only: called as hook(segment, cache) after every segment; may read or replace cache.k[i] / cache.v[i] (the window the next segment sees)
+        d = base.config.hidden_size
+        self.loops = nn.ModuleList(PassGain(d, gain_init) for _ in base.model.layers)  # named `loops` for the optimizer's loop group
+
+    def forward(self, input_ids: torch.Tensor, **_) -> SimpleNamespace:
+        B, T = input_ids.shape
+        C, W = self.segment, self.window
+        if T % C:  # right-pad with PAD (causal, so earlier outputs are unaffected)
+            input_ids = F.pad(input_ids, (0, C - T % C), value=0)
+        x = self.base.model.embeddings(input_ids)
+        layers = self.base.model.layers
+        if x.shape[1] > self.base.config.max_position_embeddings:
+            raise ValueError(f"the key/value cache uses absolute positions: {x.shape[1]} tokens exceed max_position_embeddings")
+        cache = _TailCache(W - 1, len(layers))
+        outs = []
+        for s in range(x.shape[1] // C):
+            h = x[:, s * C:(s + 1) * C]
+            for layer, loop in zip(layers, self.loops):
+                y1 = layer(h, past_key_values=_PeekCache(cache), use_cache=True)[0]
+                h2 = h + (loop.gain * (y1 - h).float()).to(h.dtype)
+                y2 = layer(h2, past_key_values=cache, use_cache=True)[0]
+                h = y2 if self.pass_output == 2 else y1
+            outs.append(h)
+            if self.cache_hook is not None:
+                self.cache_hook(s, cache)
+        hidden = self.base.model.norm(torch.cat(outs, dim=1)[:, :T])
+        return SimpleNamespace(logits=self.base.lm_head(hidden))
+
+
+def build_swa_2pass(*, vocab_size: int, d_model: int = 128, n_layers: int = 2, num_heads: int = 4, window: int, segment: int = 0,
+                    gain_init: float = 0.0, pass_output: int = 2) -> TwoPassSWA:
+    """`segment` = 0 means one segment per window."""
+    segment = segment or window
+    if segment < 1:
+        raise ValueError(f"segment must be >= 1, got {segment}")
+    base = build_swa(vocab_size=vocab_size, d_model=d_model, n_layers=n_layers, num_heads=num_heads, window=window)
+    return TwoPassSWA(base, window=window, segment=segment, gain_init=gain_init, pass_output=pass_output)
 
 
 def build_swa_fb(*, vocab_size: int, d_model: int = 128, n_layers: int = 2, num_heads: int = 4, window: int,

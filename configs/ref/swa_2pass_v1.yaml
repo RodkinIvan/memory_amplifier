@@ -1,0 +1,52 @@
+# FROZEN reference config 'swa_2pass_v1' (a copy of configs/swa_2pass.yaml as of 2026-10-13). Never edit this file: every run's stored config is
+# compared against it (src/config.py reference_diff), so a changed reference would silently relabel finished runs. A new recipe gets a new file.
+# Sliding-window attention with a TWO-PASS layer ("swa_2pass"): the short-term store is re-written with what it read (design experiment E2).
+# The model runs one segment at a time on a key/value cache and every layer runs twice per segment:
+#   pass 1 (read):   y1 = block(h), attention over the cached window plus the segment itself; nothing is written to the cache;
+#   pass 2 (write):  y2 = block(h + g * (y1 - h)), the same block and weights, queries / keys / values from the new input; its keys and values are the ones stored.
+# Only the update y1 - h is fed back, g is a learned per-channel gain per layer (gain_init 0 = plain SWA at the start). The next layer's input is y2 (pass_output 2) or y1
+# (pass_output 1); the cache always holds pass 2's keys and values. No loop vector, no adaptation matrix: nothing but the cache crosses a segment boundary.
+# Reference recipe = the H5 recipe of swa_fb (50k steps, curriculum, lr 1e-3, the new parameters at 10x lr).  Review notes, E2 (2026-10-13).
+# Sweep (src/launch.py):  model.pass_output in {2, 1} x model.segment in {32, 64} x seed in {0, 1, 2}
+experiment: swa_2pass
+project: passkey_swar
+data_dir: data_cache/passkey_swar
+seed: 0
+
+model:
+  kind: swa_2pass
+  window: 64
+  segment: 32              # tokens per segment; 0 = one segment per window
+  gain_init: 0.0           # initial per-channel gain of the fed-back update; 0 = start as plain SWA
+  pass_output: 2           # which pass feeds the next layer: 2 = y2 (default), 1 = y1 (the cache holds pass 2's keys and values either way)
+  n_layers: 2
+  d_model: 128
+  num_heads: 4
+
+train:
+  steps: 50000
+  batch_size: 32
+  train_ns: [32, 64, 128, 256]
+  lr: 1.0e-3
+  betas: [0.9, 0.95]
+  weight_decay: 0.01
+  warmup_steps: 500
+  min_lr_ratio: 0.1
+  grad_clip: 1.0
+  pad_multiple: 256
+  precision: bf16
+  loop_lr_mult: 10.0       # learning-rate multiplier for the gains
+  cuda_graph: true         # one CUDA graph per batch shape (src/graphed.py): the same step, much faster (the per-segment loop is launch-bound)
+  passkey_weight: 1.0
+  curriculum_stage_steps: 2000  # start on N = 32 only and add the next train config every this many steps
+  passkey_weight_anneal_steps: 0
+  log_every: 50
+  eval_every: 2000
+  eval_examples: 200
+  eval_ns: [32, 64, 128, 256, 512, 1024, 4096, 16384]
+  eval_examples_by_n: [[4096, 100], [16384, 32]]
+
+eval:
+  splits: [validation, test]
+  ns: [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
+  tokens_per_batch: 524288  # = 8 streams at N = 16384

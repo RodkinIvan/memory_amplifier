@@ -49,3 +49,9 @@ m9_b_re | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 1 --set experime
 # Segment 32 first (3 seeds, GPU 1), segment 8 (3 seeds, two workers on GPU 0 and two on GPU 1) started once the first one was running. Launched by hand with launch.py (no queue driver was running).
 va_32 | --config configs/swa_va.yaml --gpus 1 --procs-per-gpu 3 --set model.segment=32 --sweep seed=0,1,2
 va_8 | --config configs/swa_va.yaml --gpus 0 1 --procs-per-gpu 2 --set model.segment=8 --sweep seed=0,1,2
+
+# ---- Design experiment E2 (2026-10-13): two-pass layer, the short-term store re-written with what it read (kind swa_2pass, frozen reference configs/ref/swa_2pass_v1.yaml).
+# Same recipe as H5 (window 64, 2 layers, 50k steps, curriculum 2000, lr 1e-3, gains at 10x lr, gain 0); CUDA-graph step (part of the reference). Launched by hand with launch.py (no queue driver was running).
+# Segment 32 with the second pass (default) and the first pass as the output to the next layer, 3 seeds each; then segment 64 with the default output (the review does not say which output to use there).
+p2_32 | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 3 --set model.segment=32 --sweep model.pass_output=2,1 seed=0,1,2
+p2_64 | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 2 --set model.segment=64 model.pass_output=2 --sweep seed=0,1,2

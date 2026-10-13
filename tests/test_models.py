@@ -8,7 +8,7 @@ import unittest
 import torch
 
 from tests import _paths  # noqa: F401
-from models import FeedbackSWA, ValueAdaptSWA, build_from_config, build_model, build_swa, build_swa_fb, build_swa_va, swa_reach
+from models import FeedbackSWA, TwoPassSWA, ValueAdaptSWA, build_from_config, build_model, build_swa, build_swa_2pass, build_swa_fb, build_swa_va, swa_reach
 
 
 def naive_gated_delta(q, k, v, alpha, beta_logit, neg):
@@ -520,6 +520,215 @@ class ValueAdaptBehaviour(unittest.TestCase):
             m.probe_hook = lambda s, i, st: (_ for _ in ()).throw(RuntimeError("boom"))
             m(input_ids=torch.randint(8, 40, (1, 40), device="cuda"))
         self.assertEqual(m._pending, [None, None])
+
+
+def strong_two_pass(model: TwoPassSWA, gain=0.5):
+    """Switch the second pass on: every gain `gain` (the default init has gain 0, i.e. plain SWA)."""
+    for loop in model.loops:
+        torch.nn.init.constant_(loop.gain, gain)
+
+
+class TwoPassBuilder(unittest.TestCase):
+    MC = {"kind": "swa_2pass", "d_model": 128, "n_layers": 2, "num_heads": 4, "window": 64}
+
+    def test_dispatch_defaults_and_parameter_names(self):
+        m = build_from_config({**self.MC, "segment": 32}, 40)
+        self.assertIsInstance(m, TwoPassSWA)
+        self.assertEqual((m.window, m.segment, m.pass_output), (64, 32, 2))
+        self.assertEqual(build_from_config(self.MC, 40).segment, 64)  # segment 0/absent -> one per window
+        self.assertEqual(build_from_config({**self.MC, "pass_output": 1}, 40).pass_output, 1)
+        plain = build_from_config({**self.MC, "kind": "swa"}, 40)
+        extra = sum(p.numel() for p in m.parameters()) - sum(p.numel() for p in plain.parameters())
+        self.assertEqual(extra, 2 * 128)  # one gain per channel and layer, nothing else
+        self.assertTrue(all(float(l.gain.abs().max()) == 0.0 for l in m.loops))  # starts as plain SWA
+        self.assertAlmostEqual(float(build_from_config({**self.MC, "gain_init": 0.1}, 40).loops[1].gain[5]), 0.1, places=6)
+        base_names = {f"base.{n}" for n in plain.state_dict()}
+        self.assertEqual(set(m.state_dict()) - base_names, {f"loops.{i}.gain" for i in range(2)})
+        self.assertTrue(base_names <= set(m.state_dict()))  # a plain SWA checkpoint loads into `base`
+
+    def test_bad_arguments_and_the_tail_path_is_refused(self):
+        with self.assertRaises(ValueError):
+            build_from_config({**self.MC, "pass_output": 3}, 40)
+        with self.assertRaises(ValueError):
+            build_from_config({**self.MC, "kv_cache": False}, 40)
+        build_from_config({**self.MC, "kv_cache": True}, 40)
+        with self.assertRaises(ValueError):
+            build_swa_2pass(vocab_size=40, window=16, segment=-1)
+
+    def test_the_gains_are_in_the_loop_parameter_group(self):
+        import train as T
+        m = build_from_config(self.MC, 40)
+        opt = T.make_optimizer(m, {"weight_decay": 0.01, "lr": 1e-3, "betas": [0.9, 0.95], "loop_lr_mult": 10.0})
+        loop_group = [g for g in opt.param_groups if g.get("lr_mult") == 10.0]
+        self.assertEqual(len(loop_group), 1)
+        self.assertEqual(sorted(id(p) for p in loop_group[0]["params"]), sorted(id(l.gain) for l in m.loops))
+        self.assertEqual(loop_group[0]["weight_decay"], 0.0)
+
+
+class PeekCache(unittest.TestCase):
+    def test_a_view_returns_what_the_cache_would_but_stores_nothing_and_does_not_advance(self):
+        from models import _PeekCache, _TailCache
+        c = _TailCache(keep=5, n_layers=1)
+        k1 = torch.arange(8.0).view(1, 8, 1)
+        c.update((k1, k1 * 10), layer_idx=0)
+        before = (c.k[0].clone(), c.v[0].clone(), c.seen[0])
+        view = _PeekCache(c)
+        k2 = torch.arange(8.0, 10.0).view(1, 2, 1)
+        out_k, out_v = view.update((k2, k2 * 10), layer_idx=0)["attn_state"]
+        self.assertEqual(out_k.flatten().tolist(), [3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])  # the cached W-1 entries, then the new ones: what the real update returns
+        self.assertEqual(out_v.flatten().tolist(), [30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0])
+        self.assertEqual(view.get_seq_length(0), 8)
+        self.assertTrue(torch.equal(c.k[0], before[0]) and torch.equal(c.v[0], before[1]) and c.seen[0] == before[2])  # nothing stored, the position did not move
+        empty = _PeekCache(_TailCache(5, 1))
+        self.assertEqual(empty.update((k2, k2), layer_idx=0)["attn_state"][0].flatten().tolist(), [8.0, 9.0])  # an empty cache: just the new entries
+
+
+@unittest.skipUnless(torch.cuda.is_available(), "needs a CUDA GPU")
+class TwoPassBehaviour(unittest.TestCase):
+    def run_model(self, m, x):
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            return m(input_ids=x).logits.float()
+
+    def build(self, window=16, segment=8, layers=2, **kw):
+        return build_swa_2pass(vocab_size=40, d_model=64, n_layers=layers, num_heads=2, window=window, segment=segment, **kw).cuda().eval()
+
+    def test_zero_gain_equals_plain_swa_for_both_outputs(self):
+        """Gain 0: pass 2 equals pass 1 and the model is the plain sliding-window forward; C < W, C = W, C > W and a length that is not a multiple of C."""
+        torch.manual_seed(0)
+        for po in (1, 2):
+            for window, segment, length in ((16, 8, 100), (16, 16, 100), (16, 24, 90), (16, 5, 77), (8, 24, 90), (64, 8, 300)):
+                m = self.build(window, segment, pass_output=po)
+                x = torch.randint(8, 40, (2, length), device="cuda")
+                diff = (self.run_model(m, x) - self.run_model(m.base, x)).abs().max().item()
+                self.assertLess(diff, 5e-2, (po, window, segment, length, diff))
+
+    def test_the_second_pass_changes_the_output_and_the_two_outputs_differ(self):
+        torch.manual_seed(0)
+        x = torch.randint(8, 40, (2, 64), device="cuda")
+        a, b = self.build(16, 8, pass_output=2), self.build(16, 8, pass_output=1)
+        b.load_state_dict(a.state_dict())  # the same weights, only the output pass differs
+        strong_two_pass(a), strong_two_pass(b)
+        plain = self.run_model(a.base, x)
+        for po, m in ((2, a), (1, b)):
+            self.assertGreater((self.run_model(m, x) - plain).abs().max().item(), 0.05, po)  # with the gain on, the second pass is not a no-op
+        self.assertGreater((self.run_model(a, x) - self.run_model(b, x)).abs().max().item(), 0.05)  # y2 or y1 to the next layer is a real choice
+
+    def spy(self, m, x, pass_1_writes=False):
+        """Run `m` with spies on both caches: every update of the real cache (pass 2) and of the read-only view (pass 1), per layer, with the keys / values passed in."""
+        import models
+        rec = {"write": [], "peek": [], "cache": []}
+        real_tail, real_peek = models._TailCache, models._PeekCache
+
+        class TailSpy(real_tail):
+            def __init__(self, *a, **k):
+                super().__init__(*a, **k)
+                rec["cache"].append(self)
+
+            def update(self, attn_state, layer_idx, offset=1, cache_kwargs=None, **kw):
+                rec["write"].append((layer_idx, attn_state[0].detach().clone(), attn_state[1].detach().clone()))
+                return super().update(attn_state, layer_idx, offset, cache_kwargs, **kw)
+
+        class PeekSpy(real_peek):
+            def update(self, attn_state, layer_idx, offset=1, cache_kwargs=None, **kw):
+                rec["peek"].append((layer_idx, attn_state[0].detach().clone(), attn_state[1].detach().clone()))
+                return super().update(attn_state, layer_idx, offset, cache_kwargs, **kw)
+
+        models._TailCache, models._PeekCache = TailSpy, (lambda cache: cache) if pass_1_writes else PeekSpy  # (the broken variant: pass 1 goes through the real cache)
+        try:
+            logits = self.run_model(m, x)
+        finally:
+            models._TailCache, models._PeekCache = real_tail, real_peek
+        return logits, rec
+
+    def test_each_token_is_stored_once_with_the_keys_and_values_of_pass_2(self):
+        """Review E2: after a forward pass every token's keys / values are in the cache exactly once, `seen` is the number of tokens, and what is stored is pass 2's, not pass 1's
+        (for pass_output 1 as well: only the next layer's input changes)."""
+        torch.manual_seed(0)
+        W, C, L, T = 16, 8, 2, 8 * 9
+        for po in (1, 2):
+            m = self.build(W, C, L, pass_output=po)
+            strong_two_pass(m, 0.5)
+            x = torch.randint(8, 40, (2, T), device="cuda")
+            _, rec = self.spy(m, x)
+            cache = rec["cache"][-1]
+            self.assertEqual(len(rec["write"]), L * (T // C), po)   # one write per layer and segment: nothing stored twice
+            self.assertEqual(len(rec["peek"]), L * (T // C), po)    # and one read-only call per layer and segment
+            self.assertEqual(cache.seen, [T] * L, po)               # the position counter counts every token once
+            for i in range(L):
+                writes = torch.cat([k for l, k, v in rec["write"] if l == i], dim=1)
+                values = torch.cat([v for l, k, v in rec["write"] if l == i], dim=1)
+                peeks = torch.cat([k for l, k, v in rec["peek"] if l == i], dim=1)
+                self.assertEqual(writes.shape[1], T)
+                self.assertEqual(float((cache.k[i] - writes[:, -(W - 1):]).abs().max()), 0.0, (po, i))  # the stored window is pass 2's keys ...
+                self.assertEqual(float((cache.v[i] - values[:, -(W - 1):]).abs().max()), 0.0, (po, i))  # ... and values
+                self.assertGreater(float((cache.k[i] - peeks[:, -(W - 1):]).abs().max()), 1e-3, (po, i))  # not pass 1's (the gain is on, so they differ)
+
+    def test_the_bookkeeping_test_would_notice_a_first_pass_that_writes(self):
+        """Sensitivity check: if pass 1 went through the real cache, every token would be stored twice and `seen` would double; the test above must fail for that."""
+        m = self.build(16, 8, 2)
+        strong_two_pass(m, 0.5)
+        x = torch.randint(8, 40, (2, 72), device="cuda")
+        _, rec = self.spy(m, x, pass_1_writes=True)
+        self.assertEqual(rec["cache"][-1].seen, [144, 144])  # twice the tokens: the position counter and the cache are corrupted
+        self.assertEqual(len(rec["write"]), 2 * 2 * 9)       # two writes per layer and segment instead of one: the check of the real model (one) fails for this
+
+    def test_causality(self):
+        torch.manual_seed(0)
+        for po in (1, 2):
+            m = self.build(8, 8, pass_output=po)
+            strong_two_pass(m)
+            x = torch.randint(8, 40, (1, 96), device="cuda")
+            x2 = x.clone()
+            x2[0, 50] = 8 + (int(x[0, 50]) - 8 + 1) % 32
+            d = (self.run_model(m, x) - self.run_model(m, x2)).abs().amax(-1)[0]
+            self.assertEqual(float(d[:50].max()), 0.0, po)
+            self.assertGreater(float(d[50:].max()), 0.0, po)
+
+    def test_the_second_pass_carries_information_past_the_window_reach(self):
+        torch.manual_seed(0)
+        window, layers = 8, 2
+        R = swa_reach(window, layers)
+        x = torch.randint(8, 40, (1, 8 * 15), device="cuda")
+        x2 = x.clone()
+        x2[0, 1] = 8 + (int(x[0, 1]) - 8 + 1) % 32
+        far = slice(R + 2 * window, None)  # positions the window alone can never see
+        for po in (1, 2):
+            for gain, expect_leak in ((0.0, False), (0.5, True)):
+                m = self.build(window, window, layers, pass_output=po)
+                strong_two_pass(m, gain)
+                d = (self.run_model(m, x) - self.run_model(m, x2)).abs().amax(-1)[0, far]
+                self.assertEqual(bool((d > 0).any()), expect_leak, (po, gain, float(d.max())))
+
+    def test_gradients_reach_the_gains_through_the_segments(self):
+        """The loss is on every token of the last segment, which reads the cache of the segments before it (the very last token alone does not when C = W: its window is its own
+        segment, and with pass_output 1 the last layer's gain acts only through what other tokens read)."""
+        for po in (1, 2):
+            m = build_swa_2pass(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=8, segment=8, pass_output=po).cuda()
+            x = torch.randint(8, 40, (2, 64), device="cuda")
+            for gain in (0.0, 0.5):
+                m.zero_grad()
+                strong_two_pass(m, gain)
+                with torch.autocast("cuda", dtype=torch.bfloat16):
+                    m(input_ids=x).logits.float()[:, -8:].sum().backward()
+                for i, loop in enumerate(m.loops):
+                    self.assertGreater(float(loop.gain.grad.abs().sum()), 0.0, (po, gain, i))  # the gain can leave 0, in every layer
+
+    def test_state_dict_roundtrip_and_a_plain_checkpoint_loads_into_base(self):
+        a, b = self.build(16, 8), self.build(16, 8)
+        strong_two_pass(a)
+        b.load_state_dict(a.state_dict())
+        x = torch.randint(8, 40, (1, 50), device="cuda")
+        self.assertEqual(float((self.run_model(a, x) - self.run_model(b, x)).abs().max()), 0.0)
+        plain = build_swa(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=16).cuda().eval()
+        c = self.build(16, 8)
+        c.base.load_state_dict(plain.state_dict())
+        self.assertLess((self.run_model(c, x) - self.run_model(plain, x)).abs().max().item(), 5e-2)
+
+    def test_long_streams_beyond_the_position_table_are_refused(self):
+        m = self.build(8, 8)
+        m.base.config.max_position_embeddings = 64
+        with self.assertRaises(ValueError):
+            m(input_ids=torch.randint(1, 40, (1, 96), device="cuda"))
 
 
 if __name__ == "__main__":
