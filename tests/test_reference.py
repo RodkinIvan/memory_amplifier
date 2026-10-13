@@ -53,13 +53,22 @@ class Diff(unittest.TestCase):
         self.assertEqual(C.run_name(cfg, keys), "swa_va_seg8_s1")
 
     def test_the_two_pass_recipe_and_its_choices(self):
-        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml")), {})
+        """E3: the working config swa_2pass.yaml has pass_output 1; the frozen reference swa_2pass_v1 still has 2, so a run of the working config differs from it in exactly that."""
+        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml")), {"model.pass_output": [2, 1]})
+        self.assertEqual(C.load_reference({"model": {"kind": "swa_2pass"}})["model"]["pass_output"], 2)   # the reference was not edited
+        self.assertEqual(cfg_of("swa_2pass.yaml")["model"]["pass_output"], 1)
         self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.pass_output=1", "seed=2")), {"model.pass_output": [2, 1]})
         self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.pass_output=2")), {})
-        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.segment=64", "model.gain_init=0.1")), {"model.segment": [32, 64], "model.gain_init": [0.0, 0.1]})
-        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.segment=0")), {"model.segment": [32, 64]})  # 0 = one per window
+        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.segment=64", "model.gain_init=0.1")), {"model.segment": [32, 64], "model.gain_init": [0.0, 0.1], "model.pass_output": [2, 1]})
+        self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.segment=0")), {"model.segment": [32, 64], "model.pass_output": [2, 1]})  # 0 = one per window
         cfg, keys = C.load_config(ROOT / "configs" / "swa_2pass.yaml", ["model.pass_output=1", "model.segment=64", "seed=1"])
         self.assertEqual(C.run_name(cfg, keys), "swa_2pass_po1_seg64_s1")
+        # the working config and the reference are the same recipe apart from the output pass
+        a, b = C.flatten(cfg_of("swa_2pass.yaml")), C.flatten(C.load_reference({"model": {"kind": "swa_2pass"}}))
+        self.assertEqual({k for k in set(a) | set(b) if a.get(k) != b.get(k)}, {"model.pass_output"})
+        # the first-round runs launched with an explicit pass_output keep their config (and so their finished-result match) when the default changes
+        first_round, _ = C.load_config(ROOT / "configs" / "swa_2pass.yaml", ["model.segment=32", "model.pass_output=2", "seed=0"])
+        self.assertEqual(first_round["model"]["pass_output"], 2)
 
     def test_changed_settings_are_listed_with_both_values(self):
         cfg = cfg_of("swa_fb.yaml", "model.gain_init=0", "train.steps=50000", "model.segment=32", "model.nonlin=none")

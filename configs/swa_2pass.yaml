@@ -2,10 +2,14 @@
 # The model runs one segment at a time on a key/value cache and every layer runs twice per segment:
 #   pass 1 (read):   y1 = block(h), attention over the cached window plus the segment itself; nothing is written to the cache;
 #   pass 2 (write):  y2 = block(h + g * (y1 - h)), the same block and weights, queries / keys / values from the new input; its keys and values are the ones stored.
-# Only the update y1 - h is fed back, g is a learned per-channel gain per layer (gain_init 0 = plain SWA at the start). The next layer's input is y2 (pass_output 2) or y1
-# (pass_output 1); the cache always holds pass 2's keys and values. No loop vector, no adaptation matrix: nothing but the cache crosses a segment boundary.
-# Reference recipe = the H5 recipe of swa_fb (50k steps, curriculum, lr 1e-3, the new parameters at 10x lr).  Review notes, E2 (2026-10-13).
-# Sweep (src/launch.py):  model.pass_output in {2, 1} x model.segment in {32, 64} x seed in {0, 1, 2}
+# Only the update y1 - h is fed back, g is a learned per-channel gain per layer (gain_init 0 = plain SWA at the start). The next layer's input is y1 (pass_output 1, the DEFAULT HERE)
+# or y2 (pass_output 2); the cache always holds pass 2's keys and values. No loop vector, no adaptation matrix: nothing but the cache crosses a segment boundary.
+# Why pass_output 1 is the default (E3, 2026-10-14): with output 2 the gain also changes the forward pass of the current tokens, and in the first round (segment 32 and 64, 3 seeds each, 50k steps,
+# test split) 4 of 6 runs never learned the passkey, not even at N = 32, and none holds it at N = 1,024; with output 1 all three segment-32 seeds learned it (N = 256: 1.00 / 0.53 / 1.00, and
+# seed 0 holds 0.58 at N = 16,384).
+# The FROZEN reference configs/ref/swa_2pass_v1.yaml (never edited) still has pass_output 2, so runs of this file carry `pass_output 2 -> 1` in their diff, which is accurate. Everything else
+# is that reference: the H5 recipe of swa_fb (50k steps, curriculum, lr 1e-3, the new parameters at 10x lr).  Review notes, E2 / E3 (2026-10-13 / 14).
+# Sweep (src/launch.py):  model.pass_output in {1, 2} x model.segment in {32, 64} x seed in {0, 1, 2, ...}
 experiment: swa_2pass
 project: passkey_swar
 data_dir: data_cache/passkey_swar
@@ -16,7 +20,7 @@ model:
   window: 64
   segment: 32              # tokens per segment; 0 = one segment per window
   gain_init: 0.0           # initial per-channel gain of the fed-back update; 0 = start as plain SWA
-  pass_output: 2           # which pass feeds the next layer: 2 = y2 (default), 1 = y1 (the cache holds pass 2's keys and values either way)
+  pass_output: 1           # which pass feeds the next layer: 1 = y1 (default, E3), 2 = y2 (the reference recipe); the cache holds pass 2's keys and values either way
   n_layers: 2
   d_model: 128
   num_heads: 4

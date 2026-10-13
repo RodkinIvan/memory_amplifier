@@ -55,3 +55,20 @@ va_8 | --config configs/swa_va.yaml --gpus 0 1 --procs-per-gpu 2 --set model.seg
 # Segment 32 with the second pass (default) and the first pass as the output to the next layer, 3 seeds each; then segment 64 with the default output (the review does not say which output to use there).
 p2_32 | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 3 --set model.segment=32 --sweep model.pass_output=2,1 seed=0,1,2
 p2_64 | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 2 --set model.segment=64 model.pass_output=2 --sweep seed=0,1,2
+
+# E2 pilots (2026-10-13, seed 0 only): the output-of-pass-2 runs above did not learn even the N = 32 passkey in the first 6000 steps (output of pass 1: 0.9+ by step 2000). Short checks
+# (3000 steps, N = 32 stage): gain frozen at 0 (= plain SWA) 0.46, gain at 1x learning rate 0.36, so the 10x learning rate of the gains is the suspect. The review's pilot with gain_init 0.1 is run too.
+p2_pilot_lr1 | --config configs/swa_2pass.yaml --gpus 1 --procs-per-gpu 1 --set model.segment=32 model.pass_output=2 train.loop_lr_mult=1 seed=0
+p2_pilot_gi | --config configs/swa_2pass.yaml --gpus 0 --procs-per-gpu 1 --set model.segment=32 model.pass_output=2 model.gain_init=0.1 seed=0
+
+# ---- E4 (2026-10-14): does longer training fix the seed instability? swa_2pass, pass_output 1, segment 32 (the working config swa_2pass.yaml; E3 made output 1 the default, the overrides below
+# spell it out so the run names carry it and the stored configs equal those of the first-round output-1 runs). Metric fixed before the runs, per arm and over its 6 seeds: the share of seeds that
+# learn the training range (test passkey >= 0.9 at N = 256) and that extrapolate (test passkey >= 0.5 at N = 4,096); per-seed values at all N; the step at which the loop switches on (first
+# periodic validation with passkey >= 0.9 at N = 256).
+# Arm 50k: the existing seeds 0-2 plus seeds 3-5. Arm 150k: train.steps=150000 (warmup 500, cosine to 10% at the last step, curriculum one stage per 2000 steps), seeds 0-5.
+# Optional continuation: the two non-extrapolating 50k seeds (1 and 2) for another 50k steps from their final weights (train.init_from; the learning rate is warmed up again, so this is its own row,
+# not the 100k point of a curve). Same seed as the run it continues, so the sample order replays that run's first 50k steps (the data has 100k streams per N, repeats are the norm anyway).
+e4_150k | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 3 --set model.segment=32 model.pass_output=1 train.steps=150000 --sweep seed=0,1,2,3,4,5
+e4_50k | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 2 --set model.segment=32 model.pass_output=1 --sweep seed=3,4,5
+e4_cont1 | --config configs/swa_2pass.yaml --gpus 0 --procs-per-gpu 1 --set model.segment=32 model.pass_output=1 train.steps=50000 train.init_from=runs/swa_2pass_seg32_po1_s1/model.pt seed=1
+e4_cont2 | --config configs/swa_2pass.yaml --gpus 1 --procs-per-gpu 1 --set model.segment=32 model.pass_output=1 train.steps=50000 train.init_from=runs/swa_2pass_seg32_po1_s2/model.pt seed=2
