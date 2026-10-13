@@ -70,7 +70,7 @@ def load_probes(directory: Path = PROBE_DIR, prefix: str = "va") -> dict:
     """{'cache': ..., 'delta': ..., 'perturb': ...} from results/probes/<prefix>_cache_probe*.json, <prefix>_delta_w*.json, <prefix>_perturb*.json (whatever exists; several files of
     one kind, e.g. one per segment length, are merged by run name). `va` = value adaptation (E1), `p2` = two-pass (E2)."""
     out: dict = {}
-    for key, stem in (("cache", f"{prefix}_cache_probe"), ("delta", f"{prefix}_delta_w"), ("perturb", f"{prefix}_perturb")):
+    for key, stem in (("cache", f"{prefix}_cache_probe"), ("delta", f"{prefix}_delta_w"), ("perturb", f"{prefix}_perturb"), ("gains", f"{prefix}_gains")):
         for f in sorted(directory.glob(f"{stem}*.json")):
             out.setdefault(key, {}).update(json.loads(f.read_text()))
     return out

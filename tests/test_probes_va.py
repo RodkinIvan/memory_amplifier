@@ -69,6 +69,22 @@ class MatrixStats(unittest.TestCase):
         self.assertAlmostEqual(float(PV.matrix_stats(one)["rank"]), 1.0, places=4)  # rank one
 
 
+class GainStats(unittest.TestCase):
+    def test_per_layer_statistics_of_the_stored_gains(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(PV.C, "ROOT", Path(d)):
+            (Path(d) / "runs" / "r").mkdir(parents=True)
+            torch.save({"loops.0.gain": torch.tensor([0.5, -0.5, 1.0, 0.0]), "loops.1.gain": torch.full((4,), 2.0), "base.x": torch.zeros(1)}, Path(d) / "runs" / "r" / "model.pt")
+            r = PV.gain_stats("r")
+        self.assertEqual(len(r["layers"]), 2)
+        self.assertAlmostEqual(r["layers"][0]["mean"], 0.25)
+        self.assertAlmostEqual(r["layers"][0]["abs_mean"], 0.5)
+        self.assertAlmostEqual(r["layers"][0]["abs_max"], 1.0)
+        self.assertAlmostEqual(r["layers"][0]["negative"], 0.25)
+        self.assertEqual((r["layers"][1]["mean"], r["layers"][1]["negative"]), (2.0, 0.0))
+
+
 class CommonMode(unittest.TestCase):
     def test_identical_tokens_are_all_mean_and_independent_tokens_are_not(self):
         g = torch.Generator().manual_seed(0)

@@ -87,6 +87,35 @@ def perturb_figure(probes: dict) -> list[dict]:
              "html": RR._table(["run", "perturbed", "clean"] + [f"ε = {e:g}" for e in eps0] + ["zeroed", "kick size after later segments"], rows)}]
 
 
+def gains_figure(probes: dict) -> list[dict]:
+    """The learned gains g per layer of the probed runs (E2 hypothesis: with output 2 the gain is a signed tweak around 0, with output 1 one layer has a clearly positive mean)."""
+    gains = probes.get("gains", {})
+    if not gains:
+        return []
+    rows = []
+    for run, res in gains.items():
+        for i, l in enumerate(res["layers"]):
+            rows.append([html.escape(run), str(i), f"{l['mean']:+.2f}", f"{l['abs_mean']:.2f}", f"{l['abs_max']:.2f}", f"{l['negative']:.0%}"])
+    return [{"key": "gains", "title": "Learned gains per layer",
+             "sub": "The per-channel gain g of the fed-back update y1 − h, read from the final weights; initialised to 0.",
+             "caption": "<p>With output 2 the gain also changes the forward pass of the current tokens; with output 1 it acts only through the keys and values later segments read. The question is whether the two end up using it differently, "
+                        "e.g. as signed tweaks around 0 against a clearly positive gain in some layer. Which layer is positive varies between seeds, and its size does not by itself say which seeds extrapolate.</p>",
+             "spec": None, "html": RR._table(["run", "layer", "mean g", "mean |g|", "largest |g|", "negative channels"], rows)}]
+
+
+def pilot_paragraph(raw: list[dict]) -> str:
+    """The seed-0 pilots of the output-of-pass-2 variant (gain at 1x learning rate, a nonzero starting gain): what they reached."""
+    pilots = [r for r in raw if r["cfg"]["model"]["kind"] == "swa_2pass" and (RG.diff_of(r).keys() & {"train.loop_lr_mult"} or (r["cfg"]["model"].get("gain_init") or 0) > 0)
+              and not (RG.diff_of(r).keys() - {"model.segment", "model.pass_output", "model.gain_init", "train.loop_lr_mult"})]
+    if not pilots:
+        return ""
+    parts = []
+    for r in sorted(pilots, key=lambda r: r["name"]):
+        row = {x["N"]: x["passkey_acc"] for x in r["rows"] if x["split"] == "test"}
+        parts.append(f"{html.escape(r['name'])} ({html.escape(C.describe_diff(RG.diff_of(r)))}): {f2(row[32])} / {f2(row[256])} / {f2(row[1024])} at N = 32 / 256 / 1,024")
+    return "<p><b>Pilots (output of pass 2, seed 0, not part of the comparison rows).</b> " + "; ".join(parts) + ".</p>"
+
+
 def cache_bullet(probes: dict) -> list[str]:
     """One sentence of the cache read-out (numbers from the probe files)."""
     cache = probes.get("cache", {})
@@ -215,7 +244,10 @@ def longer_training(raw: list[dict], logs: dict) -> tuple[list[dict], list[str]]
     for label, key in E4_ARMS:
         if key in rates:
             learn, extra, nd, nt = rates[key]
-            sentences.append(f"{label}: {learn} of {nd} finished seeds learn the training range, {extra} of {nd} extrapolate" + (f" ({nt - nd} more still training)" if nt > nd else ""))
+            if nd:
+                sentences.append(f"{label}: {learn} of {nd} finished seeds learn the training range, {extra} of {nd} extrapolate" + (f" ({nt - nd} more still training)" if nt > nd else ""))
+            else:
+                sentences.append(f"{label}: no seed finished yet ({nt} still training)")
     return figs, sentences
 
 
@@ -305,7 +337,7 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
             figs.append({"key": key, "title": f"Training: validation passkey at N = {n:,}", "sub": "Validation streams, every 2,000 steps (N = 4,096: 100 streams, N = 16,384: 32 streams). Solid = two-pass, dashed = the vector loop m at the same segment; bars from the worst to the best seed.",
                          "caption": "", "spec": c})
     e4_figs, e4_sentences = longer_training(raw, logs)
-    figs += e4_figs + V.probe_figures(probes, kinds=("cache",)) + perturb_figure(probes)
+    figs += e4_figs + V.probe_figures(probes, kinds=("cache",)) + perturb_figure(probes) + gains_figure(probes)
     figs.append(RR.configuration_appendix([g for g in dgroups if g["kind"] == "swa_2pass" or g in list(fb.values()) + [x for x in (va32, swa64, gdn2) if x]]))
 
     # ---------------------------------------------------------------- text
@@ -343,7 +375,8 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
     data = {
         "ns": NS, "rows": rows, "results": results, "scatter_ns": [], "hide_scatter": True, "label_w": 352, "row_name": "configuration", "row_prefix": "",
         "meta": f"Design experiment E2, results of {time.strftime('%d %b %Y, %H:%M')}. Test split, N counts AR writes, one write is about 3.75 tokens. Every row is one configuration; seeds are averaged only within a configuration."
-                + (f" Still training (not in the tables): {', '.join(running)}." if running else ""),
+                + ((f" Still training (not in the tables): {', '.join(running)}." if len(running) <= 4 else
+                    f" {len(running)} runs are still training and are not in the tables (steps {min(int(x.split('step ')[1].rstrip(')').replace(',', '')) for x in running):,} to {max(int(x.split('step ')[1].rstrip(')').replace(',', '')) for x in running):,}).") if running else ""),
         "tldr": tldr, "tested": [], "results_title": "Results",
         "intro": ("<h2>Method</h2><p>The task: remember a 4-token passkey shown once at the start of a stream and repeat it at the end, while answering associative-recall queries about recent key–value writes. "
                   "A plain sliding-window model cannot do the first part beyond its window. Here the long-term memory is meant to be the short-term store itself, kept alive by rehearsal: each segment, the layer reads the "
@@ -355,7 +388,7 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         "fig1_title": "1. Accuracy by configuration and stream length", "fig1_sub": "Rows: the two-pass configurations (mean of the seeds), the vector loop, value adaptation, baselines. Columns: stream length N. Darker is higher.",
         "valid_title": "AR valid accuracy (key written within the last 16 writes)", "stale_title": "AR expired accuracy, stale keys only (last write more than 32 writes ago)",
         "cap1": "<p>Top grid: passkey. Middle and bottom grids: the associative-recall half.</p>", "cap2": "", "extra_figs": figs, "next_title": "Open issues",
-        "next": next_text(p2, order, fb, logs, probes),
+        "next": next_text(p2, order, fb, logs, probes) + pilot_paragraph(raw),
     }
     return number_figures(data, first=2), "SWA Two-Pass Report", "Two-pass layers: the sliding-window store re-written with what it read"
 

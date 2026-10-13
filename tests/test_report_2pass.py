@@ -60,6 +60,18 @@ class TwoPassReport(unittest.TestCase):
         appendix = next(f for f in data["extra_figs"] if "configuration" in f["title"].lower())
         self.assertIn("lr 0.001 → 0.002", appendix["html"])  # the odd run has its own configuration in the appendix, not a row
 
+    def test_gains_and_pilots_are_reported_from_the_data(self):
+        pilot = [fake_run("swa_2pass.yaml", ["model.segment=32", "model.pass_output=2", "train.loop_lr_mult=1"], 0, {32: 0.57, 256: 0.01, 1024: 0.0})]
+        probes = {"gains": {"swa_2pass_seg32_po1_s0": {"name": "swa_2pass_seg32_po1_s0", "layers": [{"mean": 0.01, "abs_mean": 0.17, "abs_max": 0.9, "negative": 0.4}, {"mean": 0.21, "abs_mean": 0.31, "abs_max": 1.1, "negative": 0.1}]}}}
+        data, _, _ = self.build(probes, runs=[*self.runs, *pilot])
+        gains = next(f for f in data["extra_figs"] if f["key"] == "gains")
+        self.assertIn("+0.21", gains["html"])
+        self.assertIn("40%", gains["html"])
+        self.assertIn("swa_2pass_seg32_po2_llr1_s0", data["next"])
+        self.assertIn("0.57 / 0.01 / 0.00 at N = 32 / 256 / 1,024", data["next"])
+        self.assertIn("loop_lr_mult 10 → 1", data["next"])
+        self.assertNotIn("Pilots", self.build()[0]["next"])  # no pilot runs, no paragraph
+
     def test_without_two_pass_runs_there_is_nothing_to_report(self):
         with self.assertRaises(ValueError):
             R2.p2_data(self.fb32, {}, {})
@@ -153,6 +165,8 @@ class LongerTraining(unittest.TestCase):
         logs = {"swa_2pass_seg32_po1_steps150000_s6": {2000: {256: {"pk": 0.2, "v": 0.99, "e": 1.0}, 4096: {"pk": 0.0, "v": 0.99, "e": 1.0}}, 4000: {256: {"pk": 0.9, "v": 0.99, "e": 1.0}, 4096: {"pk": 0.1, "v": 0.99, "e": 1.0}}}}
         figs, sentences = R2.longer_training(self.runs, logs)
         self.assertIn("(1 more still training)", sentences[1])
+        only_running = R2.longer_training([r for r in self.runs if R2.e4_arm(r) != "150k"], logs)[1]
+        self.assertIn("150k steps: no seed finished yet (1 still training)", only_running)  # an arm without a finished seed is not given a rate
         self.assertIn("still training", figs[0]["html"])
         self.assertIn("seed 6 (step 4,000)", figs[0]["html"])
         self.assertEqual([f["key"] for f in figs], ["e4_table", "e4_c256", "e4_c4096"])

@@ -325,10 +325,22 @@ def perturbation_probe(name: str, n_writes: int = 1024, n_exact: int = 200, n_tr
     return out
 
 
+def gain_stats(name: str) -> dict:
+    """Per layer statistics of the learned per-channel gains g of a finished two-pass run (CPU only): mean, mean |g|, largest |g| and the share of negative channels."""
+    import torch
+    state = torch.load(C.ROOT / "runs" / name / "model.pt", map_location="cpu", weights_only=True)
+    layers = sorted(int(k.split(".")[1]) for k in state if k.startswith("loops.") and k.endswith(".gain"))
+    out = {"name": name, "layers": []}
+    for i in layers:
+        g = state[f"loops.{i}.gain"].float()
+        out["layers"].append({"mean": float(g.mean()), "abs_mean": float(g.abs().mean()), "abs_max": float(g.abs().max()), "negative": float((g < 0).float().mean())})
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for cmd in ("cache", "delta", "perturb"):
+    for cmd in ("cache", "delta", "perturb", "gains"):
         s = sub.add_parser(cmd)
         s.add_argument("--runs", nargs="+", required=True)
         s.add_argument("--out", type=Path, required=True)
@@ -343,7 +355,10 @@ def main() -> None:
     res = {}
     a.out.parent.mkdir(parents=True, exist_ok=True)
     for name in a.runs:
-        if a.cmd == "cache":
+        if a.cmd == "gains":
+            res[name] = gain_stats(name)
+            print(name, " | ".join(f"layer {i}: mean {l['mean']:+.2f} |g| {l['abs_mean']:.2f}" for i, l in enumerate(res[name]["layers"])), flush=True)
+        elif a.cmd == "cache":
             res[name] = cache_probe(name, tuple(a.distances), a.train, a.test, a.control)
         elif a.cmd == "delta":
             res[name] = delta_profile(name, a.n_writes)
