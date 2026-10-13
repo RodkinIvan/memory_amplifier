@@ -66,20 +66,21 @@ def method_svg() -> str:
     return "".join(s)
 
 
-def load_probes(directory: Path = PROBE_DIR) -> dict:
-    """{'cache': ..., 'delta': ..., 'perturb': ...} from results/probes/va_cache_probe*.json, va_delta_w*.json, va_perturb*.json (whatever exists; several files of one kind,
-    e.g. one per segment length, are merged by run name)."""
+def load_probes(directory: Path = PROBE_DIR, prefix: str = "va") -> dict:
+    """{'cache': ..., 'delta': ..., 'perturb': ...} from results/probes/<prefix>_cache_probe*.json, <prefix>_delta_w*.json, <prefix>_perturb*.json (whatever exists; several files of
+    one kind, e.g. one per segment length, are merged by run name). `va` = value adaptation (E1), `p2` = two-pass (E2)."""
     out: dict = {}
-    for key, stem in (("cache", "va_cache_probe"), ("delta", "va_delta_w"), ("perturb", "va_perturb")):
+    for key, stem in (("cache", f"{prefix}_cache_probe"), ("delta", f"{prefix}_delta_w"), ("perturb", f"{prefix}_perturb")):
         for f in sorted(directory.glob(f"{stem}*.json")):
             out.setdefault(key, {}).update(json.loads(f.read_text()))
     return out
 
 
-def probe_figures(probes: dict) -> list[dict]:
-    """One figure per kind of diagnostic, all probed runs in it (empty when nothing was probed)."""
+def probe_figures(probes: dict, kinds: tuple = ("cache", "delta", "perturb")) -> list[dict]:
+    """One figure per kind of diagnostic, all probed runs in it (empty when nothing was probed). `kinds` picks which; the perturbation figure is the value-adaptation one
+    (cached values, previous encoding), the two-pass model has its own in report_2pass."""
     figs = []
-    cache = probes.get("cache", {})
+    cache = probes.get("cache", {}) if "cache" in kinds else {}
     if cache:
         runs = list(cache)
         first = cache[runs[0]]
@@ -100,7 +101,7 @@ def probe_figures(probes: dict) -> list[dict]:
                      "caption": "<p>The read-out never sees the passkey tokens themselves, only the cached values (or keys, or ΔW_v) after the given number of tokens. A plain window model with these dimensions reaches "
                                 f"{reach} tokens" + (f"; the control ({html.escape(ctl['run'])}) is a plain sliding-window model, whose cache cannot hold the passkey beyond that." if ctl else ".") + "</p>"
                                 , "spec": None, "html": "<p><b>Values</b></p>" + table("v") + "<p><b>Keys</b></p>" + table("k") + "<p><b>ΔW_v</b></p>" + table("dw")})
-    delta = probes.get("delta", {})
+    delta = probes.get("delta", {}) if "delta" in kinds else {}
     if delta:
         rows = []
         for run, res in delta.items():
@@ -114,7 +115,7 @@ def probe_figures(probes: dict) -> list[dict]:
                      "caption": "<p>Size is relative to the layer's own W_v. The mean part is the outer product of the average value vector and the average key vector of the segment (the same for every token); the token-specific part is the rest, where stream content can live. "
                                 "Saturated: share of key and value entries with |tanh| above 0.95. A cosine near 1 between ΔW_v of consecutive segments (or 16 segments apart) means the adaptation has settled into a fixed point; near 0 that it is rewritten every segment.</p>",
                      "spec": None, "html": RR._table(["run", "layer", "gain g", "‖ΔW_v‖ ÷ ‖W_v‖", "spectral norm", "rank", "largest entry", "share of the mean part", "token-specific part ÷ ‖W_v‖", "saturated", "cos next", "cos +16"], rows)})
-    pert = {r: res for r, res in probes.get("perturb", {}).items() if res["exact"]["clean"] >= 0.05}
+    pert = {r: res for r, res in probes.get("perturb", {}).items() if res["exact"]["clean"] >= 0.05 and "state_zero" in res["exact"]} if "perturb" in kinds else {}
     if pert:
         rows = []
         for run, res in pert.items():

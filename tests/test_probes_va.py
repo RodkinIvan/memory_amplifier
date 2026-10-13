@@ -11,7 +11,7 @@ import torch
 from tests import _paths  # noqa: F401
 import make_passkey_swar as G
 import probes_va as PV
-from models import build_swa_va
+from models import build_swa_2pass, build_swa_va
 from tests.test_models import strong_adaptation
 
 CUDA = torch.cuda.is_available()
@@ -171,6 +171,59 @@ class Hooks(unittest.TestCase):
         m.cache_hook = None
         ref = torch.cat([v.flatten(1) for _, v in rec.snap[2]], 1).cpu().numpy()
         self.assertLess(float(np.abs(feats[2]["v"] - ref).max()), 5e-2)  # batch composition changes bf16 rounding a little
+
+
+@unittest.skipUnless(CUDA, "needs a CUDA GPU")
+class TwoPassProbes(unittest.TestCase):
+    """The same diagnostics on the two-pass model: cache hooks with keys / values / both, the window features, the perturbation probe end to end."""
+
+    def model(self, W=16, C=8):
+        torch.manual_seed(0)
+        m = build_swa_2pass(vocab_size=40, d_model=64, n_layers=2, num_heads=2, window=W, segment=C).cuda().eval()
+        for loop in m.loops:
+            torch.nn.init.constant_(loop.gain, 0.5)
+        return m
+
+    def run_model(self, m, x):
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            return m(input_ids=x).logits.float()
+
+    def test_keys_values_or_both_can_be_kicked_and_only_what_comes_after_moves(self):
+        m = self.model()
+        x = torch.randint(8, 40, (2, 64), device="cuda")
+        clean = self.run_model(m, x)
+        for which in ("v", "k", "kv"):
+            for kw in ({"eps": 1.0}, {"mode": "zero"}):
+                m.cache_hook = PV.CacheHook(s_star=3, seed=1, which=which, **kw)
+                d = (self.run_model(m, x) - clean).abs().amax(-1)[0]
+                self.assertEqual(float(d[:32].max()), 0.0, (which, kw))  # the kick lands after segment 3
+                self.assertGreater(float(d[32:].max()), 0.0, (which, kw))
+        m.cache_hook = None
+        with self.assertRaises(ValueError):
+            PV.CacheHook(which="q")
+
+    def test_the_recorded_window_is_the_stored_one_and_has_no_adaptation_features(self):
+        m = self.model()
+        cfg = {"train": {"precision": "bf16"}}
+        toks = [list(np.random.default_rng(i).integers(8, 40, 64)) for i in range(3)]
+        feats = PV.collect_window(m, cfg, toks, {16: 2, 40: 5}, batch=2)
+        self.assertEqual(sorted(feats[2]), ["k", "v"])           # no dW_v features: the model has none
+        self.assertEqual(feats[2]["v"].shape, (3, 2 * 15 * 64))
+
+    def test_dw_statistics_refuse_the_two_pass_model(self):
+        with mock.patch.object(PV.P, "load_run", lambda name: (self.model(), {"train": {"precision": "bf16"}})):
+            with self.assertRaises(ValueError):
+                PV.delta_profile("x")
+
+    def test_the_perturbation_probe_runs_end_to_end_on_the_two_pass_model(self):
+        cfg = {"model": {"kind": "swa_2pass"}, "train": {"precision": "bf16"}}
+        with mock.patch.object(PV.P, "load_run", lambda name: (self.model(64, 16), cfg)):
+            r = PV.perturbation_probe("x", n_writes=64, n_exact=8, n_traj=4, frac=0.5, eps=(0.3, 3.0))
+        self.assertEqual(r["kind"], "swa_2pass")
+        want = {"clean", *(f"{k}_{e}" for k in ("values", "keys", "both") for e in ("0.3", "3")), "values_zero", "keys_zero", "both_zero"}
+        self.assertEqual(set(r["exact"]), want)
+        self.assertTrue(all(0.0 <= v <= 1.0 for v in r["exact"].values()))
+        self.assertTrue(r["contraction"])  # decay of a kick over later segments, from keys and values of the window
 
 
 if __name__ == "__main__":

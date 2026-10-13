@@ -1,11 +1,12 @@
 #!/usr/bin/env python
-"""Diagnostics of the value-adaptation model (`swa_va`, design experiment E1): where does the passkey live once it has left the window's reach?
+"""Diagnostics of the value-adaptation model (`swa_va`, design experiment E1) and of the two-pass model (`swa_2pass`, E2): where does the passkey live once it has left the window's reach?
+(`cache` and `perturb` work for both; `delta` is specific to `swa_va`.)
 
     # (1) linear probe: is the passkey decodable from the cached values (and keys, and dW_v) of the last window, at growing distance after it was written?
     python src/probes_va.py cache --runs swa_va_seg32_s2 --control swa_w64_L2_steps50000_cur2000_s0 --out results/probes/va_cache_probe.json
     # (2) size, effective rank and drift of dW_v along a long stream
     python src/probes_va.py delta --runs swa_va_seg32_s2 --out results/probes/va_delta_w.json
-    # (3) perturb the cached values / the previous segment's encoding in the middle of the stream: does the passkey survive, does the perturbation die out?
+    # (3) perturb the cached values / the previous segment's encoding (value adaptation) or the cached keys and values (two-pass) in the middle of the stream: does the passkey survive, does the perturbation die out?
     python src/probes_va.py perturb --runs swa_va_seg32_s2 --out results/probes/va_perturb.json
 
 Streams are generated on the fly with their own seeds (77 for the probe's test set, 78 for its training set), never the dataset's. All probes need a CUDA GPU.
@@ -58,26 +59,29 @@ def ridge_probe(x_train, y_train, x_test, y_test, n_classes: int, lambdas=(1e-1,
 
 # ---- hooks ---------------------------------------------------------------------------------------------------------------------------------------------------
 class CacheHook:
-    """`ValueAdaptSWA.cache_hook`: at the segments in `record` (all if None) it keeps a copy of the window's cached keys / values of every layer; at segment `s_star` it
-    perturbs the cached values (or keys) of every layer: `noise` adds Gaussian noise of `eps` times the tensor's RMS (per example), `zero` sets them to 0."""
+    """`cache_hook` of `ValueAdaptSWA` / `TwoPassSWA`: at the segments in `record` (all if `record_all`) it keeps a copy of the window's cached keys / values of every layer; at
+    segment `s_star` it perturbs the cached values (`which` = "v"), keys ("k") or both ("kv") of every layer: `noise` adds Gaussian noise of `eps` times the tensor's RMS (per
+    example), `zero` sets them to 0."""
 
     def __init__(self, record=None, record_all: bool = False, s_star: int | None = None, eps: float = 0.0, mode: str = "noise", which: str = "v", seed: int = 0):
+        if which not in ("v", "k", "kv"):
+            raise ValueError(f"which must be 'v', 'k' or 'kv', got {which!r}")
         self.record, self.record_all, self.s_star, self.eps, self.mode, self.which, self.seed = record, record_all, s_star, eps, mode, which, seed
         self.snap, self.gen = {}, None
 
     def __call__(self, s: int, cache) -> None:
         import torch
         if s == self.s_star and (self.eps > 0 or self.mode == "zero"):
-            tensors = cache.v if self.which == "v" else cache.k
-            for i, t in enumerate(tensors):
-                if self.mode == "zero":
-                    tensors[i] = torch.zeros_like(t)
-                else:
-                    if self.gen is None:
-                        self.gen = torch.Generator(device=t.device)
-                        self.gen.manual_seed(self.seed)
-                    rms = t.detach().float().pow(2).mean((-1, -2), keepdim=True).sqrt()
-                    tensors[i] = t + (self.eps * rms * torch.randn(t.shape, generator=self.gen, device=t.device)).to(t.dtype)
+            for tensors in {"v": [cache.v], "k": [cache.k], "kv": [cache.k, cache.v]}[self.which]:  # the cache's own lists, replaced in place
+                for i, t in enumerate(tensors):
+                    if self.mode == "zero":
+                        tensors[i] = torch.zeros_like(t)
+                    else:
+                        if self.gen is None:
+                            self.gen = torch.Generator(device=t.device)
+                            self.gen.manual_seed(self.seed)
+                        rms = t.detach().float().pow(2).mean((-1, -2), keepdim=True).sqrt()
+                        tensors[i] = t + (self.eps * rms * torch.randn(t.shape, generator=self.gen, device=t.device)).to(t.dtype)
         if self.record_all or (self.record is not None and s in self.record):
             self.snap[s] = [(cache.k[i].detach().float(), cache.v[i].detach().float()) for i in range(len(cache.v))]
 
@@ -145,6 +149,8 @@ def delta_profile(name: str, n_writes: int = 4096, n_examples: int = 8, fraction
     one `lag` segments later, at the given fractions of the stream (mean over examples)."""
     import torch
     model, cfg = P.load_run(name)
+    if not hasattr(model, "probe_hook"):
+        raise ValueError(f"{name}: dW_v statistics exist for the value-adaptation model (swa_va) only")
     dev = torch.device("cuda")
     p = P.make_packed(G.GenParams(), n_writes, n_examples)
     ids, _ = D.pad_batch(p, np.arange(n_examples), model.segment)
@@ -197,7 +203,7 @@ def collect_window(model, cfg, toks: list[list[int]], cuts: dict[int, int], batc
     for b0 in range(0, len(toks), batch):
         chunk = toks[b0:b0 + batch]
         ids = torch.tensor([t[:(segs[-1] + 1) * C_] for t in chunk], device=dev)
-        ch, sh = CacheHook(record=set(segs)), StateHook(record=hasattr(model, "loops") and hasattr(model, "cache_hook"))
+        ch, sh = CacheHook(record=set(segs)), StateHook(record=hasattr(model, "probe_hook"))  # dW_v features exist for the value-adaptation model only
         model.cache_hook = ch
         if sh.record:
             model.probe_hook = sh
@@ -256,46 +262,62 @@ def load_plain_as_va(name: str):
 
 # ---- (3) perturbation ------------------------------------------------------------------------------------------------------------------------------------------
 def perturbation_probe(name: str, n_writes: int = 1024, n_exact: int = 200, n_traj: int = 16, frac: float = 0.25, eps=(0.1, 0.3, 1.0, 3.0), eps_traj: float = 0.3) -> dict:
-    """Passkey exact match when, at `frac` of the stream (far beyond the reach), the cached values of the window ("values"), the previous segment's encoding ("state", from
-    which dW_v of the next segment is built) or both are perturbed by Gaussian noise of eps times their RMS, and when the cached values are zeroed. Plus how a perturbation of
-    the cached values decays or grows over later segments (distance between the cached values of a clean and a perturbed run, relative to the distance right after the kick)."""
+    """Passkey exact match when, at `frac` of the stream (far beyond the reach), memory is perturbed by Gaussian noise of eps times its RMS, or zeroed. For the value-adaptation
+    model: the cached values ("values"), the previous segment's encoding ("state", from which dW_v of the next segment is built) or both. For the two-pass model, which has
+    nothing but the cache: the cached values ("values"), the cached keys ("keys") or both ("both"). Plus how a perturbation of the cache decays or grows over later segments
+    (distance between the cached entries of a clean and a perturbed run, relative to the distance right after the kick): values only for the value-adaptation model, keys and
+    values for the two-pass model."""
     import torch
+    from models import TwoPassSWA
     model, cfg = P.load_run(name)
+    two_pass = isinstance(model, TwoPassSWA)
     dev = torch.device("cuda")
     p = P.make_packed(G.GenParams(), n_writes, n_exact)
     C_ = model.segment
     s_star = int(frac * float(p.lengths().mean()) / C_)
     amp = torch.bfloat16 if cfg["train"].get("precision", "fp32") == "bf16" else None
-    out = {"name": name, "segment": C_, "n_writes": n_writes, "s_star": s_star, "s_star_tokens": s_star * C_, "exact": {}}
+    out = {"name": name, "kind": cfg["model"]["kind"], "segment": C_, "n_writes": n_writes, "s_star": s_star, "s_star_tokens": s_star * C_, "exact": {}}
 
     def exact(cache_kw=None, state_kw=None) -> float:
         model.cache_hook = CacheHook(s_star=s_star, seed=1, **cache_kw) if cache_kw else None
-        model.probe_hook = StateHook(s_star=s_star, seed=2, **state_kw) if state_kw else None
+        if not two_pass:
+            model.probe_hook = StateHook(s_star=s_star, seed=2, **state_kw) if state_kw else None
         try:
             return P.token_profile(P.passkey_token_hits(model, p, dev, amp_dtype=amp))["exact"]
         finally:
-            model.cache_hook = model.probe_hook = None
+            model.cache_hook = None
+            if not two_pass:
+                model.probe_hook = None
 
     out["exact"]["clean"] = exact()
-    for e in eps:
-        out["exact"][f"values_{e:g}"] = exact({"eps": e})
-        out["exact"][f"state_{e:g}"] = exact(None, {"eps": e})
-        out["exact"][f"both_{e:g}"] = exact({"eps": e}, {"eps": e})
-    out["exact"]["values_zero"] = exact({"mode": "zero"})
-    out["exact"]["state_zero"] = exact(None, {"mode": "zero"})
-    out["exact"]["both_zero"] = exact({"mode": "zero"}, {"mode": "zero"})
-    # trajectories of the cached values after a kick
+    if two_pass:
+        for e in eps:
+            out["exact"][f"values_{e:g}"] = exact({"eps": e, "which": "v"})
+            out["exact"][f"keys_{e:g}"] = exact({"eps": e, "which": "k"})
+            out["exact"][f"both_{e:g}"] = exact({"eps": e, "which": "kv"})
+        for key, which in (("values", "v"), ("keys", "k"), ("both", "kv")):
+            out["exact"][f"{key}_zero"] = exact({"mode": "zero", "which": which})
+    else:
+        for e in eps:
+            out["exact"][f"values_{e:g}"] = exact({"eps": e})
+            out["exact"][f"state_{e:g}"] = exact(None, {"eps": e})
+            out["exact"][f"both_{e:g}"] = exact({"eps": e}, {"eps": e})
+        out["exact"]["values_zero"] = exact({"mode": "zero"})
+        out["exact"]["state_zero"] = exact(None, {"mode": "zero"})
+        out["exact"]["both_zero"] = exact({"mode": "zero"}, {"mode": "zero"})
+    # trajectories of the cached entries after a kick
     ids, _ = D.pad_batch(p, np.arange(n_traj), C_)
     x = torch.from_numpy(ids).to(dev)
     rec = {}
     for tag, e in (("clean", 0.0), ("perturbed", eps_traj)):
-        model.cache_hook = hook = CacheHook(record_all=True, s_star=s_star, eps=e, seed=3)
+        model.cache_hook = hook = CacheHook(record_all=True, s_star=s_star, eps=e, which="kv" if two_pass else "v", seed=3)
         with torch.no_grad(), torch.autocast(dev.type, dtype=amp or torch.float32, enabled=amp is not None):
             model(input_ids=x)
         model.cache_hook = None
         full = [s for s in sorted(hook.snap) if hook.snap[s][0][1].shape[1] == model.window - 1]  # the first segments have a part-filled cache: leave them out
         first = full[0]
-        rec[tag] = np.stack([torch.cat([v.flatten(1) for _, v in hook.snap[s]], 1).cpu().numpy() for s in full])  # [segments, examples, D]
+        parts = (lambda k, v: [k, v]) if two_pass else (lambda k, v: [v])
+        rec[tag] = np.stack([torch.cat([t.flatten(1) for k, v in hook.snap[s] for t in parts(k, v)], 1).cpu().numpy() for s in full])  # [segments, examples, D]
     if s_star < first:
         raise ValueError(f"the kick at segment {s_star} lands before the cache is full (segment {first})")
     out["contraction"] = P.contraction_profile(rec["clean"], rec["perturbed"], s_star - first)
