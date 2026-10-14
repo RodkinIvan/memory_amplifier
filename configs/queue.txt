@@ -79,3 +79,4 @@ e4_cont2 | --config configs/swa_2pass.yaml --gpus 1 --procs-per-gpu 1 --set mode
 #   cap2p_budget:      --gpu 1 --steps 50000 --lr 1e-3 --warmup 500 --curriculum 2000 --seed 0 --tag budget         (the original recipe's budget, which found 6 of 8 for the vector loop)  -> stages_swa_2pass_budget
 #   cap2p_budget_s1:   --gpu 0 --steps 50000 --lr 1e-3 --warmup 500 --curriculum 2000 --seed 1 --tag budget_s1      (a second seed of the budget chain)         -> stages_swa_2pass_budget_s1
 #   cap2p_budget_s2, cap2p_budget_s3: seeds 2 and 3 of the budget chain (--gpu 0 --seed 2/3 --tag budget_s2/budget_s3), added 2026-10-14 after seed 0 stopped at P = 16 (9 of 16 positions) while seed 1 passed it (16 of 16).
+#   cap2p_budget_s4, cap2p_budget_s5: seeds 4 and 5 (--gpu 1 --seed 4/5 --tag budget_s4/budget_s5), added 2026-10-14 when seed 1 stopped at P = 32 (14 of 32 positions): six seeds in all.
