@@ -1,0 +1,169 @@
+"""Report of the passkey-capacity experiment: how many passkey tokens fit in the memory a model builds inside the short-term store.
+
+    python src/report.py capacity --out reports/capacity_report.html
+
+A checkpoint trained on streams of up to 256 AR writes and a passkey of 4 tokens (16 bits) is fine-tuned on the same streams with a passkey of P = 8, 16, 32, ... tokens (4 bits each); each
+stage starts from the weights of the one before and the chain stops at the first stage whose validation exact match is below 0.9 at N = 256. Nothing longer than N = 256 is evaluated.
+The page reads results/capacity.json (one chain per recipe, model and seed) and the stages' result files; every number in the text is computed from them.
+"""
+from __future__ import annotations
+
+import html
+import json
+import re
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import aggregate as A  # noqa: E402
+import config as C  # noqa: E402
+import report_rounds as RR  # noqa: E402
+from report_groups import cells_for_row, number_figures  # noqa: E402
+
+f2 = lambda x: f"{x:.2f}"
+NS = [32, 64, 128, 256]
+THRESHOLD, POS_OK = 0.9, 0.9
+MODEL_LABEL = {"swa_fb": "vector loop (segment 8)", "swa_2pass": "two-pass layer (segment 32)", "swa_va": "value adaptation"}
+MODEL_SHORT = {"swa_fb": "vector loop", "swa_2pass": "two-pass", "swa_va": "value adapt."}
+COLORS = ["var(--s2)", "var(--s3)", "var(--s1)", "var(--ink)", "var(--muted)"]
+
+
+def recipe_label(steps: int, lr: float, curriculum: int) -> str:
+    return f"{steps // 1000}k steps, lr {lr:g}" + (", curriculum" if curriculum else "")
+
+
+def chains(capacity: dict, runs: dict[str, dict]) -> list[dict]:
+    """[{label, model, recipe, seed, stages: [entries sorted by P], base: (run name, validation exact at N = 256) of the checkpoint the chain started from}]. Entries of every `stages*` and `budget_runs*`
+    list are grouped by the model, the recipe and the seed of their run, so a chain is one recipe of one model from one seed."""
+    groups: dict = {}
+    for key in capacity:
+        if not key.startswith(("stages", "budget_runs")) or not isinstance(capacity[key], list):
+            continue
+        for e in capacity[key]:
+            r = runs.get(e["run"])
+            if r is None:
+                continue
+            cfg = r["cfg"]
+            rec = e["recipe"]
+            gk = (cfg["model"]["kind"], int(e["steps"]), float(rec["lr"]), int(rec.get("curriculum_stage_steps") or 0), int(cfg["seed"]))
+            groups.setdefault(gk, []).append(e)
+    out = []
+    for (kind, steps, lr, cur, seed), entries in groups.items():
+        entries.sort(key=lambda e: e["passkey_len"])
+        first = entries[0]
+        init = Path(first["init"]).stem if str(first["init"]).startswith("checkpoints/") else None
+        base = runs.get(init) if init else None
+        base_exact = next((x["passkey_acc"] for x in base["rows"] if x["split"] == "validation" and x["N"] == 256), None) if base else None
+        out.append({"model": kind, "steps": steps, "lr": lr, "curriculum": cur, "seed": seed, "stages": entries, "base": (init, base_exact),
+                    "label": f"{MODEL_LABEL.get(kind, kind)}, {recipe_label(steps, lr, cur)}, seed {seed}"})
+    return sorted(out, key=lambda c: (c["model"] != "swa_2pass", -c["steps"], c["seed"]))
+
+
+def in_progress(logs_root: Path, done: set[str]) -> list[dict]:
+    """Stages that are training now: the newest log of every capacity run without a result file, with the last periodic validation (step, passkey positions at 0.9 or more at N = 256, exact match)."""
+    out = []
+    for f in sorted(Path(logs_root).glob("capacity/*_pk*_steps*.log")):
+        name = f.stem
+        if name in done:
+            continue
+        last = None
+        for line in f.read_text(errors="ignore").splitlines():
+            m = re.search(r"\] step (\d+) loss [\d.]+ \|.*n256: pk ([\d.]+).*passkey positions >= 0.9 at N = 256: (\d+)/(\d+)", line)
+            if m:
+                last = (int(m.group(1)), float(m.group(2)), int(m.group(3)), int(m.group(4)))
+        if last:
+            out.append({"run": name, "step": last[0], "exact256": last[1], "positions_ok": last[2], "P": last[3]})
+    return out
+
+
+def capacity_data(capacity: dict | None = None, runs: dict[str, dict] | None = None, logs_root: Path | None = None) -> tuple[dict, str, str]:
+    capacity = capacity if capacity is not None else json.loads((C.ROOT / "results" / "capacity.json").read_text())
+    runs = runs if runs is not None else {r["name"]: r for r in A.load_runs(C.ROOT / "results" / "raw", all_passkeys=True)}
+    logs_root = logs_root if logs_root is not None else C.ROOT / "logs"
+    ch = chains(capacity, runs)
+    if not ch:
+        raise ValueError("no capacity stages found")
+    done = {e["run"] for c in ch for e in c["stages"]}
+    prog = in_progress(logs_root, done | set(runs))
+
+    # ---------------------------------------------------------------- heatmap rows: one per stage, columns = N
+    rows, results = [], {}
+    for i, c in enumerate(ch):
+        for e in c["stages"]:
+            key = f"{c['model']}_{c['steps']}_{c['seed']}_{e['passkey_len']}"
+            rows.append({"key": key, "label": f"{MODEL_SHORT.get(c['model'], c['model'])}, {recipe_label(c['steps'], c['lr'], c['curriculum'])}, seed {c['seed']}: P = {e['passkey_len']}", "color": COLORS[i % len(COLORS)],
+                         "long": f"{e['run']} ({e['bits']} bits)"})
+            results[key] = cells_for_row([runs[e["run"]]], "validation", ns=NS)
+    # ---------------------------------------------------------------- the chart: validation exact match at N = 256 against P
+    series = []
+    for i, c in enumerate(ch):
+        pts = []
+        if c["base"][1] is not None:
+            pts.append({"x": 4, "y": c["base"][1], "tip": f"{html.escape(c['label'])}<br>start checkpoint (P = 4, 16 bits)<br>validation exact {c['base'][1]:.3f}"})
+        for e in c["stages"]:
+            v = e["validation"]
+            pts.append({"x": e["passkey_len"], "y": v["exact"]["256"], "tip": f"{html.escape(c['label'])}<br>P = {e['passkey_len']} ({e['bits']} bits)<br>validation exact {v['exact']['256']:.3f}, "
+                                                                                 f"token accuracy {v['token']['256']:.3f}, positions at 0.9+: {v['positions_ok'].get('256', '?')} of {e['passkey_len']}"})
+        series.append({"label": c["label"], "short": c["label"], "points": pts, "c": COLORS[i % len(COLORS)], "width": 2.6, "dashed": c["steps"] < 20000})
+    ps = sorted({4} | {e["passkey_len"] for c in ch for e in c["stages"]})
+    series.append({"label": "threshold 0.9 (the chain stops below it)", "short": "0.9", "points": [{"x": p, "y": THRESHOLD, "tip": "threshold 0.9"} for p in ps], "c": "var(--axis)", "width": 1.2, "dashed": True})
+    chart = {"series": series, "xTicks": ps, "x0": 4, "x1": max(ps), "xLabel": "passkey tokens P (4 bits each; log scale)", "yLabel": "validation exact match at N = 256", "legendLine": True, "rightPad": 40,
+             "aria": "Passkey exact match at N = 256 against the passkey length for every chain"}
+
+    # ---------------------------------------------------------------- tables
+    def stage_row(c, e):
+        v, t = e["validation"], e["test"]
+        pos = v["positions"].get("256")
+        failing = [j + 1 for j, x in enumerate(pos) if x < POS_OK] if pos else []
+        sw = [s for s in e["switch_on_step"] if s]
+        r = runs[e["run"]]
+        return [html.escape(c["label"]), str(e["passkey_len"]), str(e["bits"])] + [f2(v["exact"][str(n)]) for n in NS] + [f2(t["exact"]["256"]), f2(v["token"]["256"]),
+                f"{v['positions_ok'].get('256', '?')} / {e['passkey_len']}", (", ".join(map(str, failing)) if len(failing) <= 8 else f"{len(failing)} positions") if pos else "?",
+                (f"{int(np.median(sw)):,} (last {max(sw):,})" if sw else "never"), f2(t["ar_valid"]["256"]), f"{e['train_time_s'] / 3600:.1f} h" if e.get("train_time_s") else "–"]
+    head = ["chain", "P", "bits"] + [f"val. exact N = {n}" for n in NS] + ["test exact N = 256", "val. token acc. N = 256", "positions ≥ 0.9", "positions below 0.9", "switch-on step of the positions (median)", "AR valid (test)", "time"]
+    table = RR._table(head, [stage_row(c, e) for c in ch for e in c["stages"]], "wide")
+    figs = [{"key": "chart", "title": "Exact match of the passkey against its length", "sub": "Validation split at N = 256 (1,000 streams); the point at P = 4 is the checkpoint the chain started from. Dashed lines are the short fine-tunes.",
+             "caption": "<p>One line per chain: a model, a fine-tuning recipe and a seed. Each stage starts from the weights of the stage before it; a chain stops at the first stage below 0.9, so the last point of a line is its failing stage.</p>", "spec": chart},
+            {"key": "table", "title": "Every stage", "sub": "Exact match needs all P tokens right (teacher forced); the token accuracy is per token. Positions are counted at N = 256 on the validation split.", "caption": "", "spec": None, "html": table}]
+    if prog:
+        figs.append({"key": "running", "title": "Stages in training", "sub": "Last periodic validation (every 1,000 steps).", "caption": "", "spec": None,
+                     "html": RR._table(["run", "P", "step", "exact N = 256", "positions ≥ 0.9 at N = 256"], [[html.escape(p["run"]), str(p["P"]), f"{p['step']:,}", f2(p["exact256"]), f"{p['positions_ok']} / {p['P']}"] for p in prog], "wide")})
+
+    # ---------------------------------------------------------------- text
+    tldr = ["<b>Question.</b> A model trained on a 4-token passkey (16 bits) is fine-tuned on passkeys of P = 8, 16, 32, ... tokens, with the same streams of up to 256 AR writes: how long a passkey can the memory built inside the short-term store hold "
+            "(validation exact match at N = 256 of at least 0.9)? Each stage starts from the weights of the previous one; nothing longer than N = 256 is evaluated."]
+    for c in ch:
+        passed = [e for e in c["stages"] if e["validation"]["exact"]["256"] >= THRESHOLD]
+        failed = [e for e in c["stages"] if e["validation"]["exact"]["256"] < THRESHOLD]
+        best = max(passed, key=lambda e: e["passkey_len"]) if passed else None
+        txt = f"<b>{html.escape(c['label'])}.</b> " + (f"Holds P = {best['passkey_len']} ({best['bits']} bits): validation exact {f2(best['validation']['exact']['256'])} at N = 256, test {f2(best['test']['exact']['256'])}. " if best
+                                                          else "No stage reaches 0.9. ")
+        if failed:
+            f = failed[0]
+            pos = f["validation"]["positions"].get("256")
+            txt += (f"Stops at P = {f['passkey_len']}: exact {f2(f['validation']['exact']['256'])}, token accuracy {f2(f['validation']['token']['256'])}"
+                    + (f", {f['validation']['positions_ok']['256']} of {f['passkey_len']} positions at 0.9 or more" + (f" (below 0.9: positions {', '.join(str(j + 1) for j, x in enumerate(pos) if x < POS_OK)})" if sum(x < POS_OK for x in pos) <= 8 else "") if pos else "") + ".")
+        else:
+            txt += "No stage has failed yet" + (" (a stage may still be training)." if prog else ".")
+        tldr.append(txt)
+    if prog:
+        tldr.append("<b>In training now.</b> " + "; ".join(f"{html.escape(p['run'])}: P = {p['P']}, step {p['step']:,}, {p['positions_ok']} of {p['P']} positions at 0.9 or more, exact {f2(p['exact256'])}" for p in prog) + ".")
+    data = {
+        "ns": NS, "rows": rows, "results": results, "scatter_ns": [], "hide_scatter": True, "label_w": 400, "row_name": "chain and stage", "row_prefix": "",
+        "meta": f"Passkey capacity, results of {time.strftime('%d %b %Y, %H:%M')}. Validation split, N counts AR writes. Chains: {len(ch)}.",
+        "tldr": tldr, "tested": [], "results_title": "Results",
+        "intro": ("<h2>Setup</h2><p>The checkpoint was trained on streams of up to 256 AR writes with a 4-token passkey. Stage P = 8, 16, 32, ...: a dataset with the same streams and a passkey of P tokens "
+                  "(each token one of 16 values, 4 bits) is generated, the weights of the previous stage are fine-tuned on it, and the exact match of the passkey (all P tokens right) is measured on the validation and test split at N = 32 ... 256. "
+                  "A chain stops at the first stage below 0.9 at N = 256. The recipes: a 10k-step fine-tune (lr 3e-4, no curriculum), and the original budget (50k steps, lr 1e-3, 500 warm-up steps, stream-length curriculum), "
+                  "which turned out necessary for the vector loop.</p>"),
+        "results_intro": "Validation exact match by stage and stream length (grid), and against the passkey length (line chart).",
+        "fig1_title": "1. Exact match by stage and stream length", "fig1_sub": "Rows: stages of every chain. Columns: stream length N (AR writes). Validation split. Darker is higher.",
+        "valid_title": "AR valid accuracy (key written within the last 16 writes)", "stale_title": "AR expired accuracy, stale keys only (last write more than 32 writes ago)",
+        "cap1": "<p>Top grid: passkey exact match. Middle and bottom grids: the associative-recall half, which should not suffer from the longer passkey.</p>", "cap2": "", "extra_figs": figs, "next_title": "Notes",
+        "next": "<p>A chain stops at the first stage below the threshold, so the stop point of a short fine-tune can come earlier than that of a longer one on the same model: compare chains of one model before comparing models. "
+                "A position counts as stored when it is right in at least 90% of the validation streams; at a failing stage the positions below 0.9 show which tokens were not learned.</p>",
+    }
+    return number_figures(data, first=2), "Passkey Capacity Report", "Passkey capacity: how many tokens fit in the memory inside the short-term store"
