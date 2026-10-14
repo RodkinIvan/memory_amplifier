@@ -171,6 +171,23 @@ class LongerTraining(unittest.TestCase):
         self.assertIn("seed 6 (step 4,000)", figs[0]["html"])
         self.assertEqual([f["key"] for f in figs], ["e4_table", "e4_c256", "e4_c4096"])
 
+    def test_the_fisher_test_matches_known_values(self):
+        self.assertAlmostEqual(R2.fisher_two_sided(5, 6, 6, 6), 1.0)          # 5/6 against 6/6
+        self.assertAlmostEqual(R2.fisher_two_sided(2, 6, 1, 6), 1.0)          # 2/6 against 1/6
+        self.assertAlmostEqual(R2.fisher_two_sided(6, 6, 0, 6), 2 / 924, places=9)   # 6/6 against 0/6: 2 of the C(12,6) = 924 tables are this extreme
+        self.assertAlmostEqual(R2.fisher_two_sided(3, 6, 3, 6), 1.0)
+
+    def test_the_paragraph_says_what_the_data_say(self):
+        text = R2.e4_paragraph(self.runs, {})
+        self.assertIn("3 of 6 seeds at 50k steps, 5 of 6 at 150k", text)          # learning, same numbers as the table
+        self.assertIn("1 of 6 against 4 of 6", text)                              # extrapolation
+        self.assertIn(f"p = {R2.fisher_two_sided(3, 6, 5, 6):.2f}", text)
+        self.assertIn("cannot be told apart", text)
+        self.assertIn("seed 1: passkey 0.95 at N = 256 (was 0.60)", text)         # the continuation next to the run it continues
+        self.assertEqual(R2.e4_paragraph([r for r in self.runs if R2.e4_arm(r) != "150k"], {}), "")  # nothing without both arms
+        none_extrapolate = [r for r in self.runs if R2.e4_arm(r) != "150k"] + [self.mk(["train.steps=150000"], s, 1.0, 0.0, 2000) for s in range(3)]
+        self.assertIn("p = ", R2.e4_paragraph(none_extrapolate, {}))              # an arm in which no seed extrapolates does not break the text
+
     def test_the_report_carries_the_section_and_it_is_absent_without_e4_runs(self):
         data, _, _ = R2.p2_data(self.runs, {}, {})
         self.assertTrue(any(f["key"] == "e4_table" for f in data["extra_figs"]))

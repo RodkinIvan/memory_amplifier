@@ -251,6 +251,46 @@ def longer_training(raw: list[dict], logs: dict) -> tuple[list[dict], list[str]]
     return figs, sentences
 
 
+def fisher_two_sided(a: int, n1: int, b: int, n2: int) -> float:
+    """Two-sided exact test (Fisher) that the rates a / n1 and b / n2 come from the same share: the probability, among tables with the same totals, of one at most as likely as the observed."""
+    import math
+    k, n = a + b, n1 + n2
+    pmf = lambda x: math.comb(n1, x) * math.comb(n2, k - x) / math.comb(n, k)
+    p0 = pmf(a)
+    return float(sum(pmf(x) for x in range(max(0, k - n2), min(n1, k) + 1) if pmf(x) <= p0 + 1e-12))
+
+
+def e4_paragraph(raw: list[dict], logs: dict) -> str:
+    """E4 in words, computed: the two rates of the 50k and 150k arms and whether they can be told apart, what a threefold schedule did to the passkey at N = 1,024, when the loop switched on,
+    whether the seeds that do not extrapolate ever had a validation signal at N = 4,096, and the continuation rows. Nothing is written when an arm has no finished seed."""
+    arms = e4_runs(raw, logs)
+    a50, a150, cont = arms["50k"]["done"], arms["150k"]["done"], arms["cont"]["done"]
+    if not (a50 and a150):
+        return ""
+    test = lambda r, n: next(x["passkey_acc"] for x in r["rows"] if x["split"] == "test" and x["N"] == n)
+    rate = lambda runs, n, thr: sum(test(r, n) >= thr for r in runs)
+    l50, l150, e50, e150 = rate(a50, LEARN_N, LEARN_MIN), rate(a150, LEARN_N, LEARN_MIN), rate(a50, EXTRA_N, EXTRA_MIN), rate(a150, EXTRA_N, EXTRA_MIN)
+    pl, pe = fisher_two_sided(l50, len(a50), l150, len(a150)), fisher_two_sided(e50, len(a50), e150, len(a150))
+    m1024 = lambda runs: float(np.mean([test(r, 1024) for r in runs]))
+    sw = lambda runs: [x for x in (switch_on_step(r, logs) for r in runs) if x]
+    best4096 = lambda runs: [max(v for _, v in RR.curve(r, logs, EXTRA_N)) for r in runs if test(r, EXTRA_N) < EXTRA_MIN and RR.curve(r, logs, EXTRA_N)]
+    b150 = best4096(a150)
+    txt = (f"<p><b>E4: training budget or seed? (segment 32, output of pass 1.)</b> Learning the training range (test passkey ≥ {LEARN_MIN} at N = {LEARN_N}): {l50} of {len(a50)} seeds at 50k steps, {l150} of {len(a150)} at 150k "
+           f"(two-sided exact test p = {pl:.2f}). Extrapolating (≥ {EXTRA_MIN} at N = {EXTRA_N:,}): {e50} of {len(a50)} against {e150} of {len(a150)} (p = {pe:.2f}); with {len(a50)} seeds per arm, rates this far apart cannot be told apart. "
+           f"Tripling the schedule did not raise the mean passkey at N = 1,024 either ({m1024(a50):.2f} at 50k, {m1024(a150):.2f} at 150k). "
+           f"The loop switched on (validation passkey ≥ {SWITCH_MIN} at N = {SWITCH_N}) at step {int(np.median(sw(a50))):,} (median of {len(sw(a50))} seeds) at 50k and {int(np.median(sw(a150))):,} ({len(sw(a150))} seeds, latest {max(sw(a150)):,}) at 150k, "
+           f"so the extra steps came long after it. ")
+    early = [v for r in a150 if test(r, EXTRA_N) >= EXTRA_MIN for st, v in RR.curve(r, logs, EXTRA_N) if st <= 30000]
+    if b150:
+        txt += (f"At 150k steps the {len(b150)} seeds that do not extrapolate had a validation passkey at N = {EXTRA_N:,} of at most {max(b150):.2f} at any evaluation of the whole run"
+                + (f", and the extrapolating seed{'s' if e150 > 1 else ''} already had {max(early):.2f} by step 30,000: extrapolation was there early or not at all. " if early else ". "))
+    if cont:
+        txt += ("Continuing seeds " + " and ".join(str(r["seed"]) for r in cont) + " for another 50k steps (the learning rate warmed up again) gives "
+                + "; ".join(f"seed {r['seed']}: passkey {test(r, 256):.2f} at N = 256 (was {test(next(x for x in a50 if x['seed'] == r['seed']), 256):.2f}), {test(r, 1024):.2f} at N = 1,024 (was {test(next(x for x in a50 if x['seed'] == r['seed']), 1024):.2f}), {test(r, EXTRA_N):.2f} at N = {EXTRA_N:,}"
+                            for r in cont if any(x["seed"] == r["seed"] for x in a50)) + ".")
+    return txt + "</p>"
+
+
 def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dict | None = None) -> tuple[dict, str, str]:
     raw = raw if raw is not None else A.load_runs(C.ROOT / "results" / "raw")
     logs = logs if logs is not None else RR.log_curves(C.ROOT / "logs")
@@ -388,7 +428,7 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         "fig1_title": "1. Accuracy by configuration and stream length", "fig1_sub": "Rows: the two-pass configurations (mean of the seeds), the vector loop, value adaptation, baselines. Columns: stream length N. Darker is higher.",
         "valid_title": "AR valid accuracy (key written within the last 16 writes)", "stale_title": "AR expired accuracy, stale keys only (last write more than 32 writes ago)",
         "cap1": "<p>Top grid: passkey. Middle and bottom grids: the associative-recall half.</p>", "cap2": "", "extra_figs": figs, "next_title": "Open issues",
-        "next": next_text(p2, order, fb, logs, probes) + pilot_paragraph(raw),
+        "next": e4_paragraph(raw, logs) + next_text(p2, order, fb, logs, probes) + pilot_paragraph(raw),
     }
     return number_figures(data, first=2), "SWA Two-Pass Report", "Two-pass layers: the sliding-window store re-written with what it read"
 
@@ -411,7 +451,7 @@ def next_text(p2: dict, order: list, fb: dict, logs: dict, probes: dict) -> str:
         if (seg, 2) in byp and (seg, 1) in byp:
             a, b = p2[byp[(seg, 2)]], p2[byp[(seg, 1)]]
             paras.append(f"<p><b>Which pass feeds the next layer (segment {seg}).</b> Passkey at N = 1,024 per seed: output of pass 2 {RG.seeds_text(RG.per_seed(a['runs'], 1024))}, output of pass 1 {RG.seeds_text(RG.per_seed(b['runs'], 1024))}; "
-                         f"at N = 16,384: {RG.seeds_text(RG.per_seed(a['runs'], 16384))} against {RG.seeds_text(RG.per_seed(b['runs'], 16384))}. With three seeds and large seed-to-seed spread this is a comparison of tendencies, not a test.</p>")
+                         f"at N = 16,384: {RG.seeds_text(RG.per_seed(a['runs'], 16384))} against {RG.seeds_text(RG.per_seed(b['runs'], 16384))}. With {len(a['runs'])} seeds for output 2, {len(b['runs'])} for output 1 and a large seed-to-seed spread this is a comparison of tendencies, not a test.</p>")
     paras.append("<p><b>Seeds.</b> The model families so far switch their memory on in some seeds only; the means are the summary, not the best seed.</p>")
     return "".join(paras)
 
