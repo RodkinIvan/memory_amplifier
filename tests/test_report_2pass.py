@@ -156,17 +156,18 @@ class LongerTraining(unittest.TestCase):
         self.assertEqual(sentences[1], "150k steps: 5 of 6 finished seeds learn the training range, 4 of 6 extrapolate")
         self.assertIn("1 of 1 finished seeds learn the training range, 1 of 1 extrapolate", sentences[2])
         table = figs[0]["html"]
-        self.assertIn("<b>50k steps: 3 of 6 learn, 1 of 6 extrapolate</b>", table)
-        self.assertIn("<b>150k steps: 5 of 6 learn, 4 of 6 extrapolate</b>", table)
+        self.assertIn("<b>50k steps: 3 of 6 seeds learn the training range, 1 of 6 extrapolate</b>", table)
+        self.assertIn("<b>150k steps: 5 of 6 seeds learn the training range, 4 of 6 extrapolate</b>", table)
 
     def test_every_run_row_has_its_diff_its_values_at_all_n_and_its_switch_on_step(self):
         figs, _ = R2.longer_training(self.runs, {})
         table = figs[0]["html"]
-        self.assertIn("steps 50000 → 150000", table)             # the 150k rows say what differs from the reference ...
-        self.assertIn("pass_output 2 → 1", table)                 # ... and so does every row
-        self.assertIn("init_from None → runs/swa_2pass_seg32_po1_s1/model.pt", table)
-        for n in ("N = 32", "N = 2,048", "N = 8,192", "N = 16,384"):
-            self.assertIn(n, table)                               # all ten stream lengths
+        self.assertIn("output 1, 150k steps", table)              # the 150k rows say what differs from the reference ...
+        self.assertIn("<td style='text-align:left'>output 1</td>", table)   # ... and so does every row (the 50k arm differs only in the output pass)
+        self.assertIn("output 1, from seg32_po1_s1", table)       # the continuation names the weights it started from
+        for n in ("<th>32</th>", "<th>2,048</th>", "<th>8,192</th>", "<th>16,384</th>"):
+            self.assertIn(n, table)                               # all ten stream lengths, one column each
+        self.assertEqual(R2.compact_diff({"model.pass_output": [2, 1], "train.steps": [50000, 150000], "train.lr": [0.001, 0.002]}), "output 1, 150k steps, lr 0.001 → 0.002")
         self.assertIn("4,000", table)                             # seed 0 of the 50k arm switches on at the validation at step 4,000
         self.assertIn("never", table)                             # seeds that never reach 0.9 at N = 256 in validation
         self.assertEqual(R2.switch_on_step(self.a50[2], {}), 6000)

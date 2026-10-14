@@ -40,28 +40,28 @@ def method_svg() -> str:
          "<defs><marker id='ah' viewBox='0 0 10 10' refX='8' refY='5' markerWidth='7' markerHeight='7' orient='auto-start-reverse'><path d='M0 0L10 5L0 10z' fill='var(--ink-2)'/></marker>"
          "<marker id='ao' viewBox='0 0 10 10' refX='8' refY='5' markerWidth='7' markerHeight='7' orient='auto-start-reverse'><path d='M0 0L10 5L0 10z' fill='var(--s2)'/></marker></defs>",
          "<text x='16' y='16' class='t'>one layer, one segment: h = input, y1 = block(h) read-only, y2 = block(h + g ⊙ (y1 − h))</text>"]
-    # cache
-    s.append("<rect x='20' y='84' width='150' height='150' rx='4' class='ca'/><text x='95' y='116' text-anchor='middle' class='tb'>cache</text>")
-    s.append("<text x='95' y='136' text-anchor='middle' class='t'>keys and values of</text><text x='95' y='152' text-anchor='middle' class='t'>the last W − 1 tokens,</text><text x='95' y='168' text-anchor='middle' class='to2'>as written by pass 2</text>")
-    # input tokens and the two boxes
-    s.append(tok(320, 286, "tk"))
-    s.append("<text x='383' y='320' text-anchor='middle' class='tb'>h (segment s)</text>")
-    s.append("<path d='M383 282 L383 248' class='ar' marker-end='url(#ah)'/>")
-    s.append("<rect x='305' y='204' width='156' height='42' rx='4' class='bl'/><text x='383' y='222' text-anchor='middle' class='tb'>pass 1: block(h)</text><text x='383' y='238' text-anchor='middle' class='t'>reads, stores nothing</text>")
-    s.append("<path d='M383 202 L383 170' class='ar' marker-end='url(#ah)'/>")
-    s.append("<text x='392' y='190' class='t'>y1 − h, × g</text>")
-    s.append("<circle cx='383' cy='154' r='15' fill='var(--surface)' stroke='var(--s2)' stroke-width='2'/><text x='383' y='160' text-anchor='middle' style='font:700 16px var(--mono);fill:var(--s2)'>+</text>")
-    s.append("<path d='M322 295 L286 295 L286 154 L366 154' class='ar' marker-end='url(#ah)'/><text x='292' y='146' class='t'>h</text>")
-    s.append("<path d='M383 138 L383 112' class='ar' marker-end='url(#ah)'/>")
-    s.append("<rect x='305' y='68' width='156' height='42' rx='4' class='bl'/><text x='383' y='86' text-anchor='middle' class='tb'>pass 2: block(h2)</text><text x='383' y='102' text-anchor='middle' class='t'>same weights, writes K, V</text>")
-    s.append("<path d='M383 66 L383 40' class='ar' marker-end='url(#ah)'/><text x='392' y='54' class='t'>y2 or y1 → next layer</text>")
-    # reads and the write
-    s.append("<path d='M172 205 L301 226' class='rd' marker-end='url(#ah)'/><text x='186' y='214' class='t'>read</text>")
-    s.append("<path d='M172 124 L301 96' class='rd' marker-end='url(#ah)'/><text x='186' y='108' class='t'>read</text>")
-    s.append("<path d='M301 80 L174 96' class='wr' marker-end='url(#ao)'/><text x='186' y='78' class='to2'>write K, V</text>")
+    # cache (left), the two passes (middle), notes (right); texts are at most ~6.9 px per character wide and every box is wider than its longest line
+    s.append("<rect x='10' y='70' width='170' height='166' rx='4' class='ca'/><text x='95' y='130' text-anchor='middle' class='tb'>cache</text>")
+    s.append("<text x='95' y='154' text-anchor='middle' class='t'>keys and values of</text><text x='95' y='170' text-anchor='middle' class='t'>the last W − 1 tokens,</text><text x='95' y='186' text-anchor='middle' class='to2'>as written by pass 2</text>")
+    # input tokens and the two passes
+    s.append(tok(287, 286, "tk"))
+    s.append("<text x='350' y='322' text-anchor='middle' class='tb'>h (segment s)</text>")
+    s.append("<path d='M350 282 L350 250' class='ar' marker-end='url(#ah)'/>")
+    s.append("<rect x='250' y='204' width='200' height='44' rx='4' class='bl'/><text x='350' y='223' text-anchor='middle' class='tb'>pass 1: block(h)</text><text x='350' y='240' text-anchor='middle' class='t'>reads, stores nothing</text>")
+    s.append("<path d='M350 202 L350 172' class='ar' marker-end='url(#ah)'/>")
+    s.append("<text x='358' y='192' class='t'>y1 − h, × g</text>")
+    s.append("<circle cx='350' cy='156' r='15' fill='var(--surface)' stroke='var(--s2)' stroke-width='2'/><text x='350' y='162' text-anchor='middle' style='font:700 16px var(--mono);fill:var(--s2)'>+</text>")
+    s.append("<path d='M416 295 L482 295 L482 156 L367 156' class='ar' marker-end='url(#ah)'/><text x='490' y='152' class='t'>h</text>")
+    s.append("<path d='M350 140 L350 114' class='ar' marker-end='url(#ah)'/>")
+    s.append("<rect x='250' y='68' width='200' height='44' rx='4' class='bl'/><text x='350' y='87' text-anchor='middle' class='tb'>pass 2: block(h2)</text><text x='350' y='104' text-anchor='middle' class='t'>same weights, writes K, V</text>")
+    s.append("<path d='M350 66 L350 38' class='ar' marker-end='url(#ah)'/><text x='358' y='54' class='t'>y2 or y1 → next layer</text>")
+    # reads and the write (the labels sit in the gap between the cache and the boxes, off the arrows)
+    s.append("<path d='M182 206 L246 224' class='rd' marker-end='url(#ah)'/><text x='188' y='204' class='t'>read</text>")
+    s.append("<path d='M182 128 L246 102' class='rd' marker-end='url(#ah)'/><text x='190' y='146' class='t'>read</text>")
+    s.append("<path d='M246 80 L184 92' class='wr' marker-end='url(#ao)'/><text x='192' y='76' class='to2'>writes</text>")
     # notes
-    for i, line in enumerate(["pass 1 reads the window, no writes", "pass 2: same block and weights,", "writes its keys and values", "g = 0: both passes equal, plain SWA", "only the cache crosses segments"]):
-        s.append(f"<text x='510' y='{110 + i * 20}' class='t'>{html.escape(line)}</text>")
+    for i, line in enumerate(["pass 1 reads, writes nothing", "pass 2: same block and weights,", "writes its keys and values", "g = 0: both passes equal (SWA)", "only the cache crosses segments"]):
+        s.append(f"<text x='535' y='{104 + i * 20}' class='t'>{html.escape(line)}</text>")
     s.append("</svg>")
     return "".join(s)
 
@@ -200,6 +200,30 @@ def e4_runs(raw: list[dict], logs: dict) -> dict[str, dict]:
     return arms
 
 
+def compact_diff(diff: dict) -> str:
+    """The diff of an E4 run against swa_2pass_v1 in a few words: 'output 1', '150k steps', 'from seg32_po1_s1' (the weights it started from)."""
+    parts = []
+    for k, (a, b) in diff.items():
+        if k == "model.pass_output":
+            parts.append(f"output {b}")
+        elif k == "train.steps":
+            parts.append(f"{b // 1000}k steps")
+        elif k == "train.init_from":
+            parts.append("from " + Path(str(b)).parent.name.replace("swa_2pass_", ""))
+        else:
+            parts.append(f"{k.split('.')[-1]} {C.fmt(a)} → {C.fmt(b)}")
+    return ", ".join(parts)
+
+
+def e4_table(head: list[str], rows: list) -> str:
+    """Table of the E4 runs: a row is a list of cells, or {'span': html} for a summary line over the whole width; the first two columns are left-aligned text."""
+    def cell(i, c, tag="td"):
+        style = " style='text-align:left'" if i < 2 else ""
+        return f"<{tag}{style}>{c}</{tag}>"
+    body = "".join(f"<tr><td colspan='{len(head)}' style='text-align:left'>{r['span']}</td></tr>" if isinstance(r, dict) else "<tr>" + "".join(cell(i, c) for i, c in enumerate(r)) + "</tr>" for r in rows)
+    return f"<div class='tbl compact'><table><thead><tr>{''.join(cell(i, h, 'th') for i, h in enumerate(head))}</tr></thead><tbody>{body}</tbody></table></div>"
+
+
 def longer_training(raw: list[dict], logs: dict) -> tuple[list[dict], list[str]]:
     """E4: one table with the arms, per seed (test passkey at every N, the step at which the loop switches on) and the two rates per arm, the configuration diff on every row; two curve charts
     (validation passkey at N = 256 and N = 4,096 against the step, mean of an arm with bars from the worst to the best seed). Returns (figures, summary sentences); nothing when there are no E4 runs."""
@@ -207,34 +231,32 @@ def longer_training(raw: list[dict], logs: dict) -> tuple[list[dict], list[str]]
     if not any(v["done"] or v["running"] for v in arms.values()):
         return [], []
     n_cols = [32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]
-    head = ["arm / seed", "configuration (differs from swa_2pass_v1)"] + [f"N = {n:,}" for n in n_cols] + ["switch-on step", "learns N = 256 (≥ 0.9)", "extrapolates N = 4,096 (≥ 0.5)"]
+    head = ["run", "differs from swa_2pass_v1"] + [f"{n:,}" for n in n_cols] + ["on at", "learns", "extrap."]
     rows, rates, sentences = [], {}, []
     for label, key in E4_ARMS:
         done = arms[key]["done"]
         if not done and not arms[key]["running"]:
             continue
-        diff_txt = html.escape(C.describe_diff(RG.diff_of(done[0]))) if done else ""
         learn = extra = 0
         for r in done:
             row = {x["N"]: x["passkey_acc"] for x in r["rows"] if x["split"] == "test"}
             sw = switch_on_step(r, logs)
             ok_l, ok_e = row[LEARN_N] >= LEARN_MIN, row[EXTRA_N] >= EXTRA_MIN
             learn, extra = learn + ok_l, extra + ok_e
-            diff_r = html.escape(C.describe_diff(RG.diff_of(r)))
-            rows.append([f"{label}, seed {r['seed']}", diff_r] + [f2(row[n]) for n in n_cols] + [f"{sw:,}" if sw else "never", "yes" if ok_l else "no", "yes" if ok_e else "no"])
+            rows.append([f"{label.replace(' steps', '').replace('50k + 50k more', '50k+50k')}, seed {r['seed']}", html.escape(compact_diff(RG.diff_of(r)))] + [f2(row[n]) for n in n_cols]
+                        + [f"{sw:,}" if sw else "never", "yes" if ok_l else "no", "yes" if ok_e else "no"])
         run_txt = ", ".join(f"seed {r['seed']} (step {max(logs[r['name']]):,})" for r in arms[key]["running"] if logs.get(r["name"]))
         n_total = len(done) + len(arms[key]["running"])
-        rows.append([f"<b>{label}: {learn} of {len(done)} learn, {extra} of {len(done)} extrapolate</b>", diff_txt] + [""] * len(n_cols)
-                    + [f"mean switch-on {np.mean([s for s in (switch_on_step(r, logs) for r in done) if s]):,.0f}" if any(switch_on_step(r, logs) for r in done) else "–", f"{learn} / {len(done)}", f"{extra} / {len(done)}"])
-        if arms[key]["running"]:
-            rows.append([f"<i>{label}: still training</i>", "", *[""] * len(n_cols), "", run_txt, ""])
+        sw_all = [x for x in (switch_on_step(r, logs) for r in done) if x]
+        rows.append({"span": f"<b>{label}: {learn} of {len(done)} seeds learn the training range, {extra} of {len(done)} extrapolate</b>" + (f"; median switch-on step {int(np.median(sw_all)):,}" if sw_all else "")
+                             + (f" <i>(still training: {run_txt})</i>" if run_txt else "")})
         rates[key] = (learn, extra, len(done), n_total)
     figs = [{"key": "e4_table", "title": "E4: does longer training fix the seed instability?",
-             "sub": f"Two-pass layer, segment 32, output of pass 1. Test split. A seed learns the training range when its passkey at N = {LEARN_N} is at least {LEARN_MIN}, extrapolates when its passkey at N = {EXTRA_N:,} is at least {EXTRA_MIN}; "
+             "sub": f"Two-pass layer, segment 32, output of pass 1. Test split; the numbered columns are the passkey exact match at that stream length N. A seed learns the training range when its passkey at N = {LEARN_N} is at least {LEARN_MIN}, extrapolates when its passkey at N = {EXTRA_N:,} is at least {EXTRA_MIN}; "
                     f"the loop switches on at the first periodic validation with passkey at least {SWITCH_MIN} at N = {SWITCH_N}.",
-             "caption": "<p>Rows are runs, labelled with the diff of their stored config against the frozen reference; the bold rows are the per-arm rates. The 150k arm uses the same warm-up, a cosine decay to 10% at its last step and a curriculum stage "
+             "caption": "<p>Rows are runs, labelled with the diff of their stored config against the frozen reference; the bold rows are the per-arm rates. 'on at': the step at which the loop switches on (first periodic validation with passkey ≥ 0.9 at N = 256). The 150k arm uses the same warm-up, a cosine decay to 10% at its last step and a curriculum stage "
                         "every 2,000 steps, so it is not the 50k run continued. The continuation row starts from the final weights of a 50k run and warms the learning rate up again: it is its own row, not the 100k point of a curve.</p>",
-             "spec": None, "html": RR._table(head, rows, "wide")}]
+             "spec": None, "html": e4_table(head, rows)}]
     for n, key in ((256, "e4_c256"), (4096, "e4_c4096")):
         sr = []
         for (label, k), col in zip(E4_ARMS, ("var(--s2)", "var(--s1)", "var(--s3)")):

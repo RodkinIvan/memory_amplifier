@@ -50,7 +50,7 @@ def method_svg() -> str:
     s.append(tok(40, 76, "to"))
     s.append("<text x='120' y='64' text-anchor='middle' class='t'>outputs o_j</text>")
     # middle: the matrix
-    s.append("<path d='M212 86 L282 112' class='ar' marker-end='url(#ah)'/>")
+    s.append("<path d='M168 86 L282 112' class='ar' marker-end='url(#ah)'/>")
     s.append("<rect x='286' y='84' width='172' height='66' rx='4' class='bl'/><text x='372' y='106' text-anchor='middle' class='tb'>ΔW_v</text>")
     s.append("<text x='372' y='124' text-anchor='middle' class='t'>(g/C) Σ b_j a_jᵀ</text><text x='372' y='140' text-anchor='middle' class='t'>rank ≤ C, |entry| ≤ |g|</text>")
     # right: segment s
@@ -61,7 +61,7 @@ def method_svg() -> str:
     s.append("<path d='M640 130 L640 98' class='ar' marker-end='url(#ah)'/>")
     s.append(tok(560, 76, "to"))
     s.append("<path d='M460 118 L526 152' class='fb' marker-end='url(#ao)'/>")
-    s.append("<text x='474' y='214' class='to2'>queries and keys unchanged;</text><text x='474' y='228' class='to2'>no other path between segments</text>")
+    s.append("<text x='290' y='196' class='to2'>queries and keys unchanged;</text><text x='290' y='212' class='to2'>no other path between segments</text>")
     s.append("</svg>")
     return "".join(s)
 

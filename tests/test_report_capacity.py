@@ -129,7 +129,9 @@ class CapacityReport(unittest.TestCase):
                 "[swa_2pass_pk64_steps50000_lr0.001_s0] step 5000 loss 0.1 | n32: pk 0.10 v 1.00 e 1.00 n256: pk 0.02 v 1.00 e 1.00 | passkey positions >= 0.9 at N = 256: 3/64\\n"
                 "[swa_2pass_pk64_steps50000_lr0.001_s0] step 6000 loss 0.1 | n32: pk 0.20 v 1.00 e 1.00 n256: pk 0.05 v 1.00 e 1.00 | passkey positions >= 0.9 at N = 256: 9/64\\n".replace("\\n", "\n"))
             data, _, _ = self.build(Path(d))
-        self.assertIn("P = 64, step 6,000, 9 of 64 positions at 0.9 or more, exact 0.05", " ".join(data["tldr"]))
+        self.assertIn("P = 64, 50k-step stage, seed 0: step 6,000, 9 of 64 positions at 0.9 or more, exact 0.05", " ".join(data["tldr"]))   # a short name in the summary ...
+        running = next(f for f in data["extra_figs"] if f["key"] == "running")["html"]
+        self.assertIn("swa_2pass_pk64_steps50000_lr0.001_s0", running)                                                                      # ... the full run name in the table
         self.assertTrue(any(f["key"] == "running" for f in data["extra_figs"]))
         self.assertFalse(any(f["key"] == "running" for f in self.build()[0]["extra_figs"]))
 
