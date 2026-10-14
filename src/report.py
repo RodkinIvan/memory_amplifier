@@ -38,6 +38,10 @@ TOKENS_PER_WRITE = 3.75  # 3 tokens per write plus its share (0.25 per write) of
 
 def render(data: dict, title: str, h1: str, out: Path) -> None:
     """`title` is the browser/gallery name (keep it stable across republishes), `h1` the heading on the page."""
+    if data.get("label_w", 58) >= 200:  # a wide label column is for long configuration names: wrap them onto two lines (the full name stays in the tooltip)
+        for row in data.get("rows", []):
+            row.setdefault("long", row["label"])
+            row["label"] = RG.fit_label(row["label"], data["label_w"])
     html = (TEMPLATE.read_text().replace("__TITLE__", title).replace("__H1__", h1)
             .replace("/*__DATA__*/null", json.dumps(data)))
     out.parent.mkdir(parents=True, exist_ok=True)

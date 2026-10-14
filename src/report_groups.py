@@ -124,6 +124,36 @@ def reach(group: dict) -> int | None:
     return setting(group, "model.n_layers") * (setting(group, "model.window") - 1) if group["kind"] == "swa" else None
 
 
+def fit_label(text: str, label_w: int, max_lines: int = 2, px_per_char: float = 6.7, pad: int = 14) -> str:
+    """Wrap a heatmap row label so every line fits the label column (about 6.7 px per character at the heatmap's font, `pad` px of gap); lines are joined by a newline, which the template
+    draws as separate lines. Two lines are balanced and break after a comma or colon when there is one ('..., segment 32, output of pass 2,' / 'mean of 3 seeds'); more lines are filled
+    greedily, and a label that needs more than `max_lines` is cut with an ellipsis (the full text is the tooltip's `long`)."""
+    maxc = max(8, int((label_w - pad) / px_per_char))
+    if len(text) <= maxc:
+        return text
+    words = text.split(" ")
+    best = None
+    for i in range(1, len(words)):  # two lines: the split with the shortest longer line, a break after , or : preferred
+        a, b = " ".join(words[:i]), " ".join(words[i:])
+        if len(a) <= maxc and len(b) <= maxc:
+            score = max(len(a), len(b)) - (8 if a.endswith((",", ":")) else 0)
+            if best is None or score < best[0]:
+                best = (score, [a, b])
+    if best and max_lines >= 2:
+        return "\n".join(best[1])
+    lines, cur = [], ""
+    for word in words:
+        if cur and len(cur) + 1 + len(word) > maxc:
+            lines.append(cur)
+            cur = word
+        else:
+            cur = f"{cur} {word}" if cur else word
+    lines.append(cur)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines - 1] + [" ".join(lines[max_lines - 1:])]
+    return "\n".join(line if len(line) <= maxc else line[:maxc - 1] + "…" for line in lines)
+
+
 def label_margin(labels: list[str], minimum: int = 70, px_per_char: float = 6.5, offset: int = 18) -> int:
     """Pixels a line chart needs on the right of the plot for end-of-line labels of these texts: the template draws a label 14 px right of its line's last point, about 6.5 px per
     character at its font size. A fixed margin overflows as soon as a label is longer than it was sized for."""
