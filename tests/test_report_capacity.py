@@ -98,6 +98,60 @@ class CapacityReport(unittest.TestCase):
         self.assertIn("The longest passkey held by any seed is P = 16 (64 bits)", text)
         self.assertTrue(any(f["key"] == "rates" for f in data["extra_figs"]))
 
+    def rerun_setup(self):
+        """Seed 0 of the budget recipe fails P = 16 (9 positions); the same stage with 150k steps from the same start stores 3."""
+        c0, d0 = stage(16, "swa_2pass", 50000, 1e-3, 0, 0.0, [1.0] * 9 + [0.1] * 7, "runs/x/model.pt", 2000)
+        long16, r_long = stage(16, "swa_2pass", 150000, 1e-3, 0, 0.0, [1.0] * 3 + [0.1] * 13, "runs/x/model.pt", 2000)
+        self.capacity["stages_swa_2pass_budget"] = [self.entries[1], c0]
+        self.capacity["budget_runs_swa_2pass_long"] = [long16]
+        self.runs.update({r["name"]: r for r in (d0, r_long)})
+
+    def test_a_longer_budget_rerun_of_a_stage_is_not_an_independent_chain(self):
+        self.rerun_setup()
+        ch = RC.chains(self.capacity, self.runs)
+        long = next(c for c in ch if c["steps"] == 150000)
+        self.assertEqual(long["rerun_of"]["steps"], 50000)
+        self.assertIsNone(next(c for c in ch if c["steps"] == 50000 and c["model"] == "swa_2pass")["rerun_of"])
+        self.assertIsNone(next(c for c in ch if c["steps"] == 10000)["rerun_of"])                  # another learning rate and no curriculum: a different recipe, not a re-run
+        self.assertEqual(RC.seed_rates(ch), [])                                                     # one seed per recipe: nothing to count, the re-run is not a second seed
+        data, _, _ = self.build()
+        chart = next(f for f in data["extra_figs"] if f["key"] == "chart")["spec"]
+        self.assertEqual([sr["short"] for sr in chart["series"]], ["two-pass 50k s0", "two-pass 10k s0", "m-loop 50k s0", "0.9"])   # the re-run is not a line
+        self.assertEqual(len(data["rows"]), 5)                                                       # but it is a row of the grid
+        text = " ".join(data["tldr"])
+        self.assertIn("two-pass seed 0, P = 16: 9 of 16 positions stored at 50k steps, 3 at 150k", text)
+        self.assertIn("0 of 1 pass", text)
+        self.assertNotIn("150k steps, lr 0.001, curriculum, seed 0.</b>", text)                      # no chain bullet for the re-run
+        reruns = next(f for f in data["extra_figs"] if f["key"] == "reruns")["html"]
+        self.assertIn("9 / 16", reruns)
+        self.assertIn("3 / 16", reruns)
+
+    def test_the_position_grid_has_a_cell_per_position_of_each_long_or_failing_stage(self):
+        data, _, _ = self.build()
+        grid = next(f for f in data["extra_figs"] if f["key"] == "positions")["html"]
+        # stages shown: P = 16 and 32 of the budget chain, and every stage with a position below 0.9 (two-pass 10k P = 8, vector loop P = 8); the passing P = 8 stage is left out
+        self.assertEqual(grid.count("<tr><td"), 4)
+        self.assertEqual(grid.count("class='pc c'"), 16 + 32 + 8 + 8)
+        self.assertIn("position 21 of 32: 0.10", grid)
+        self.assertIn("two-pass 50k s0, P = 32", grid)
+
+    def test_positions_that_fail_in_most_stopping_stages_are_named(self):
+        """Three seeds stop at P = 16; positions 10 and 16 are below 0.9 in all of them, position 12 in one."""
+        entries, runs = [], {}
+        for sd, bad in ((0, {10, 12, 16}), (1, {10, 16}), (2, {10, 11, 16})):
+            pos = [0.1 if j + 1 in bad else 1.0 for j in range(16)]
+            e8, r8 = stage(8, "swa_2pass", 50000, 1e-3, sd, 0.95, [1.0] * 8, "checkpoints/base.pt", 2000)
+            e16, r16 = stage(16, "swa_2pass", 50000, 1e-3, sd, 0.0, pos, "runs/x/model.pt", 2000)
+            self.capacity[f"stages_swa_2pass_s{sd}"] = [e8, e16]
+            runs.update({r["name"]: r for r in (r8, r16)})
+        self.capacity["stages_swa_2pass_budget"] = []
+        self.runs.update(runs)
+        data, _, _ = self.build()
+        text = " ".join(data["tldr"])
+        self.assertIn("Of the 3 chains that stop at P = 16, positions 10 (3 of 3), 16 (3 of 3) are below 0.9 in most of them", text)
+        self.assertNotIn("12 (", text.split("Which positions fail")[1])
+        self.assertIn("seed 0: P = 16, 13 of 16 positions stored; seed 1: P = 16, 14 of 16 positions stored; seed 2: P = 16, 13 of 16 positions stored", text)
+
     def test_the_labels_fit_into_the_chart_and_the_grid(self):
         """The end-of-line labels of the chart are short names and the margin on the right is sized from them (the long chain descriptions stay in the legend); grid row labels fit the label column."""
         data, _, _ = self.build()
@@ -119,7 +173,7 @@ class CapacityReport(unittest.TestCase):
         data, _, _ = self.build()
         table = next(f for f in data["extra_figs"] if f["key"] == "table")["html"]
         self.assertIn("5, 8", table)               # vector loop P = 8: positions 5 and 8 below 0.9
-        self.assertIn("12 positions", table)       # P = 32: too many to list
+        self.assertIn("12 pos.", table)       # P = 32: too many to list
         self.assertIn("20 / 32", table)
 
     def test_stages_in_training_are_read_from_the_logs(self):
