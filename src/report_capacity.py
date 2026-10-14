@@ -85,6 +85,25 @@ def in_progress(logs_root: Path, done: set[str]) -> list[dict]:
     return out
 
 
+def seed_rates(ch: list[dict]) -> list[dict]:
+    """For every recipe of every model that has more than one seed: per passkey length P, how many seeds reached the stage and how many passed it (validation exact >= THRESHOLD at N = 256), with the
+    median number of stored positions (>= POS_OK at N = 256) among the seeds that reached it. [{label, rows: [(P, reached, passed, median stored positions, median exact)]}]."""
+    groups: dict = {}
+    for c in ch:
+        groups.setdefault((c["model"], c["steps"], c["lr"], c["curriculum"]), []).append(c)
+    out = []
+    for (model, steps, lr, cur), cs in groups.items():
+        if len(cs) < 2:
+            continue
+        rows = []
+        for P in sorted({e["passkey_len"] for c in cs for e in c["stages"]}):
+            es = [e for c in cs for e in c["stages"] if e["passkey_len"] == P]
+            rows.append((P, len(es), sum(e["validation"]["exact"]["256"] >= THRESHOLD for e in es), float(np.median([e["validation"]["positions_ok"].get("256", 0) for e in es])),
+                         float(np.median([e["validation"]["exact"]["256"] for e in es]))))
+        out.append({"label": f"{MODEL_LABEL.get(model, model)}, {recipe_label(steps, lr, cur)}", "seeds": sorted(c["seed"] for c in cs), "rows": rows})
+    return out
+
+
 def capacity_data(capacity: dict | None = None, runs: dict[str, dict] | None = None, logs_root: Path | None = None) -> tuple[dict, str, str]:
     capacity = capacity if capacity is not None else json.loads((C.ROOT / "results" / "capacity.json").read_text())
     runs = runs if runs is not None else {r["name"]: r for r in A.load_runs(C.ROOT / "results" / "raw", all_passkeys=True)}
@@ -133,8 +152,14 @@ def capacity_data(capacity: dict | None = None, runs: dict[str, dict] | None = N
                 (f"{int(np.median(sw)):,} (last {max(sw):,})" if sw else "never"), f2(t["ar_valid"]["256"]), f"{e['train_time_s'] / 3600:.1f} h" if e.get("train_time_s") else "–"]
     head = ["chain", "P", "bits"] + [f"val. exact N = {n}" for n in NS] + ["test exact N = 256", "val. token acc. N = 256", "positions ≥ 0.9", "positions below 0.9", "switch-on step of the positions (median)", "AR valid (test)", "time"]
     table = RR._table(head, [stage_row(c, e) for c in ch for e in c["stages"]], "wide")
+    rates = seed_rates(ch)
+    rate_rows = [[html.escape(r["label"]), str(P), str(4 * P), f"{reached}", f"{passed} of {reached}", f"{pos:g} of {P}", f2(ex)] for r in rates for P, reached, passed, pos, ex in r["rows"]]
     figs = [{"key": "chart", "title": "Exact match of the passkey against its length", "sub": "Validation split at N = 256 (1,000 streams); the point at P = 4 is the checkpoint the chain started from. Dashed lines are the short fine-tunes.",
              "caption": "<p>One line per chain: a model, a fine-tuning recipe and a seed. Each stage starts from the weights of the stage before it; a chain stops at the first stage below 0.9, so the last point of a line is its failing stage.</p>", "spec": chart},
+            *([{"key": "rates", "title": "How many seeds hold each passkey length",
+                "sub": "Recipes with more than one seed: per P, the seeds that reached the stage (the chain stops at the first failure) and how many of them passed it.",
+                "caption": "<p>A seed reaches stage P only if it passed the stage before, so the 'reached' column falls as P grows; 'passed' is out of those that reached it. Stored positions: right in at least 90% of the validation streams at N = 256 (median over the seeds).</p>",
+                "spec": None, "html": RR._table(["recipe", "P", "bits", "seeds that reached it", "passed (exact ≥ 0.9)", "stored positions (median)", "validation exact (median)"], rate_rows, "wide")}] if rate_rows else []),
             {"key": "table", "title": "Every stage", "sub": "Exact match needs all P tokens right (teacher forced); the token accuracy is per token. Positions are counted at N = 256 on the validation split.", "caption": "", "spec": None, "html": table}]
     if prog:
         figs.append({"key": "running", "title": "Stages in training", "sub": "Last periodic validation (every 1,000 steps).", "caption": "", "spec": None,
@@ -157,6 +182,11 @@ def capacity_data(capacity: dict | None = None, runs: dict[str, dict] | None = N
         else:
             txt += "No stage has failed yet" + (" (a stage may still be training)." if prog else ".")
         tldr.append(txt)
+    for r in rates:
+        top = [(P, reached, passed) for P, reached, passed, _, _ in r["rows"] if passed]
+        last = r["rows"][-1]
+        tldr.append(f"<b>Across seeds ({html.escape(r['label'])}, {len(r['seeds'])} seeds).</b> " + "; ".join(f"P = {P}: {passed} of {reached} seeds that reached it pass" for P, reached, passed, _, _ in r["rows"])
+                    + (f". The longest passkey held by any seed is P = {max(t[0] for t in top)} ({4 * max(t[0] for t in top)} bits)" if top else ". No seed holds any of the lengths") + ".")
     if prog:
         tldr.append("<b>In training now.</b> " + "; ".join(f"{html.escape(p['run'])}: P = {p['P']}, step {p['step']:,}, {p['positions_ok']} of {p['P']} positions at 0.9 or more, exact {f2(p['exact256'])}" for p in prog) + ".")
     data = {

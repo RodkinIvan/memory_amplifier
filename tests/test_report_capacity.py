@@ -78,6 +78,26 @@ class CapacityReport(unittest.TestCase):
         self.assertEqual(chart["xTicks"], [4, 8, 16, 32])
         self.assertTrue(chart["series"][1]["dashed"] and not budget["dashed"])                  # short fine-tunes are dashed
 
+    def test_seeds_of_one_recipe_are_counted_per_passkey_length(self):
+        """Seeds 0 and 1 of the budget recipe: seed 0 passes P = 8 and fails 16, seed 1 passes 8 and 16 and fails 32."""
+        b8, r8 = stage(8, "swa_2pass", 50000, 1e-3, 1, 0.97, [1.0] * 8, "checkpoints/base.pt", 2000)
+        b16, r16 = stage(16, "swa_2pass", 50000, 1e-3, 1, 0.96, [1.0] * 16, "runs/x/model.pt", 2000)
+        b32, r32 = stage(32, "swa_2pass", 50000, 1e-3, 1, 0.0, [1.0] * 14 + [0.1] * 18, "runs/x/model.pt", 2000)
+        c0, d0 = stage(16, "swa_2pass", 50000, 1e-3, 0, 0.0, [1.0] * 9 + [0.1] * 7, "runs/x/model.pt", 2000)
+        self.capacity["stages_swa_2pass_budget"] = [self.entries[1], c0]                    # seed 0: P = 8 passes, P = 16 fails
+        self.capacity["stages_swa_2pass_budget_s1"] = [b8, b16, b32]
+        self.runs.update({r["name"]: r for r in (r8, r16, r32, d0)})
+        rates = RC.seed_rates(RC.chains(self.capacity, self.runs))
+        self.assertEqual(len(rates), 1)                                                         # only the recipe with two seeds
+        self.assertEqual(rates[0]["seeds"], [0, 1])
+        self.assertEqual([(P, reached, passed) for P, reached, passed, _, _ in rates[0]["rows"]], [(8, 2, 2), (16, 2, 1), (32, 1, 0)])
+        self.assertEqual(rates[0]["rows"][1][3], 12.5)                                          # median stored positions at P = 16: (9 + 16) / 2
+        data, _, _ = self.build()
+        text = " ".join(data["tldr"])
+        self.assertIn("P = 8: 2 of 2 seeds that reached it pass; P = 16: 1 of 2 seeds that reached it pass; P = 32: 0 of 1 seeds that reached it pass", text)
+        self.assertIn("The longest passkey held by any seed is P = 16 (64 bits)", text)
+        self.assertTrue(any(f["key"] == "rates" for f in data["extra_figs"]))
+
     def test_the_labels_fit_into_the_chart_and_the_grid(self):
         """The end-of-line labels of the chart are short names and the margin on the right is sized from them (the long chain descriptions stay in the legend); grid row labels fit the label column."""
         data, _, _ = self.build()
