@@ -72,3 +72,9 @@ e4_150k | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 3 --set mod
 e4_50k | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 2 --set model.segment=32 model.pass_output=1 --sweep seed=3,4,5
 e4_cont1 | --config configs/swa_2pass.yaml --gpus 0 --procs-per-gpu 1 --set model.segment=32 model.pass_output=1 train.steps=50000 train.init_from=runs/swa_2pass_seg32_po1_s1/model.pt seed=1
 e4_cont2 | --config configs/swa_2pass.yaml --gpus 1 --procs-per-gpu 1 --set model.segment=32 model.pass_output=1 train.steps=50000 train.init_from=runs/swa_2pass_seg32_po1_s2/model.pt seed=2
+
+# ---- Passkey capacity for the two-pass layer (2026-10-14; the same experiment as for the vector loop, from the best two-pass checkpoint checkpoints/swa_2pass_seg32_po1_s5.pt): P = 8, 16, 32, ...
+# fine-tuned on N = 32 ... 256, stop at the first stage with validation exact match < 0.9 at N = 256, nothing longer evaluated. Run by hand, three chains (tmux sessions, scripts/passkey_capacity.py --model swa_2pass):
+#   cap2p_short:       --gpu 0 --steps 10000 --lr 3e-4 --warmup 200 --curriculum 0 --seed 0                         (the first chain's recipe for the vector loop)   -> results/capacity.json stages_swa_2pass
+#   cap2p_budget:      --gpu 1 --steps 50000 --lr 1e-3 --warmup 500 --curriculum 2000 --seed 0 --tag budget         (the original recipe's budget, which found 6 of 8 for the vector loop)  -> stages_swa_2pass_budget
+#   cap2p_budget_s1:   --gpu 0 --steps 50000 --lr 1e-3 --warmup 500 --curriculum 2000 --seed 1 --tag budget_s1      (a second seed of the budget chain)         -> stages_swa_2pass_budget_s1
