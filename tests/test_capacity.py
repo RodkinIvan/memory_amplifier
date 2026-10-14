@@ -226,6 +226,48 @@ class ValueAdaptationStage(unittest.TestCase):
             self.assertEqual(json.loads(CAP.OUT.read_text())["stages_swa_va"][0]["validation"]["positions"], {"256": [1.0]})
 
 
+class TwoPassStage(unittest.TestCase):
+    """The same experiment for the two-pass layer, from its best checkpoint."""
+
+    def test_a_two_pass_stage_fine_tunes_the_segment_32_output_1_model(self):
+        ov = CAP.stage_overrides(8, "checkpoints/swa_2pass_seg32_po1_s5.pt", 50000, 1e-3, 0, 500, 2000, model="swa_2pass")
+        cfg, explicit = C.load_config(_paths.ROOT / CAP.MODELS["swa_2pass"]["config"], ov)
+        self.assertEqual((cfg["model"]["kind"], cfg["model"]["segment"], cfg["model"]["pass_output"], cfg["passkey_len"]), ("swa_2pass", 32, 1, 8))
+        self.assertEqual((cfg["experiment"], cfg["train"]["init_from"], cfg["train"]["train_ns"], cfg["eval"]["ns"], cfg["train"]["cuda_graph"]),
+                         ("swa_2pass_capacity", "checkpoints/swa_2pass_seg32_po1_s5.pt", [32, 64, 128, 256], [32, 64, 128, 256], True))
+        name = CAP.stage_name(8, "checkpoints/swa_2pass_seg32_po1_s5.pt", 50000, 1e-3, 0, 500, 2000, model="swa_2pass")
+        self.assertTrue(name.startswith("swa_2pass_seg32_po1_pk8_"), name)   # the model, its segment and output pass and the passkey length are in the name
+        self.assertEqual(C.footprint_gb(cfg), 7.0)
+        # the budget recipe (50k steps, lr 1e-3, warm-up 500, curriculum 2000) is the reference recipe, so only the passkey, the start weights and the output pass differ from it
+        self.assertEqual(C.reference_diff(cfg), {"model.pass_output": [2, 1], "passkey_len": [4, 8], "train.init_from": [None, "checkpoints/swa_2pass_seg32_po1_s5.pt"]})
+        short = C.load_config(_paths.ROOT / "configs" / "swa_2pass.yaml", CAP.stage_overrides(8, "x.pt", 10000, 3e-4, 0, 200, 0, model="swa_2pass"))[0]
+        for key in ("train.steps", "train.lr", "train.warmup_steps", "train.curriculum_stage_steps"):
+            self.assertIn(key, C.reference_diff(short))  # the short fine-tune of the first chain differs from it in the schedule
+
+    def test_each_model_has_its_best_checkpoint_as_the_default_and_its_own_result_keys(self):
+        self.assertEqual(CAP.MODELS["swa_fb"]["init"], "checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt")
+        self.assertEqual(CAP.MODELS["swa_2pass"]["init"], "checkpoints/swa_2pass_seg32_po1_s5.pt")
+        self.assertIsNone(CAP.MODELS["swa_va"]["init"])  # no checkpoint of value adaptation is good enough to start from: --init is required
+        for m in CAP.MODELS.values():
+            if m["init"]:
+                self.assertTrue((_paths.ROOT / m["init"]).exists(), m["init"])
+        self.assertEqual(CAP.result_keys("swa_2pass"), ("stages_swa_2pass", "budget_runs_swa_2pass"))
+        self.assertEqual(CAP.result_keys("swa_2pass", "budget"), ("stages_swa_2pass_budget", "budget_runs_swa_2pass_budget"))   # two chains of one model with different recipes
+        self.assertEqual(CAP.result_keys("swa_fb", "x"), ("stages_x", "budget_runs_x"))
+        self.assertEqual(CAP.result_keys("swa_fb"), ("stages", "budget_runs"))
+
+    def test_the_checkpoint_loads_into_the_model_a_stage_builds(self):
+        import json
+        import torch
+        from models import build_from_config
+        cfg, _ = C.load_config(_paths.ROOT / "configs" / "swa_2pass.yaml", CAP.stage_overrides(8, "x", 1, 1e-3, model="swa_2pass"))
+        vocab = json.loads((C.data_dir_for(cfg) / "vocab.json").read_text())["size"]  # the passkey-8 dataset has the same 40 tokens
+        model = build_from_config(cfg["model"], vocab)
+        state = torch.load(_paths.ROOT / CAP.MODELS["swa_2pass"]["init"], map_location="cpu", weights_only=True)
+        model.load_state_dict(state)  # raises on any missing or unexpected key
+        self.assertEqual(sum(p.numel() for p in model.parameters()), 530304)
+
+
 class Defaults(unittest.TestCase):
     def test_the_chain_runs_on_gpu_0_and_waits_for_free_memory_before_a_stage(self):
         """Review C3."""

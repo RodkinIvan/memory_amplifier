@@ -30,7 +30,7 @@ class TwoPassReport(unittest.TestCase):
 
     def test_the_two_pass_configurations_are_rows_next_to_the_loop_adaptation_and_baseline(self):
         data, title, h1 = self.build()
-        self.assertEqual([r["key"] for r in data["rows"]], ["p2_seg32_po2", "p2_seg32_po1", "p2_seg64_po2", "fb32", "fb64", "va32", "w64"])
+        self.assertEqual([r["key"] for r in data["rows"]], ["best_p2", "p2_seg32_po2", "p2_seg32_po1", "p2_seg64_po2", "fb32", "fb64", "va32", "w64"])  # the output-1 runs of segment 32 are the E4 pool of the best checkpoint
         self.assertEqual(title, "SWA Two-Pass Report")
         self.assertEqual(data["results"]["p2_seg32_po2"]["1024"]["per"]["passkey"], [0.0, 0.2, 0.4])
         self.assertTrue(data["hide_scatter"])
@@ -102,11 +102,11 @@ class TwoPassReport(unittest.TestCase):
         self.assertTrue(any("read out of the cached window" in t for t in titles))
         self.assertTrue(any("Perturbing the cached window" in t for t in titles))
         text = " ".join(data["tldr"])
-        self.assertIn("values 0.80", text)
-        self.assertIn("keys 0.60", text)
-        self.assertIn("0.90 / 0.50 / 0.90 / 0.90", text)
-        self.assertIn("plain SWA 0.07", text)
-        self.assertIn("keeps 0.90 clean, 0.40 with its cached keys and values kicked by 1 × RMS, 0.10 with the values zeroed, 0.00 with the keys zeroed", text)
+        self.assertIn("seg32_po2_s0 0.80", text)                  # the value read-out at the farthest cut, per probed run (name without the model prefix) ...
+        self.assertIn("plain SWA 0.07", text)                      # ... next to the control
+        self.assertIn("Token by token for the best (seg32_po2_s0): 0.90 / 0.50 / 0.90 / 0.90", text)
+        self.assertIn("seg32_po2_s0 0.90 → 0.40 → 0.00", text)    # perturbation: clean, kicked by 1 x RMS, zeroed
+        self.assertIn("shrinks to 0.30–0.30 of its size within 16 segments", text)
         pert = next(f for f in data["extra_figs"] if "Perturbing" in f["title"])
         self.assertIn("1.00 / 0.30", pert["html"])
 
@@ -187,6 +187,23 @@ class LongerTraining(unittest.TestCase):
         self.assertEqual(R2.e4_paragraph([r for r in self.runs if R2.e4_arm(r) != "150k"], {}), "")  # nothing without both arms
         none_extrapolate = [r for r in self.runs if R2.e4_arm(r) != "150k"] + [self.mk(["train.steps=150000"], s, 1.0, 0.0, 2000) for s in range(3)]
         self.assertIn("p = ", R2.e4_paragraph(none_extrapolate, {}))              # an arm in which no seed extrapolates does not break the text
+
+    def test_best_checkpoints_are_rows_picked_on_validation_and_reported_on_test(self):
+        runs = list(self.runs)
+        # make seed 3 of the 50k arm best on validation at 16,384 but not on test; seed 0 best on test but not on validation
+        for r in runs:
+            if R2.e4_arm(r) == "50k":
+                for row in r["rows"]:
+                    if row["N"] == 16384:
+                        row["passkey_acc"] = {0: 0.9, 3: 0.2}.get(r["seed"], 0.0) if row["split"] == "test" else {0: 0.1, 3: 0.8}.get(r["seed"], 0.0)
+                    if row["N"] == 4096:
+                        row["passkey_acc"] = 0.3
+        data, _, _ = R2.p2_data(runs, {}, {})
+        self.assertEqual(data["rows"][0]["key"], "best_p2")
+        self.assertIn("seed 3", data["rows"][0]["label"])                          # the validation winner
+        self.assertAlmostEqual(data["results"]["best_p2"]["16384"]["passkey"], 0.2)    # reported on the test split
+        self.assertIn("picked on the validation split", data["rows"][0]["long"])
+        self.assertIn("Best checkpoints", " ".join(data["tldr"]))
 
     def test_the_report_carries_the_section_and_it_is_absent_without_e4_runs(self):
         data, _, _ = R2.p2_data(self.runs, {}, {})

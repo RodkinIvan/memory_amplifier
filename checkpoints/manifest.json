@@ -1,4 +1,23 @@
 {
+ "swa_2pass_seg32_po1_s5": {
+  "bytes": 2128928,
+  "diff_vs_reference": {
+   "model.pass_output": [
+    2,
+    1
+   ]
+  },
+  "file": "checkpoints/swa_2pass_seg32_po1_s5.pt",
+  "n_params": 530304,
+  "sha256": "27bc24b988c3e5c2bfe98b146fbf09a5bf65bc2e6ee571b44dd05e302d3fb458",
+  "test_ar_valid_at_16384": 0.996,
+  "test_passkey": {
+   "1024": 0.994,
+   "16384": 0.87,
+   "256": 0.999,
+   "4096": 0.956
+  }
+ },
  "swa_fb_gi0_nlnone_seg8_steps50000_s2": {
   "bytes": 2263682,
   "diff_vs_reference": {

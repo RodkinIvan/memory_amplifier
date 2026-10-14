@@ -23,7 +23,7 @@ import config as C  # noqa: E402
 import report_groups as RG  # noqa: E402
 import report_rounds as RR  # noqa: E402
 import report_va as V  # noqa: E402
-from report_best import mean_curve, over_n  # noqa: E402
+from report_best import mean_curve, over_n, pick_best  # noqa: E402
 from report_groups import NS, cells_for_row, number_figures  # noqa: E402
 
 f2 = lambda x: f"{x:.2f}"
@@ -117,36 +117,44 @@ def pilot_paragraph(raw: list[dict]) -> str:
 
 
 def cache_bullet(probes: dict) -> list[str]:
-    """One sentence of the cache read-out (numbers from the probe files)."""
+    """One sentence of the cache read-out (numbers from the probe files): the mean accuracy over the passkey tokens at the farthest cut for every probed run, best first, with the token-by-token values of the best run;
+    the full tables are in the figure."""
     cache = probes.get("cache", {})
-    parts, ex = [], None
+    items, ex, ctl_far = [], None, None
     for run, res in cache.items():
         m, ctl = res["models"]["model"], res["models"].get("control")
         far = [d for d, e in m["by_distance"].items() if e["tokens"] >= 2 * m["reach"]]
         if not far:
             continue
-        ex, d0, d1 = res, far[0], far[-1]
-        both = d0 != d1
-        k = lambda feat, d: m["by_distance"][d][feat]["mean"]
-        parts.append(f"{html.escape(run)}: values {f2(k('v', d0))}" + (f" / {f2(k('v', d1))}" if both else "") + f", keys {f2(k('k', d0))}" + (f" / {f2(k('k', d1))}" if both else "")
-                     + f" at {m['by_distance'][d0]['tokens']:,}" + (f" / {m['by_distance'][d1]['tokens']:,}" if both else "") + " tokens (values, token by token at "
-                     + f"{m['by_distance'][d1]['tokens']:,}: {' / '.join(f2(x) for x in m['by_distance'][d1]['v']['per_token'])})"
-                     + (f"; plain SWA {f2(ctl['by_distance'][d0]['v']['mean'])}" + (f" / {f2(ctl['by_distance'][d1]['v']['mean'])}" if both else "") if ctl else ""))
-    if not parts:
+        ex, d1 = res, far[-1]
+        items.append((m["by_distance"][d1]["v"]["mean"], run, m["by_distance"][d1]["tokens"], m["by_distance"][d1]["v"]["per_token"]))
+        if ctl:
+            ctl_far = ctl["by_distance"][d1]["v"]["mean"]
+    if not items:
         return []
-    return [f"<b>Where the passkey is.</b> A linear read-out of each passkey token from the cached window (no passkey token in sight; mean accuracy over the {ex['passkey_len']} tokens, chance {ex['chance']:.2f}): "
-            + "; ".join(parts) + f". The window holds at most {ex['models']['model']['reach'] // 2} tokens, so anything read out beyond that was carried by the store being re-written."]
+    items.sort(reverse=True)
+    short = lambda r: html.escape(r.replace("swa_2pass_", ""))
+    best = items[0]
+    return [f"<b>Where the passkey is.</b> A linear read-out of each passkey token from the cached values of the last window (no passkey token in sight; mean accuracy over the {ex['passkey_len']} tokens, chance {ex['chance']:.2f}) "
+            f"about {best[2]:,} tokens after the passkey, {len(items)} probed runs: " + ", ".join(f"{short(r)} {f2(v)}" for v, r, _, _ in items)
+            + (f"; plain SWA {f2(ctl_far)}" if ctl_far is not None else "") + f". Token by token for the best ({short(best[1])}): " + " / ".join(f2(x) for x in best[3])
+            + f". The window holds at most {ex['models']['model']['reach'] // 2} tokens, so anything read out beyond that was carried by the store being re-written; "
+              "a run can hold the passkey in the store and still fail to answer (the read-out here is linear and sees the cache only), and the other way round."]
 
 
 def perturb_bullet(probes: dict) -> list[str]:
-    parts = []
+    """One sentence on the perturbation probe: per run that holds the passkey, the exact match clean, with keys and values kicked by 1 x RMS, and with both zeroed, and how fast a kick dies out."""
+    parts, shrink = [], []
     for run, res in probes.get("perturb", {}).items():
         ex = res["exact"]
         if ex["clean"] < 0.05 or "keys_zero" not in ex:
             continue
-        parts.append(f"{html.escape(run)} keeps {f2(ex['clean'])} clean, {f2(ex.get('both_1', float('nan')))} with its cached keys and values kicked by 1 × RMS, {f2(ex['values_zero'])} with the values zeroed, "
-                     f"{f2(ex['keys_zero'])} with the keys zeroed; a kick shrinks to {res['contraction'].get('16', float('nan')):.2f} of its size after 16 segments")
-    return ["<b>Perturbation in mid-stream</b> (far beyond the reach): " + "; ".join(parts) + "."] if parts else []
+        parts.append(f"{html.escape(run.replace('swa_2pass_', ''))} {f2(ex['clean'])} → {f2(ex.get('both_1', float('nan')))} → {f2(ex['both_zero'])}")
+        shrink.append(res["contraction"].get("16", float("nan")))
+    if not parts:
+        return []
+    return [f"<b>Perturbation in mid-stream</b> (far beyond the reach; exact match clean → keys and values kicked by 1 × RMS → both zeroed): " + "; ".join(parts)
+            + f". A kick shrinks to {min(shrink):.2f}–{max(shrink):.2f} of its size within 16 segments."]
 
 
 LEARN_N, LEARN_MIN = 256, 0.9      # E4 metric (fixed before the runs): a seed "learns the training range" when its test passkey at N = 256 is at least 0.9 ...
@@ -317,6 +325,16 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
 
     rows, results = [], {}
     add = lambda key, label, runs, color, long=None: (rows.append({"key": key, "label": label, "color": color, "long": long or label}), results.__setitem__(key, cells_for_row(runs, "test")))
+    has_val = lambda r: all(any(x["N"] == n and x["split"] == "validation" for x in r["rows"]) for n in (4096, 16384))
+    # the best checkpoints, picked on the validation split (same rule as the presentation sub-report): all output-1 two-pass runs of the E4 study, and the best vector-loop checkpoint (segment 8)
+    p2_pool = [r for r in raw if r["cfg"]["model"]["kind"] == "swa_2pass" and e4_arm(r) in ("50k", "150k") and has_val(r)]
+    best2 = pick_best(p2_pool) if p2_pool else None
+    fb8 = next((g for g in dgroups if (key := RG.standard_key(g)) and key == (8, "none", 0.0, 50000, 0.0)), None)
+    bestfb = pick_best([r for r in fb8["runs"] if has_val(r)]) if fb8 and any(has_val(r) for r in fb8["runs"]) else None
+    if best2:
+        add("best_p2", f"best two-pass checkpoint: segment 32, output of pass 1, seed {best2['seed']}, {best2['cfg']['train']['steps'] // 1000}k steps", [best2], "--s2", f"{best2['name']} (picked on the validation split among the {len(p2_pool)} output-1 runs of the E4 study)")
+    if bestfb:
+        add("best_fb", f"best vector-loop checkpoint: segment 8, no tanh, seed {bestfb['seed']}, 50k steps", [bestfb], "--s1", f"{bestfb['name']} (picked on the validation split among the runs of that setup)")
     for i, k in enumerate(order):
         g = p2[k]
         add(f"p2_{tag(k)}", f"{name(k)}, mean of {seeds_lbl(g)}", g["runs"], COLORS[i % 3], f"{RG.label(g)} ({seeds_lbl(g)}: {', '.join(r['name'] for r in g['runs'])})")
@@ -334,6 +352,10 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
     hz = lambda key: next((n for n in reversed(NS) if cell(key, n) is not None and cell(key, n) >= 0.9), None)
 
     series = []
+    if best2:
+        series.append(over_n([best2], f"best two-pass checkpoint (seed {best2['seed']}, {best2['cfg']['train']['steps'] // 1000}k steps, picked on validation)", "var(--s2)", width=3.8, short="best 2-pass"))
+    if bestfb:
+        series.append(over_n([bestfb], f"best vector-loop checkpoint (segment 8, seed {bestfb['seed']}, picked on validation)", "var(--s1)", width=3.8, short="best m-loop"))
     for i, k in enumerate(order):
         series.append(over_n(p2[k]["runs"], f"{name(k)}, mean of {seeds_lbl(p2[k])} (bars: worst to best seed)", COLORS[i % 3], width=3.0, short=f"2-pass {tag(k)}"))
     for seg in (32, 64):
@@ -399,6 +421,12 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         if k[0] in fb:
             sent += f" The vector loop m at segment {k[0]} scores {f2(cell(f'fb{k[0]}', 256))} / {f2(cell(f'fb{k[0]}', 1024))} / {f2(cell(f'fb{k[0]}', 4096))} / {f2(cell(f'fb{k[0]}', 16384))} (per seed at 1,024: {RG.seeds_text(per(f'fb{k[0]}', 1024))})."
         tldr.append(sent)
+    if best2:
+        b = lambda r, n: next(x["passkey_acc"] for x in r["rows"] if x["split"] == "test" and x["N"] == n)
+        txt = f"<b>Best checkpoints</b> (picked on the validation split, reported on test, passkey at N = 256 / 1,024 / 4,096 / 16,384). Two-pass, seed {best2['seed']} ({best2['cfg']['train']['steps'] // 1000}k steps): " + " / ".join(f2(b(best2, n)) for n in (256, 1024, 4096, 16384))
+        if bestfb:
+            txt += f". Vector loop, segment 8, seed {bestfb['seed']}: " + " / ".join(f2(b(bestfb, n)) for n in (256, 1024, 4096, 16384))
+        tldr.append(txt + ". Seeds that converge well exist in both families; the means above are what a new run can be expected to do.")
     base = []
     if va32:
         base.append(f"value adaptation (E1, segment 32) {f2(cell('va32', 256))} / {f2(cell('va32', 1024))} / {f2(cell('va32', 16384))} at N = 256 / 1,024 / 16,384")

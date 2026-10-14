@@ -4,6 +4,7 @@
     python scripts/passkey_capacity.py --init checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt          # the chain, on GPU 0
     python scripts/passkey_capacity.py --budget-run --start 8 --steps 50000 --lr 1e-3 --warmup 500 --curriculum 2000   # one stage with the original recipe's budget
     python scripts/passkey_capacity.py --reevaluate      # fill in the per-position accuracy of stages that were run before it existed
+    python scripts/passkey_capacity.py --model swa_2pass --steps 50000 --lr 1e-3 --warmup 500 --curriculum 2000   # the same chain for the two-pass layer, from its best checkpoint
 
 The checkpoint was trained on streams of up to 256 AR pairs and a passkey of 4 tokens (4 bits each, so 16 bits). Stage P = 8, 16, 32, ... : generate the dataset with a passkey
 of P tokens and the same streams statistics (N = 32 ... 256 AR pairs), fine-tune the weights of the previous stage on it, and evaluate the exact match of the passkey (all P tokens
@@ -37,15 +38,19 @@ NS = [32, 64, 128, 256]  # AR pairs: the training range of the checkpoint, nothi
 OUT = ROOT / "results" / "capacity.json"
 
 
-MODELS = {  # what a stage fine-tunes: the config file, the wandb group, the model overrides (the checkpoint's architecture), the segment of the checkpoint (default)
-    "swa_fb": {"config": "configs/swa_fb.yaml", "experiment": "swa_fb_capacity", "segment": 8, "overrides": ["model.nonlin=none", "model.gain_init=0"]},
-    "swa_va": {"config": "configs/swa_va.yaml", "experiment": "swa_va_capacity", "segment": 32, "overrides": []},
+MODELS = {  # what a stage fine-tunes: the config file, the wandb group, the model overrides (the checkpoint's architecture), the segment and the default weights of the checkpoint
+    "swa_fb": {"config": "configs/swa_fb.yaml", "experiment": "swa_fb_capacity", "segment": 8, "overrides": ["model.nonlin=none", "model.gain_init=0"],
+               "init": "checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt"},
+    "swa_va": {"config": "configs/swa_va.yaml", "experiment": "swa_va_capacity", "segment": 32, "overrides": [], "init": None},
+    "swa_2pass": {"config": "configs/swa_2pass.yaml", "experiment": "swa_2pass_capacity", "segment": 32, "overrides": ["model.pass_output=1"],
+                  "init": "checkpoints/swa_2pass_seg32_po1_s5.pt"},  # the best two-pass checkpoint: highest validation passkey at N = 16,384 of the 14 output-1 runs of E4 (test 1.00 / 0.99 / 0.96 / 0.87 at N = 256 / 1,024 / 4,096 / 16,384)
 }
 
 
-def result_keys(model: str = "swa_fb") -> tuple[str, str]:
-    """Keys of capacity.json for the chain and for the single budget runs of a model. The first model keeps the original names (`stages`, `budget_runs`)."""
-    suffix = "" if model == "swa_fb" else f"_{model}"
+def result_keys(model: str = "swa_fb", tag: str = "") -> tuple[str, str]:
+    """Keys of capacity.json for the chain and for the single budget runs of a model. The first model keeps the original names (`stages`, `budget_runs`); `tag` (--tag) keeps two chains of
+    one model with different recipes apart (`stages_swa_2pass_budget`)."""
+    suffix = ("" if model == "swa_fb" else f"_{model}") + (f"_{tag}" if tag else "")
     return f"stages{suffix}", f"budget_runs{suffix}"
 
 
@@ -242,9 +247,10 @@ def reevaluate(gpu: int) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", choices=list(MODELS), default="swa_fb", help="the model kind of the checkpoint (swa_va: value adaptation; its results go under `stages_swa_va` / `budget_runs_swa_va`)")
+    ap.add_argument("--model", choices=list(MODELS), default="swa_fb", help="the model kind of the checkpoint (swa_va: value adaptation, swa_2pass: two-pass layer; the results of a model other than swa_fb go under `stages_<model>` / `budget_runs_<model>`)")
+    ap.add_argument("--tag", default="", help="suffix of the result keys, to keep two chains of one model with different recipes apart (e.g. 'budget': `stages_swa_2pass_budget`)")
     ap.add_argument("--segment", type=int, default=None, help="segment of the checkpoint (default: 8 for swa_fb, 32 for swa_va)")
-    ap.add_argument("--init", default="checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt", help="weights of the checkpoint trained on 4-token passkeys")
+    ap.add_argument("--init", default=None, help="weights of the checkpoint trained on 4-token passkeys (default: the best checkpoint of the model, see MODELS)")
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--start", type=int, default=8)
     ap.add_argument("--max-len", type=int, default=512)
@@ -258,6 +264,9 @@ def main() -> None:
     a = ap.parse_args()
     if a.reevaluate:
         return reevaluate(a.gpu)
+    a.init = a.init or MODELS[a.model]["init"]
+    if not a.init:
+        ap.error(f"--init is required for --model {a.model}")
 
     def run_stage(P: int, init: str):
         ensure_dataset(P)
@@ -274,10 +283,10 @@ def main() -> None:
 
     if a.budget_run:
         entry, _ = run_stage(a.start, a.init)
-        write_capacity({}, budget_run=entry, budget_key=result_keys(a.model)[1])
+        write_capacity({}, budget_run=entry, budget_key=result_keys(a.model, a.tag)[1])
         print(f"budget run, passkey {a.start}: validation exact {entry['validation']['exact']['256']:.3f} at N = 256, positions at {POS_OK}+: {entry['validation']['positions_ok'].get('256')}/{a.start}", flush=True)
         return
-    chain(run_stage, a.start, a.max_len, a.init, key=result_keys(a.model)[0])
+    chain(run_stage, a.start, a.max_len, a.init, key=result_keys(a.model, a.tag)[0])
 
 
 if __name__ == "__main__":
