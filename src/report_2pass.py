@@ -24,7 +24,7 @@ import report_groups as RG  # noqa: E402
 import report_rounds as RR  # noqa: E402
 import report_va as V  # noqa: E402
 from report_best import mean_curve, over_n, pick_best  # noqa: E402
-from report_groups import NS, cells_for_row, number_figures  # noqa: E402
+from report_groups import NS, cells_for_row, label_margin, number_figures  # noqa: E402
 
 f2 = lambda x: f"{x:.2f}"
 COLORS = ["var(--s2)", "var(--s3)", "var(--s1)", "var(--ink)"]
@@ -247,7 +247,7 @@ def longer_training(raw: list[dict], logs: dict) -> tuple[list[dict], list[str]]
             x1 = max(p["x"] for s_ in sr for p in s_["points"])
             figs.append({"key": key, "title": f"E4: validation passkey at N = {n:,} against the training step",
                          "sub": "Validation streams, every 2,000 steps (N = 4,096: 100 streams). Runs still in training are included up to the step they have reached; the bars come from the steps all runs of an arm share.",
-                         "caption": "", "spec": {"series": sr, "xTicks": list(range(0, x1 + 1, 25000)), "x0": 0, "x1": x1, "xLog": False, "xLabel": "training step", "yLabel": f"validation passkey, N = {n:,}", "legendLine": True, "rightPad": 70,
+                         "caption": "", "spec": {"series": sr, "xTicks": list(range(0, x1 + 1, 25000)), "x0": 0, "x1": x1, "xLog": False, "xLabel": "training step", "yLabel": f"validation passkey, N = {n:,}", "legendLine": True, "rightPad": label_margin([x["short"] for x in sr], 70),
                                                   "aria": f"Validation passkey at N = {n} during training for the E4 arms"}})
     for label, key in E4_ARMS:
         if key in rates:
@@ -367,7 +367,7 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         series.append(over_n(swa64["runs"], "plain SWA, window 64", "var(--ink-2)", width=2.0, short="SWA W64"))
     if gdn2:
         series.append(over_n(gdn2["runs"], f"GDN-2, mean of {seeds_lbl(gdn2)}", "var(--ink)", dashed=True, width=2.0, short="GDN-2"))
-    chart_n = {"series": series, "xTicks": NS, "x0": 32, "x1": 16384, "xLabel": "stream length N (AR writes, log scale; 16,384 writes ≈ 61k tokens)", "yLabel": "passkey exact match (test)", "legendLine": True, "rightPad": 96,
+    chart_n = {"series": series, "xTicks": NS, "x0": 32, "x1": 16384, "xLabel": "stream length N (AR writes, log scale; 16,384 writes ≈ 61k tokens)", "yLabel": "passkey exact match (test)", "legendLine": True, "rightPad": label_margin([x["short"] for x in series], 96),
                "vlines": [{"x": max(tc["train_ns"]), "label": "longest training stream", "dy": 0}], "aria": "Passkey accuracy against stream length for the two-pass layer, the vector loop, value adaptation and the baselines"}
 
     def curves(n: int) -> dict | None:
@@ -384,7 +384,7 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         if not sr:
             return None
         x1 = max(p["x"] for s_ in sr for p in s_["points"])
-        return {"series": sr, "xTicks": list(range(0, x1 + 1, 10000)), "x0": 0, "x1": x1, "xLog": False, "xLabel": "training step", "yLabel": f"validation passkey, N = {n:,}", "legendLine": True, "rightPad": 70,
+        return {"series": sr, "xTicks": list(range(0, x1 + 1, 10000)), "x0": 0, "x1": x1, "xLog": False, "xLabel": "training step", "yLabel": f"validation passkey, N = {n:,}", "legendLine": True, "rightPad": label_margin([x["short"] for x in sr], 70),
                 "aria": f"Validation passkey at N = {n} during training"}
 
     def trow(key):

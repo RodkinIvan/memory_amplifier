@@ -21,18 +21,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aggregate as A  # noqa: E402
 import config as C  # noqa: E402
 import report_rounds as RR  # noqa: E402
-from report_groups import cells_for_row, number_figures  # noqa: E402
+from report_groups import cells_for_row, label_margin, number_figures  # noqa: E402
 
 f2 = lambda x: f"{x:.2f}"
 NS = [32, 64, 128, 256]
 THRESHOLD, POS_OK = 0.9, 0.9
 MODEL_LABEL = {"swa_fb": "vector loop (segment 8)", "swa_2pass": "two-pass layer (segment 32)", "swa_va": "value adaptation"}
 MODEL_SHORT = {"swa_fb": "vector loop", "swa_2pass": "two-pass", "swa_va": "value adapt."}
+CHART_SHORT = {"swa_fb": "m-loop", "swa_2pass": "two-pass", "swa_va": "val.-adapt."}  # end-of-line labels of the chart
 COLORS = ["var(--s2)", "var(--s3)", "var(--s1)", "var(--ink)", "var(--muted)"]
 
 
 def recipe_label(steps: int, lr: float, curriculum: int) -> str:
     return f"{steps // 1000}k steps, lr {lr:g}" + (", curriculum" if curriculum else "")
+
+
+def chain_short(c: dict) -> str:
+    """Short name of a chain for the end of its line in the chart: 'two-pass 50k s1' (model, steps, seed). The full description is in the legend and the tooltips."""
+    return f"{CHART_SHORT.get(c['model'], c['model'])} {c['steps'] // 1000}k s{c['seed']}"
 
 
 def chains(capacity: dict, runs: dict[str, dict]) -> list[dict]:
@@ -107,10 +113,12 @@ def capacity_data(capacity: dict | None = None, runs: dict[str, dict] | None = N
             v = e["validation"]
             pts.append({"x": e["passkey_len"], "y": v["exact"]["256"], "tip": f"{html.escape(c['label'])}<br>P = {e['passkey_len']} ({e['bits']} bits)<br>validation exact {v['exact']['256']:.3f}, "
                                                                                  f"token accuracy {v['token']['256']:.3f}, positions at 0.9+: {v['positions_ok'].get('256', '?')} of {e['passkey_len']}"})
-        series.append({"label": c["label"], "short": c["label"], "points": pts, "c": COLORS[i % len(COLORS)], "width": 2.6, "dashed": c["steps"] < 20000})
+        series.append({"label": c["label"], "short": chain_short(c), "points": pts, "c": COLORS[i % len(COLORS)], "width": 2.6, "dashed": c["steps"] < 20000})
     ps = sorted({4} | {e["passkey_len"] for c in ch for e in c["stages"]})
     series.append({"label": "threshold 0.9 (the chain stops below it)", "short": "0.9", "points": [{"x": p, "y": THRESHOLD, "tip": "threshold 0.9"} for p in ps], "c": "var(--axis)", "width": 1.2, "dashed": True})
-    chart = {"series": series, "xTicks": ps, "x0": 4, "x1": max(ps), "xLabel": "passkey tokens P (4 bits each; log scale)", "yLabel": "validation exact match at N = 256", "legendLine": True, "rightPad": 40,
+    # the end-of-line labels are the short names; the margin on the right is sized from the longest one (about 6.5 px per character at the chart's font size, plus the offset of the label)
+    chart = {"series": series, "xTicks": ps, "x0": 4, "x1": max(ps), "xLabel": "passkey tokens P (4 bits each; log scale)", "yLabel": "validation exact match at N = 256", "legendLine": True,
+             "rightPad": label_margin([sr["short"] for sr in series]),
              "aria": "Passkey exact match at N = 256 against the passkey length for every chain"}
 
     # ---------------------------------------------------------------- tables

@@ -78,6 +78,23 @@ class CapacityReport(unittest.TestCase):
         self.assertEqual(chart["xTicks"], [4, 8, 16, 32])
         self.assertTrue(chart["series"][1]["dashed"] and not budget["dashed"])                  # short fine-tunes are dashed
 
+    def test_the_labels_fit_into_the_chart_and_the_grid(self):
+        """The end-of-line labels of the chart are short names and the margin on the right is sized from them (the long chain descriptions stay in the legend); grid row labels fit the label column."""
+        data, _, _ = self.build()
+        chart = next(f for f in data["extra_figs"] if f["key"] == "chart")["spec"]
+        shorts = [sr["short"] for sr in chart["series"]]
+        self.assertEqual(shorts, ["two-pass 50k s0", "two-pass 10k s0", "m-loop 50k s0", "0.9"])   # model, steps, seed (and the threshold line)
+        self.assertTrue(all(len(x) <= 16 for x in shorts), shorts)
+        for sr in chart["series"][:3]:
+            self.assertIn("seed", sr["label"])                                  # the legend keeps the full description (model, segment, recipe, seed)
+            self.assertIn("steps", sr["label"])
+        W, m_l = 760, 52                                                         # the template's chart width and left margin
+        longest = max(len(x) for x in shorts)
+        self.assertGreaterEqual(chart["rightPad"], 14 + 6.5 * longest)           # a label starts 14 px right of the last point: it ends inside the margin
+        self.assertLess(m_l + chart["rightPad"], W / 2)                          # and the margin leaves most of the width to the plot
+        for r in data["rows"]:
+            self.assertLessEqual(len(r["label"]) * 6.6, data["label_w"], r["label"])
+
     def test_the_table_lists_every_stage_with_its_positions_below_the_threshold(self):
         data, _, _ = self.build()
         table = next(f for f in data["extra_figs"] if f["key"] == "table")["html"]

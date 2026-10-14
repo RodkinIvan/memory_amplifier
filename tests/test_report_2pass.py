@@ -72,6 +72,17 @@ class TwoPassReport(unittest.TestCase):
         self.assertIn("loop_lr_mult 10 → 1", data["next"])
         self.assertNotIn("Pilots", self.build()[0]["next"])  # no pilot runs, no paragraph
 
+    def test_every_chart_has_a_margin_that_fits_its_end_labels(self):
+        """The end-of-line label of a series is drawn 14 px right of its last point (about 6.5 px per character): the margin must be at least as wide as the longest label."""
+        data, _, _ = self.build()
+        n = 0
+        for f in data["extra_figs"]:
+            if f.get("spec"):
+                shorts = [s["short"] for s in f["spec"]["series"] if s.get("short")]
+                self.assertGreaterEqual(f["spec"]["rightPad"], 14 + 6.5 * max(len(x) for x in shorts), (f["title"], shorts))
+                n += 1
+        self.assertGreaterEqual(n, 2)
+
     def test_without_two_pass_runs_there_is_nothing_to_report(self):
         with self.assertRaises(ValueError):
             R2.p2_data(self.fb32, {}, {})

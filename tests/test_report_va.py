@@ -73,6 +73,16 @@ class VaReport(unittest.TestCase):
         self.assertNotIn("NaN", text)
         self.assertEqual(data["next"], V.va_data([*va32, *va8, *self.fb8, *self.swa], {}, {"delta": delta})[0]["next"])  # deterministic
 
+    def test_every_chart_has_a_margin_that_fits_its_end_labels(self):
+        data, _, _ = self.build()
+        n = 0
+        for f in data["extra_figs"]:
+            if f.get("spec"):
+                shorts = [s["short"] for s in f["spec"]["series"] if s.get("short")]
+                self.assertGreaterEqual(f["spec"]["rightPad"], 14 + 6.5 * max(len(x) for x in shorts), (f["title"], shorts))
+                n += 1
+        self.assertGreaterEqual(n, 2)
+
     def test_probe_files_of_one_kind_are_merged_by_run(self):
         import tempfile
         from pathlib import Path

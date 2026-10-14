@@ -23,7 +23,7 @@ import config as C  # noqa: E402
 import report_groups as RG  # noqa: E402
 import report_rounds as RR  # noqa: E402
 from report_best import mean_curve, over_n  # noqa: E402
-from report_groups import NS, cells_for_row, number_figures  # noqa: E402
+from report_groups import NS, cells_for_row, label_margin, number_figures  # noqa: E402
 
 f2 = lambda x: f"{x:.2f}"
 PROBE_DIR = C.ROOT / "results" / "probes"
@@ -284,7 +284,7 @@ def va_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         series.append(over_n(swa64["runs"], "plain SWA, window 64", "var(--ink-2)", width=2.0, short="SWA W64"))
     if gdn2:
         series.append(over_n(gdn2["runs"], f"GDN-2, mean of {seeds_lbl(gdn2)}", "var(--ink)", dashed=True, width=2.0, short="GDN-2"))
-    chart_n = {"series": series, "xTicks": NS, "x0": 32, "x1": 16384, "xLabel": "stream length N (AR writes, log scale; 16,384 writes ≈ 61k tokens)", "yLabel": "passkey exact match (test)", "legendLine": True, "rightPad": 96,
+    chart_n = {"series": series, "xTicks": NS, "x0": 32, "x1": 16384, "xLabel": "stream length N (AR writes, log scale; 16,384 writes ≈ 61k tokens)", "yLabel": "passkey exact match (test)", "legendLine": True, "rightPad": label_margin([x["short"] for x in series], 96),
                "vlines": [{"x": max(tc["train_ns"]), "label": "longest training stream", "dy": 0}], "aria": "Passkey accuracy against stream length for value adaptation, the vector loop and the baselines"}
 
     def curves(n: int) -> dict | None:
@@ -298,7 +298,7 @@ def va_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
         if not sr:
             return None
         x1 = max(p["x"] for s_ in sr for p in s_["points"])
-        return {"series": sr, "xTicks": list(range(0, x1 + 1, 10000)), "x0": 0, "x1": x1, "xLog": False, "xLabel": "training step", "yLabel": f"validation passkey, N = {n:,}", "legendLine": True, "rightPad": 70,
+        return {"series": sr, "xTicks": list(range(0, x1 + 1, 10000)), "x0": 0, "x1": x1, "xLog": False, "xLabel": "training step", "yLabel": f"validation passkey, N = {n:,}", "legendLine": True, "rightPad": label_margin([x["short"] for x in sr], 70),
                 "aria": f"Validation passkey at N = {n} during training"}
 
     def trow(key):

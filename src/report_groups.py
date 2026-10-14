@@ -124,6 +124,12 @@ def reach(group: dict) -> int | None:
     return setting(group, "model.n_layers") * (setting(group, "model.window") - 1) if group["kind"] == "swa" else None
 
 
+def label_margin(labels: list[str], minimum: int = 70, px_per_char: float = 6.5, offset: int = 18) -> int:
+    """Pixels a line chart needs on the right of the plot for end-of-line labels of these texts: the template draws a label 14 px right of its line's last point, about 6.5 px per
+    character at its font size. A fixed margin overflows as soon as a label is longer than it was sized for."""
+    return max(minimum, int(offset + px_per_char * max((len(x) for x in labels), default=0)))
+
+
 def per_seed(runs: list[dict], n: int, metric: str = "passkey_acc", split: str = "test") -> list[float]:
     return [float(next(x for x in r["rows"] if x["split"] == split and x["N"] == n)[metric]) for r in runs]
 
