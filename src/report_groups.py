@@ -124,6 +124,11 @@ def reach(group: dict) -> int | None:
     return setting(group, "model.n_layers") * (setting(group, "model.window") - 1) if group["kind"] == "swa" else None
 
 
+def archive_note(what: str) -> str:
+    """Status line for results made by code that E7 removed (config.REMOVED_IN): they are stored results, the current code cannot reproduce them."""
+    return f" <span class='status'><span>archive: {what}, code removed in {C.REMOVED_IN}; stored results</span></span>"
+
+
 def fit_label(text: str, label_w: int, max_lines: int = 2, px_per_char: float = 6.7, pad: int = 14) -> str:
     """Wrap a heatmap row label so every line fits the label column (about 6.7 px per character at the heatmap's font, `pad` px of gap); lines are joined by a newline, which the template
     draws as separate lines. Two lines are balanced and break after a comma or colon when there is one ('..., segment 32, output of pass 2,' / 'mean of 3 seeds'); more lines are filled

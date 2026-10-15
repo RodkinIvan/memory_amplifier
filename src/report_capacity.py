@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import aggregate as A  # noqa: E402
 import config as C  # noqa: E402
 import report_rounds as RR  # noqa: E402
+import report_groups as RG  # noqa: E402
 from report_groups import cells_for_row, label_margin, number_figures  # noqa: E402
 
 f2 = lambda x: f"{x:.2f}"
@@ -289,7 +290,7 @@ def capacity_data(capacity: dict | None = None, runs: dict[str, dict] | None = N
         tldr.append("<b>In training now.</b> " + "; ".join(f"{name(p)}: step {p['step']:,}, {p['positions_ok']} of {p['P']} positions at 0.9 or more, exact {f2(p['exact256'])}" for p in prog) + ".")
     data = {
         "ns": NS, "rows": rows, "results": results, "scatter_ns": [], "hide_scatter": True, "label_w": 400, "row_name": "chain and stage", "row_prefix": "",
-        "meta": f"Passkey capacity, results of {time.strftime('%d %b %Y, %H:%M')}. Validation split, N counts AR writes. Chains: {len(ch)}.",
+        "meta": f"Passkey capacity, results of {time.strftime('%d %b %Y, %H:%M')}. Validation split, N counts AR writes. Chains: {len(ch)}." + RG.archive_note("the vector-loop stages, trained on the tail-recompute path"),
         "tldr": tldr, "tested": [], "results_title": "Results",
         "intro": ("<h2>Setup</h2><p>The checkpoint was trained on streams of up to 256 AR writes with a 4-token passkey. Stage P = 8, 16, 32, ...: a dataset with the same streams and a passkey of P tokens "
                   "(each token one of 16 values, 4 bits) is generated, the weights of the previous stage are fine-tuned on it, and the exact match of the passkey (all P tokens right) is measured on the validation and test split at N = 32 ... 256. "

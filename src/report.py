@@ -742,7 +742,8 @@ def fb_data() -> tuple[dict, str, str]:
     data = {
         "ns": NS, "rows": rows, "results": results, "row_runs": row_runs, "recipe_gain": rec_gain, "scatter_ns": [1024, 16384], "label_w": 330, "row_name": "configuration", "row_prefix": "",
         "meta": f"Phase 1, results of {time.strftime('%d %b %Y, %H:%M')}. <span class='status'><span>main sweep: <b>{n_main}/18 runs</b></span><span>·</span><span>extra runs: <b>{n_extra}/12</b></span>"
-                + (f"<span>·</span><span><b>{len(running)} runs in progress</b></span>" if running else "") + "</span>",
+                + (f"<span>·</span><span><b>{len(running)} runs in progress</b></span>" if running else "") + "</span>"
+                + RG.archive_note("the noise rows, the passkey-weight exploration and the tail-recompute path every run here was trained with"),
         "tldr": tldr, "tested": tested,
         "results_intro": "All numbers are from the <b>test</b> split (1,000 examples per N), the mean over the seeds that finished; the number of seeds is in brackets when it is not 3. N counts AR writes, one write is about 3.75 tokens, "
                          f"so N = 16,384 is about 61k tokens and, at segment 64, about 960 loop hops. Training: 20k steps on N ≤ 256 with the curriculum unless a row says otherwise. The reference is the plain window (W = 64, 2 layers, {ref_desc}). "

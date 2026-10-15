@@ -127,5 +127,30 @@ class WorkingConfigsAndTheQueue(unittest.TestCase):
         self.assertEqual(C.load_reference({"model": {"kind": "swa_va"}})["model"]["kind"], "swa_va")
 
 
+class ArchiveLabels(unittest.TestCase):
+    """Reports with results of removed settings say so (and name the commit)."""
+
+    def test_the_commit_is_named_and_the_note_says_what_is_archived(self):
+        self.assertRegex(C.REMOVED_IN, r"commit [0-9a-f]{7}")
+        import report_groups as RG
+        note = RG.archive_note("the noise rows")
+        self.assertIn("archive: the noise rows", note)
+        self.assertIn(C.REMOVED_IN, note)
+
+    def test_the_reports_built_from_stored_results_of_removed_settings_carry_the_label(self):
+        import tests.test_report_2pass as T2
+        import tests.test_report_capacity as TC
+        import tests.test_report_best as TB
+        for mod, cls in ((T2, "TwoPassReport"), (TC, "CapacityReport"), (TB, "BestReport")):
+            t = getattr(mod, cls)()
+            t.setUp()
+            meta = t.build()[0]["meta"]
+            self.assertIn("archive:", meta, cls)
+            self.assertIn(C.REMOVED_IN, meta, cls)
+        import report as R
+        import inspect
+        self.assertIn("RG.archive_note(", inspect.getsource(R.fb_data))   # the feedback-loop report needs the real runs and logs; its meta line is built next to the noise rows it labels
+
+
 if __name__ == "__main__":
     unittest.main()

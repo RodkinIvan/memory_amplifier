@@ -287,7 +287,8 @@ def best_data(raw: list[dict] | None = None, logs: dict | None = None, explore: 
              "<h2>Training procedure and techniques</h2><ul class='tight'>" + "".join(f"<li>{b}</li>" for b in bullets) + "</ul>")
     data = {
         "ns": NS, "rows": rows, "results": results, "scatter_ns": [], "hide_scatter": True, "label_w": 352, "row_name": "configuration", "row_prefix": "",
-        "meta": f"Sub-report for the group meeting, results of {__import__('time').strftime('%d %b %Y, %H:%M')}. Best checkpoint: <code>runs/{best['name']}/model.pt</code>. Test split, N counts AR writes, one write is about 3.75 tokens.",
+        "meta": f"Sub-report for the group meeting, results of {__import__('time').strftime('%d %b %Y, %H:%M')}. Best checkpoint: <code>runs/{best['name']}/model.pt</code>. Test split, N counts AR writes, one write is about 3.75 tokens."
+                + RG.archive_note("the exploration rows with noise or a passkey weight, and the tail-recompute path the runs were trained with"),
         "tldr": tldr, "tested": [], "intro": intro, "results_title": "Results",
         "results_intro": "The mean lines are the average over the seeds of a setup, bars from the worst to the best seed. The best checkpoint is one run, selected on validation.",
         "fig1_title": "1. Accuracy by configuration and stream length", "fig1_sub": "Rows: the best checkpoint, the averages of the best setups, the baselines. Columns: stream length N. Darker is higher.",

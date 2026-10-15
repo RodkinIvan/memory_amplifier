@@ -502,6 +502,7 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
     data = {
         "ns": NS, "rows": rows, "results": results, "scatter_ns": [], "hide_scatter": True, "label_w": 352, "row_name": "configuration", "row_prefix": "",
         "meta": f"Design experiment E2, results of {time.strftime('%d %b %Y, %H:%M')}. Test split, N counts AR writes, one write is about 3.75 tokens. Every row is one configuration; seeds are averaged only within a configuration."
+                + RG.archive_note("the rows with the output of pass 2 and the value-adaptation row")
                 + ((f" Still training (not in the tables): {', '.join(running)}." if len(running) <= 4 else
                     f" {len(running)} runs are still training and are not in the tables (steps {min(int(x.split('step ')[1].rstrip(')').replace(',', '')) for x in running):,} to {max(int(x.split('step ')[1].rstrip(')').replace(',', '')) for x in running):,}).") if running else ""),
         "tldr": tldr, "tested": [], "results_title": "Results",

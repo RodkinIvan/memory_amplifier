@@ -109,7 +109,7 @@ CODE_DEFAULTS = {"model.segment": 0, "model.nonlin": "tanh", "model.noise": 0.0,
 # ---- settings removed in E7 ---------------------------------------------------------------------------------------------------------------------
 # The code no longer implements them, but stored configs keep their keys (and `CODE_DEFAULTS` its defaults), so every old result still belongs to exactly one configuration and the frozen
 # references are unchanged. Building or training a removed setting stops with a message naming the commit that removed it.
-REMOVED_IN = "the E7 commit (see `git log --grep E7`)"  # replaced by the hash of that commit in the commit that follows it
+REMOVED_IN = "commit 60b6a00 (E7)"  # the commit that removed them: the code of every removed setting is in the history before it (`git show 60b6a00^:src/models.py`)
 
 
 def removed_model_settings(mc: dict) -> list[str]:
