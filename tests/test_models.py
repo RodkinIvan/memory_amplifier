@@ -541,5 +541,179 @@ class TwoPassBehaviour(unittest.TestCase):
             m(input_ids=torch.randint(1, 40, (1, 96), device="cuda"))
 
 
+def pass_two_as_a_whole_block(model: TwoPassSWA, input_ids: torch.Tensor, hook=None) -> torch.Tensor:
+    """`TwoPassSWA.forward` as it was before E6, kept as the reference: pass 2 runs the whole block on h + g * (y1 - h) through the real cache (attention, output projection and MLP
+    included) and drops what it returns. `hook(segment, cache)` is called after every segment like the model's `cache_hook`."""
+    from models import _PeekCache, _TailCache
+    B, T = input_ids.shape
+    C, W = model.segment, model.window
+    if T % C:
+        input_ids = torch.nn.functional.pad(input_ids, (0, C - T % C), value=0)
+    x = model.base.model.embeddings(input_ids)
+    layers = model.base.model.layers
+    cache = _TailCache(W - 1, len(layers))
+    outs = []
+    for s in range(x.shape[1] // C):
+        h = x[:, s * C:(s + 1) * C]
+        for layer, loop in zip(layers, model.loops):
+            y1 = layer(h, past_key_values=_PeekCache(cache), use_cache=True)[0]
+            h2 = h + (loop.gain * (y1 - h).float()).to(h.dtype)
+            layer(h2, past_key_values=cache, use_cache=True)
+            h = y1
+        outs.append(h)
+        if hook is not None:
+            hook(s, cache)
+    return model.base.lm_head(model.base.model.norm(torch.cat(outs, dim=1)[:, :T]))
+
+
+class RecordCache:
+    """A cache hook that keeps a copy of the window's keys and values of every layer after every segment."""
+
+    def __init__(self):
+        self.snap = {}
+
+    def __call__(self, s, cache):
+        self.snap[s] = [(cache.k[i].detach().clone(), cache.v[i].detach().clone()) for i in range(len(cache.k))]
+
+
+@unittest.skipUnless(torch.cuda.is_available(), "needs a CUDA GPU")
+class PassTwoIsTheCacheWriteOnly(unittest.TestCase):
+    """Review E6: with the output of pass 1, pass 2 matters only through the keys and values it writes, so the model computes only those (`write_kv`). The same function as running
+    the block and dropping its output: equal cache contents after every segment and layer, equal logits, equal gradients."""
+
+    def models(self, qk_norm=False, window=16, segment=8, seed=0):
+        from fla.models import TransformerConfig, TransformerForCausalLM
+        torch.manual_seed(seed)
+        cfg = TransformerConfig(hidden_size=64, num_hidden_layers=2, num_heads=2, window_size=window, vocab_size=40, max_position_embeddings=1 << 17, tie_word_embeddings=True,
+                                fuse_cross_entropy=False, use_cache=False, qk_norm=qk_norm)
+        m = TwoPassSWA(TransformerForCausalLM(cfg), window=window, segment=segment).cuda().eval()
+        strong_two_pass(m, 0.5)
+        return m
+
+    def go(self, m, x, forward, record=None):
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            return forward(m, x, record).float()
+
+    def new(self, m, x, record=None):
+        m.cache_hook = record
+        try:
+            return m(input_ids=x).logits
+        finally:
+            m.cache_hook = None
+
+    def test_cache_contents_and_logits_are_equal_after_every_segment(self):
+        for qk_norm in (False, True):
+            m = self.models(qk_norm)
+            x = torch.randint(8, 40, (3, 8 * 11), device="cuda")
+            a, b = RecordCache(), RecordCache()
+            la = self.go(m, x, lambda mm, xx, rec: pass_two_as_a_whole_block(mm, xx, rec), a)
+            lb = self.go(m, x, self.new, b)
+            self.assertEqual(sorted(a.snap), sorted(b.snap))
+            for s in a.snap:
+                for i, ((ka, va), (kb, vb)) in enumerate(zip(a.snap[s], b.snap[s])):
+                    self.assertTrue(torch.equal(ka, kb) and torch.equal(va, vb), (qk_norm, s, i))
+            self.assertEqual(float((la - lb).abs().max()), 0.0, qk_norm)
+
+    def test_gradients_are_equal(self):
+        m = self.models()
+        x = torch.randint(8, 40, (3, 8 * 11), device="cuda")
+        grads = []
+        for forward in (lambda mm, xx: pass_two_as_a_whole_block(mm, xx), lambda mm, xx: mm(input_ids=xx).logits):
+            m.zero_grad()
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                forward(m, x).float().logsumexp(-1).mean().backward()
+            grads.append({n: p.grad.detach().clone() for n, p in m.named_parameters() if p.grad is not None})
+        self.assertEqual(set(grads[0]), set(grads[1]))
+        self.assertTrue(any(float(g.abs().sum()) > 0 for n, g in grads[0].items() if n.startswith("loops.")))  # the gains get a gradient, through the cache only
+        for n in grads[0]:
+            self.assertLess(float((grads[0][n] - grads[1][n]).abs().max()), 1e-6 + 1e-3 * float(grads[0][n].abs().max()), n)
+
+    def test_the_positions_of_the_stored_entries_are_the_caches(self):
+        """The RoPE offset of pass 2 is the number of tokens stored before: a write with a wrong offset would change the keys of every later segment."""
+        m = self.models()
+        x = torch.randint(8, 40, (2, 8 * 6), device="cuda")
+        rec = RecordCache()
+        self.go(m, x, self.new, rec)
+        ref = RecordCache()
+        self.go(m, x, lambda mm, xx, r: pass_two_as_a_whole_block(mm, xx, r), ref)
+        for s in (0, 1, 5):
+            for (ka, _), (kb, _) in zip(rec.snap[s], ref.snap[s]):
+                self.assertTrue(torch.equal(ka, kb), s)
+
+    def test_nothing_but_the_key_and_value_projections_runs_in_pass_two(self):
+        """The attention, its output projection and the MLP are called once per layer and segment (pass 1) instead of twice."""
+        m = self.models()
+        x = torch.randint(8, 40, (2, 8 * 6), device="cuda")
+        calls = {"attn": 0, "mlp": 0, "o_proj": 0}
+        hooks = []
+        for layer in m.base.model.layers:
+            hooks.append(layer.attn.register_forward_hook(lambda *a: calls.__setitem__("attn", calls["attn"] + 1)))
+            hooks.append(layer.mlp.register_forward_hook(lambda *a: calls.__setitem__("mlp", calls["mlp"] + 1)))
+            hooks.append(layer.attn.o_proj.register_forward_hook(lambda *a: calls.__setitem__("o_proj", calls["o_proj"] + 1)))
+        self.go(m, x, self.new)
+        for h in hooks:
+            h.remove()
+        self.assertEqual(calls, {"attn": 2 * 6, "mlp": 2 * 6, "o_proj": 2 * 6})  # layers x segments: one pass each (it was twice that)
+
+    CKPT = _paths.ROOT / "checkpoints" / "swa_2pass_seg32_po1_s5.pt"
+    DATA = _paths.ROOT / "data_cache" / "passkey_swar" / "n256" / "test.parquet"
+
+    @unittest.skipUnless(CKPT.exists() and DATA.exists(), "needs the backed-up checkpoint and the dataset")
+    def test_the_best_checkpoint_gives_the_same_cache_logits_and_gradients_eager_and_in_a_cuda_graph(self):
+        import json
+        import data as D
+        import graphed
+        import train as T
+        cfg = json.loads((_paths.ROOT / "results" / "raw" / "swa_2pass_seg32_po1_s5.json").read_text())["config"]
+        m = build_from_config(cfg["model"], 40).cuda()
+        m.load_state_dict(torch.load(self.CKPT, map_location="cpu", weights_only=True))
+        m.eval()
+        ids_np, labs_np = D.pad_batch(D.load_packed(self.DATA), torch.arange(6).numpy(), 32)   # six real streams of N = 256: about 30 segments of 32 tokens
+        ids, labs = torch.from_numpy(ids_np).cuda(), torch.from_numpy(labs_np).cuda()
+        a, b = RecordCache(), RecordCache()
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            m.zero_grad()
+            la = pass_two_as_a_whole_block(m, ids, a)
+            T.masked_ce(la, labs).backward()
+            ga = {n: p.grad.clone() for n, p in m.named_parameters() if p.grad is not None}
+            m.zero_grad()
+            m.cache_hook = b
+            lb = m(input_ids=ids).logits
+            m.cache_hook = None
+            T.masked_ce(lb, labs).backward()
+            gb = {n: p.grad.clone() for n, p in m.named_parameters() if p.grad is not None}
+        self.assertGreaterEqual(len(a.snap), 29)
+        for s in a.snap:
+            for i, ((ka, va), (kb, vb)) in enumerate(zip(a.snap[s], b.snap[s])):
+                self.assertTrue(torch.equal(ka, kb) and torch.equal(va, vb), (s, i))   # equal cache contents per segment and layer
+        self.assertEqual(float((la - lb).abs().max()), 0.0)                            # equal logits
+        self.assertEqual(set(ga), set(gb))
+        for n in ga:                                                                     # equal gradients of the loss on this batch
+            self.assertLess(float((ga[n] - gb[n]).abs().max()), 1e-6 + 1e-3 * float(ga[n].abs().max()), n)
+
+        class Old(torch.nn.Module):   # the CUDA-graph step around the old forward
+            def __init__(self, model):
+                super().__init__()
+                self.model = model
+
+            def forward(self, input_ids, **_):
+                from types import SimpleNamespace
+                return SimpleNamespace(logits=pass_two_as_a_whole_block(self.model, input_ids))
+
+        tc = {"lr": 1e-3, "betas": [0.9, 0.95], "weight_decay": 0.01, "loop_lr_mult": 10.0, "grad_clip": 1.0}
+        out = []
+        for wrap in (lambda mm: Old(mm), lambda mm: mm):
+            mm = build_from_config(cfg["model"], 40).cuda()
+            mm.load_state_dict(torch.load(self.CKPT, map_location="cpu", weights_only=True))
+            mm.train()
+            opt = T.make_optimizer(mm, tc, capturable=True)
+            stepper = graphed.GraphedTrainStep(wrap(mm), opt, T.masked_ce, 1.0, torch.bfloat16)
+            losses = [float(stepper.step(ids, labs, [1e-4 * g.get("lr_mult", 1.0) for g in opt.param_groups])[0]) for _ in range(3)]
+            out.append((losses, [p.detach().clone() for p in mm.parameters()]))
+        for x, y in zip(*[o[0] for o in out]):
+            self.assertAlmostEqual(x, y, places=5)                                       # the graph steps follow each other
+        self.assertLess(max(float((p - q).abs().max()) for p, q in zip(out[0][1], out[1][1])), 1e-5)
+
+
 if __name__ == "__main__":
     unittest.main()

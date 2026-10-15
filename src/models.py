@@ -258,6 +258,22 @@ class _PeekCache:
         return {"attn_state": (torch.cat([self.cache.k[layer_idx], k_new], dim=1), torch.cat([self.cache.v[layer_idx], v_new], dim=1))}
 
 
+def write_kv(layer, h: torch.Tensor, cache) -> None:
+    """Store in `cache` the keys and values that block `layer` computes from the input `h` (pass 2 of `TwoPassSWA`), and nothing else. fla's `Attention.forward` derives them from the
+    block's input alone: k = rotary(k_proj(attn_norm(h))) (after `k_norm` with `qk_norm`), v = v_proj(attn_norm(h)), stored flattened over the heads, with the RoPE offset
+    `cache.get_seq_length` and written through `cache.update`, so the window trimming is the cache's own. The attention itself, its output projection and the MLP are not run: with
+    the output of pass 1 the result of pass 2 is not used, so this is the same function as running the whole block and discarding what it returns (tests/test_models.py)."""
+    attn = layer.attn
+    x = layer.attn_norm(h)
+    k = rearrange(attn.k_proj(x), "... (h d) -> ... h d", d=attn.head_dim)
+    v = rearrange(attn.v_proj(x), "... (h d) -> ... h d", d=attn.head_dim)
+    if attn.qk_norm:
+        k = attn.k_norm(k)
+    offset = cache.get_seq_length(attn.layer_idx)
+    _, k = attn.rotary(k, k, seqlen_offset=offset, max_seqlen=max(h.shape[1] + offset, attn.max_position_embeddings or 0))  # (rotates k twice: the first result is q's slot, dropped)
+    cache.update(attn_state=(k.flatten(-2, -1), v.flatten(-2, -1)), layer_idx=attn.layer_idx, offset=h.shape[1], cache_kwargs=dict(window_size=attn.window_size))
+
+
 class PassGain(nn.Module):
     """The learned per-channel gain g of one layer of `TwoPassSWA` (a module of its own so that the optimizer finds it in the `loops` group)."""
 
@@ -271,8 +287,8 @@ class TwoPassSWA(nn.Module):
 
     For segment s and layer i, with h the layer's input for the segment:
       pass 1 (read):   y1 = block_i(h), attention over the cached window plus the segment itself (causal); nothing is written to the cache. y1 is what the next layer receives.
-      pass 2 (write):  the same block with the same weights on h + g * (y1 - h); its keys and values, computed from that new input, are the ones stored (the entries later
-                       segments see). Its output is not used.
+      pass 2 (write):  the keys and values the same block (same weights) computes from h + g * (y1 - h) are stored (the entries later segments see). Nothing else of pass 2 is
+                       computed: its output would not be used, so only the key and value projections run (`write_kv`).
     Only the update y1 - h is fed back, so with g = 0 pass 2 writes what pass 1 read and the model is plain sliding-window attention. Both passes use the same RoPE positions
     (the view of pass 1 does not advance the cache). Nothing but the cache crosses a segment boundary. (Before E7 the next layer could receive pass 2's output instead,
     `pass_output` 2; it trained much worse and was removed.)"""
@@ -300,7 +316,7 @@ class TwoPassSWA(nn.Module):
             for layer, loop in zip(layers, self.loops):
                 y1 = layer(h, past_key_values=_PeekCache(cache), use_cache=True)[0]
                 h2 = h + (loop.gain * (y1 - h).float()).to(h.dtype)
-                layer(h2, past_key_values=cache, use_cache=True)  # pass 2: only the keys and values it writes to the cache count, its output is dropped
+                write_kv(layer, h2, cache)  # pass 2: only the keys and values it writes to the cache count (E6: its attention and MLP are not run)
                 h = y1
             outs.append(h)
             if self.cache_hook is not None:
