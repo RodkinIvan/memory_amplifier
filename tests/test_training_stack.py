@@ -80,30 +80,15 @@ class TrainHelpers(unittest.TestCase):
         self.assertTrue(all(T.lr_at(s, tc) >= T.lr_at(s + 1, tc) for s in range(10, 110)))
 
 
-    def test_weighted_ce_default_equals_the_plain_mean_and_weights_only_the_passkey(self):
+    def test_masked_ce_is_the_plain_mean_over_the_supervised_positions(self):
         torch.manual_seed(0)
         logits = torch.randn(3, 20, 40)
         labels = torch.full((3, 20), -100)
         labels[:, 4], labels[:, 7] = 9, 11          # two AR answers
         labels[:, 15:19] = torch.tensor([8, 9, 10, 11])  # four passkey tokens, then EOS (unsupervised)
         plain = F.cross_entropy(logits[:, :-1].reshape(-1, 40), labels[:, 1:].reshape(-1), ignore_index=-100)
-        self.assertAlmostEqual(float(T.weighted_ce(logits, labels)), float(plain), places=6)
-        w = T.weighted_ce(logits, labels, passkey_weight=10.0)
-        ce = F.cross_entropy(logits[:, :-1].reshape(-1, 40), labels[:, 1:].reshape(-1), ignore_index=-100, reduction="none").view(3, 19)
-        sup = labels[:, 1:] != -100
-        pk = torch.zeros_like(sup)
-        pk[:, 14:18] = True  # shifted by one: targets of positions 15..18
-        expect = (ce * (sup.float() * (1 + 9 * pk.float()))).sum() / (sup.float() * (1 + 9 * pk.float())).sum()
-        self.assertAlmostEqual(float(w), float(expect), places=5)
-
-    def test_passkey_weight_anneals_log_linearly_to_one(self):
-        tc = {"passkey_weight": 100.0, "passkey_weight_anneal_steps": 1000}
-        self.assertAlmostEqual(T.passkey_weight_at(0, tc), 100.0)
-        self.assertAlmostEqual(T.passkey_weight_at(500, tc), 10.0)  # geometric midpoint
-        self.assertAlmostEqual(T.passkey_weight_at(1000, tc), 1.0)
-        self.assertAlmostEqual(T.passkey_weight_at(5000, tc), 1.0)  # stays at 1 afterwards
-        self.assertEqual(T.passkey_weight_at(123, {"passkey_weight": 7.0}), 7.0)  # no annealing configured: constant
-        self.assertEqual(T.passkey_weight_at(123, {}), 1.0)
+        self.assertAlmostEqual(float(T.masked_ce(logits, labels)), float(plain), places=6)
+        self.assertFalse(hasattr(T, "passkey_weight_at") or hasattr(T, "weighted_ce"))  # the passkey weighting was removed in E7
 
     def test_curriculum_adds_one_config_per_stage(self):
         tc = {"train_ns": [32, 64, 128, 256], "curriculum_stage_steps": 1000}
@@ -327,8 +312,6 @@ class RestartWaitsForMemory(unittest.TestCase):
         self.assertEqual([C.footprint_gb(cfg(segment=s)) for s in (8, 16, 32, 64, 0)], [8.0, 6.5, 5.0, 5.0, 5.0])
         self.assertEqual(C.footprint_gb({"model": {"kind": "gdn2"}}), 4.5)
         self.assertEqual(C.footprint_gb({"model": {"kind": "swa", "window": 64}}), 4.0)
-        va = lambda s: C.footprint_gb({"model": {"kind": "swa_va", "window": 64, "segment": s}})  # measured with the CUDA-graph step: 7.0 at segment 8, 6.3 at 32
-        self.assertEqual([va(8), va(32), va(0)], [7.5, 6.5, 6.5])
         tp = lambda s: C.footprint_gb({"model": {"kind": "swa_2pass", "window": 64, "segment": s}})  # measured with the CUDA-graph step: 6.5 at segment 32, 6.1 at 64
         self.assertEqual([tp(32), tp(64), tp(0)], [7.0, 6.5, 6.5])
 

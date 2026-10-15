@@ -5,11 +5,11 @@
     python src/report.py swa --out reports/swa_report.html
     python src/report.py fb --out reports/fb_report.html     # SWA + segment feedback loop (also reads logs/fbsweep for runs in progress)
     python src/report.py best --out reports/best_report.html # presentation sub-report: the method and the best checkpoint
-    python src/report.py va --out reports/va_report.html     # design experiment E1: value adaptation of the short-term store
     python src/report.py p2 --out reports/p2_report.html     # design experiment E2: the two-pass layer
     python src/report.py capacity --out reports/capacity_report.html  # passkey capacity: how many passkey tokens fit
 
-All numbers in the text are computed from the data; the template is reports/report_template.html.
+All numbers in the text are computed from the data; the template is reports/report_template.html. (The value-adaptation report of E1, `va`, is an archive: its code was removed in E7,
+reports/va_report.html stays as it was published.)
 """
 from __future__ import annotations
 
@@ -784,7 +784,7 @@ def fb_data() -> tuple[dict, str, str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("kind", choices=["gdn", "swa", "fb", "best", "va", "p2", "capacity"])
+    ap.add_argument("kind", choices=["gdn", "swa", "fb", "best", "p2", "capacity"])
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
     if a.kind == "best":
@@ -798,10 +798,6 @@ def main() -> None:
     if a.kind == "p2":
         import report_2pass  # design experiment E2: the two-pass layer
         render(*report_2pass.p2_data(), a.out)
-        return
-    if a.kind == "va":
-        import report_va  # design experiment E1: value adaptation of the short-term store
-        render(*report_va.va_data(), a.out)
         return
     render(*{"gdn": gdn_data, "swa": swa_data, "fb": fb_data}[a.kind](), a.out)
 

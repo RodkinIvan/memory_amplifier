@@ -9,7 +9,7 @@ and AR valid accuracy at the stream lengths among N = 256 / 1,024 / 4,096 / 16,3
 can be checked and reloaded without the runs/ folder (review L11). On a fresh clone the manifest lists files that are not there; the checks skip those:
 
     import json, torch; from models import build_from_config
-    cfg = json.load(open("results/raw/<name>.json"))["config"]; model = build_from_config(cfg["model"], 40)
+    cfg = json.load(open("results/raw/<name>.json"))["config"]; model = build_from_config(cfg["model"], 40)   # a swa_fb run from before E7 needs {**cfg["model"], "kv_cache": True}
     model.load_state_dict(torch.load("checkpoints/<name>.pt", map_location="cpu", weights_only=True))
 """
 from __future__ import annotations

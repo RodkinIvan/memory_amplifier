@@ -51,7 +51,7 @@ python src/launch.py --config configs/swa.yaml --session swa --gpus 0 1 --procs-
 python src/launch.py --config configs/swa_fb.yaml --session fbsweep --gpus 0 1 --procs-per-gpu 9 \
     --sweep model.nonlin=tanh,none model.segment=64,32,16 seed=0,1,2          # feedback loop; defaults of the yaml = the recipe
 tmux new -d -s fbqueue 'python src/run_queue.py --queue configs/queue.txt --watch fbsweep'   # unattended queue of further sweeps
-#   (a stage starts only with free GPU memory for its workers; add --set model.kv_cache=true to a sweep to cut the loop model's memory 2-4x, same results, no speed-up)
+#   (a stage starts only with free GPU memory for its workers)
 #   queue stages are gated on the measured per-worker memory (config.footprint_gb: 8 GB at segment 8, 5 GB at segments 32/64; segment-8 stages run at most 2 workers per GPU), and a
 #   worker waits for that much free memory before it restarts a run after an out-of-memory crash
 #   a run that dies with CUDA out-of-memory (also in mid-training) is restarted up to 30 times (5 min apart) and resumes from runs/<name>/resume.pt (written at every periodic
@@ -61,10 +61,16 @@ python src/config.py results/raw/*.json                                         
 python src/aggregate.py                                                          # results/summary*.csv + plots
 python src/probes.py passkey-length --runs swa_w128_L4_s0 --out results/probes/x.json   # probes on checkpoints (see --help)
 python src/probes.py profile --runs swa_fb_nltanh_seg64_s2 --ns 256 1024 4096 --out results/probes/passkey_profile.json   # tokens right per stream
-python src/probes.py attractor --runs swa_fb_seg32_noise0.3_nltanh_s0 --out results/probes/attractor_probe.json   # perturb the loop vector, contraction, Jacobian
-python src/report.py swa --out reports/swa_report.html                          # self-contained HTML report (gdn | swa | fb | best)
+python src/probes.py attractor --runs swa_fb_gi0_nlnone_seg8_steps50000_s2 --out results/probes/attractor_probe.json   # perturb the loop vector, contraction, Jacobian
+python src/report.py swa --out reports/swa_report.html                          # self-contained HTML report (gdn | swa | fb | best | p2 | capacity)
 python src/report.py best --out reports/best_report.html                        # presentation sub-report: the method, the best checkpoint, seed-average lines
 ```
+
+**Removed in E7** (what did not work; the results stay in `results/` as an archive, the code is in the git history before that commit): value adaptation (`swa_va`, `reports/va_report.html` is the published
+archive page), noise on the loop vector (`model.noise`), the tail-recompute path of `swa_fb` (`model.kv_cache: false`; the loop model only has the key/value cache path, which computes the same function up to rounding),
+the output of pass 2 in `swa_2pass` (`model.pass_output: 2`), and the passkey loss weight (`train.passkey_weight`, `_anneal_steps`). Stored configs keep these keys and `config.CODE_DEFAULTS` their defaults, so every
+old result still belongs to one configuration and the frozen references are unchanged; building or training a removed setting stops with a message naming the commit (`config.REMOVED_IN`). A config from before E7 must
+say `kv_cache: true` (swa_fb) or `pass_output: 1` (swa_2pass) to be built, e.g. to evaluate old weights.
 
 wandb run names are `<model>_<overridden hyperparameters>_s<seed>`, e.g. `gdn_fixed_a0.95_s1`. The wandb key is read from a
 git-ignored file `wandb_token` (or `$WANDB_API_KEY`).
@@ -81,7 +87,7 @@ else are never averaged, and `reports/fb_report.html` ends with a table of every
 data/    make_passkey_swar.py  generator (deterministic, per-example seeds)
          sanity_checks.py      oracle, mutation test, determinism, leakage, statistics
          upload_passkey_swar.py, tune_drift.py, vocab.json
-src/     models.py (fixed-decay GDN, sliding-window attention, segment-feedback SWA), data.py, evaluate.py, train.py (resumable), graphed.py (CUDA-graph step),
+src/     models.py (fixed-decay GDN, sliding-window attention, segment-feedback SWA, two-pass SWA), data.py, evaluate.py, train.py (resumable), graphed.py (CUDA-graph step),
          launch.py, run_queue.py (unattended queue of sweeps), aggregate.py, probes.py (checkpoint probes on fresh streams), report.py + report_groups.py +
          report_rounds.py (HTML reports; rows = configurations), config.py (configs, run names, diff against the frozen references)
 checkpoints/ the best weights, LOCAL ONLY (git-ignored, review K2; 2.1-2.3 MB each); manifest.json (tracked) has their hashes and metrics; `python scripts/backup_checkpoints.py <run>`

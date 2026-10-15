@@ -194,6 +194,7 @@ if __name__ == "__main__":
 def fake_run(config: str, overrides: list[str], seed: int, passkey: dict, valid: float = 0.99, hist=None) -> dict:
     """A loaded run (as aggregate.load_runs returns it) with the given passkey accuracy per N; everything else plausible."""
     cfg, keys = C.load_config(_paths.ROOT / "configs" / config, [*overrides, f"seed={seed}"])
+    cfg["model"].pop("kv_cache", None)  # the runs the reports show were stored before E7: no kv_cache key (the working swa_fb.yaml states `kv_cache: true`, one difference to the reference that these rows must not have)
     rows = [{"split": sp, "N": n, "passkey_acc": passkey.get(n, 0.0), "ar_valid_acc": valid, "ar_expired_acc": 1.0, "ar_expired_stale_acc": 1.0, "ar_expired_never_acc": 1.0,
              "n_examples": 1000, "n_valid": 100, "n_expired_stale": 100, "n_expired_never": 10} for sp in ("validation", "test") for n in R.NS]
     return {"name": C.run_name(cfg, keys), "seed": seed, "cfg": cfg, "rows": rows, "final_train_loss": 0.02, "n_params": 563584, "train_time_s": 7200.0, "val_history": hist, "model": "x", "alpha": float("nan")}

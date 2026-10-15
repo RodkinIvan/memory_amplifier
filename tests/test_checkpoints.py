@@ -24,7 +24,8 @@ PRESENT = {n: m for n, m in MANIFEST.items() if (ROOT / m["file"]).exists()}   #
 
 def load(name):
     cfg = json.loads((ROOT / "results" / "raw" / f"{name}.json").read_text())["config"]
-    model = build_from_config(cfg["model"], 40)
+    mc = {**cfg["model"], "kv_cache": True} if cfg["model"]["kind"] == "swa_fb" else cfg["model"]  # E7: the loop model has only the cache path; these weights were trained on the tail path (same function up to rounding), so the load says so
+    model = build_from_config(mc, 40)
     model.load_state_dict(torch.load(ROOT / MANIFEST[name]["file"], map_location="cpu", weights_only=True))
     return model.eval()
 

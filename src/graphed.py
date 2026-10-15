@@ -5,9 +5,7 @@ of the time waiting for the CPU (review M8). Replaying a captured graph issues t
 step computes: same kernels, same optimizer (AdamW with `capturable=True`, the learning rate is a device tensor that is filled before
 every replay), so results agree with the eager path up to float rounding (tests/test_graphed.py).
 
-Constraints: the loss weights must be constant (no passkey-weight annealing), every batch of one shape reuses the same static
-input buffers, and the random streams of the graph (loop noise) are the graph-safe CUDA generator's, so a noisy run is not bit-identical
-to its eager twin.
+Constraint: every batch of one shape reuses the same static input buffers.
 """
 from __future__ import annotations
 

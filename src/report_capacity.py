@@ -26,9 +26,9 @@ from report_groups import cells_for_row, label_margin, number_figures  # noqa: E
 f2 = lambda x: f"{x:.2f}"
 NS = [32, 64, 128, 256]
 THRESHOLD, POS_OK = 0.9, 0.9
-MODEL_LABEL = {"swa_fb": "vector loop (segment 8)", "swa_2pass": "two-pass layer (segment 32)", "swa_va": "value adaptation"}
-MODEL_SHORT = {"swa_fb": "vector loop", "swa_2pass": "two-pass", "swa_va": "value adapt."}
-CHART_SHORT = {"swa_fb": "m-loop", "swa_2pass": "two-pass", "swa_va": "val.-adapt."}  # end-of-line labels of the chart
+MODEL_LABEL = {"swa_fb": "vector loop (segment 8)", "swa_2pass": "two-pass layer (segment 32)"}
+MODEL_SHORT = {"swa_fb": "vector loop", "swa_2pass": "two-pass"}
+CHART_SHORT = {"swa_fb": "m-loop", "swa_2pass": "two-pass"}  # end-of-line labels of the chart
 COLORS = ["var(--s2)", "var(--s3)", "var(--s1)", "var(--ink)", "var(--muted)"]
 
 

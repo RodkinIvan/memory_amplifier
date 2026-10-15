@@ -184,48 +184,6 @@ class Records(unittest.TestCase):
         self.assertEqual(results[0], results[1])
 
 
-class ValueAdaptationStage(unittest.TestCase):
-    """The same experiment for the value-adaptation model: another config, its own result keys, the default names of the first model unchanged."""
-
-    def test_a_value_adaptation_stage_fine_tunes_the_segment_32_model_with_its_own_config(self):
-        ov = CAP.stage_overrides(8, "runs/x/model.pt", 50000, 1e-3, 1, 500, 2000, model="swa_va")
-        cfg, explicit = C.load_config(_paths.ROOT / CAP.MODELS["swa_va"]["config"], ov)
-        self.assertEqual((cfg["model"]["kind"], cfg["model"]["segment"], cfg["passkey_len"], cfg["train"]["init_from"]), ("swa_va", 32, 8, "runs/x/model.pt"))
-        self.assertEqual((cfg["experiment"], cfg["train"]["train_ns"], cfg["eval"]["ns"], cfg["train"]["cuda_graph"]), ("swa_va_capacity", [32, 64, 128, 256], [32, 64, 128, 256], True))
-        self.assertNotIn("model.nonlin", ov)  # no loop nonlinearity in this model
-        self.assertEqual(CAP.stage_overrides(8, "i", 1, 1e-3, model="swa_va", segment=8)[2], "model.segment=8")
-        name = CAP.stage_name(8, "runs/x/model.pt", 50000, 1e-3, 1, 500, 2000, model="swa_va")
-        self.assertTrue(name.startswith("swa_va_seg32_pk8_"), name)
-        self.assertIn("steps50000", name)
-
-    def test_the_first_models_names_and_keys_are_unchanged(self):
-        self.assertTrue(CAP.stage_name(8, INIT, 10000, 3e-4).startswith("swa_fb_seg8_nlnone_gi0_pk8_steps10000"))
-        self.assertEqual(CAP.stage_overrides(8, INIT, 10000, 3e-4)[:5], ["experiment=swa_fb_capacity", "seed=0", "model.segment=8", "model.nonlin=none", "model.gain_init=0"])
-        self.assertEqual(CAP.result_keys("swa_fb"), ("stages", "budget_runs"))
-        self.assertEqual(CAP.result_keys("swa_va"), ("stages_swa_va", "budget_runs_swa_va"))
-
-    def test_results_of_two_models_share_the_file_without_overwriting_each_other(self):
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(CAP, "OUT", Path(d) / "capacity.json"):
-            CAP.write_capacity({}, budget_run={"run": "fb-seed0"}, budget_key=CAP.result_keys("swa_fb")[1])
-            CAP.write_capacity({}, budget_run={"run": "va-seed0"}, budget_key=CAP.result_keys("swa_va")[1])
-            CAP.write_capacity({"stages_swa_va": [{"passkey_len": 8}]})
-            data = json.loads(CAP.OUT.read_text())
-        self.assertEqual([e["run"] for e in data["budget_runs"]], ["fb-seed0"])
-        self.assertEqual([e["run"] for e in data["budget_runs_swa_va"]], ["va-seed0"])
-        self.assertEqual(data["stages_swa_va"], [{"passkey_len": 8}])
-
-    def test_the_chain_writes_under_the_models_key_and_a_re_evaluation_reaches_every_group(self):
-        entry = lambda run: {"run": run, "validation": {}, "test": {}, "passkey_len": 8, "passed": False}  # noqa: E731
-        fake = lambda P, init: (dict(entry("r"), validation={"exact": {"256": 0.1}, "positions_ok": {}}), "w")  # noqa: E731
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(CAP, "OUT", Path(d) / "capacity.json"):
-            CAP.chain(fake, 8, 64, "init", key="stages_swa_va")
-            data = json.loads(CAP.OUT.read_text())
-            self.assertIn("stages_swa_va", data)
-            self.assertNotIn("stages", data)
-            CAP.merge_positions({"r": {"validation": {"positions": {"256": [1.0]}}}})
-            self.assertEqual(json.loads(CAP.OUT.read_text())["stages_swa_va"][0]["validation"]["positions"], {"256": [1.0]})
-
-
 class TwoPassStage(unittest.TestCase):
     """The same experiment for the two-pass layer, from its best checkpoint."""
 
@@ -247,7 +205,6 @@ class TwoPassStage(unittest.TestCase):
     def test_each_model_has_its_best_checkpoint_as_the_default_and_its_own_result_keys(self):
         self.assertEqual(CAP.MODELS["swa_fb"]["init"], "checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt")
         self.assertEqual(CAP.MODELS["swa_2pass"]["init"], "checkpoints/swa_2pass_seg32_po1_s5.pt")
-        self.assertIsNone(CAP.MODELS["swa_va"]["init"])  # no checkpoint of value adaptation is good enough to start from: --init is required
         for m in CAP.MODELS.values():
             if m["init"]:
                 self.assertTrue((_paths.ROOT / m["init"]).exists(), m["init"])

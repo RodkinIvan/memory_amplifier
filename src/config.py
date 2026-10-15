@@ -91,7 +91,7 @@ def flatten(cfg: dict, prefix: str = "") -> dict:
 # ---- what differs from the reference recipe (review H7) --------------------------------------------------------------------------
 # Every run is labelled by the diff of its stored config against a frozen reference file of its model kind. Run names list only the
 # overrides of one launch (relative to whatever the YAML said then); the diff does not depend on that.
-REFERENCES = {"gdn_fixed": "gdn_fixed_v1", "gdn2": "gdn2_v1", "swa": "swa_v1", "swa_fb": "swa_fb_v1", "swa_va": "swa_va_v1", "swa_2pass": "swa_2pass_v1"}  # model.kind -> configs/ref/<name>.yaml (never edited)
+REFERENCES = {"gdn_fixed": "gdn_fixed_v1", "gdn2": "gdn2_v1", "swa": "swa_v1", "swa_fb": "swa_fb_v1", "swa_va": "swa_va_v1", "swa_2pass": "swa_2pass_v1"}  # model.kind -> configs/ref/<name>.yaml (never edited; swa_va is the archive of removed code: its stored results still need a reference)
 
 # Settings that do not change what is trained or how it is scored: seed, wandb grouping, logging, and the evaluation set / batch.
 # Everything else counts, also implementation switches such as model.kv_cache (equivalent results, but a different config).
@@ -104,6 +104,59 @@ IGNORED_PREFIXES = ("eval.",)
 CODE_DEFAULTS = {"model.segment": 0, "model.nonlin": "tanh", "model.noise": 0.0, "model.gain_init": 0.0, "model.proj_std": 0.02, "model.pass_output": 2,
                  "model.kv_cache": False, "train.cuda_graph": False, "passkey_len": 4, "train.init_from": None, "train.precision": "fp32", "train.loop_lr_mult": 1.0, "train.passkey_weight": 1.0,
                  "train.passkey_weight_anneal_steps": 0, "train.curriculum_stage_steps": 0}
+
+
+# ---- settings removed in E7 ---------------------------------------------------------------------------------------------------------------------
+# The code no longer implements them, but stored configs keep their keys (and `CODE_DEFAULTS` its defaults), so every old result still belongs to exactly one configuration and the frozen
+# references are unchanged. Building or training a removed setting stops with a message naming the commit that removed it.
+REMOVED_IN = "the E7 commit (see `git log --grep E7`)"  # replaced by the hash of that commit in the commit that follows it
+
+
+def removed_model_settings(mc: dict) -> list[str]:
+    """What a `model:` block asks for that E7 removed: kind swa_va (value adaptation), a noise on the swa_fb loop vector, the swa_fb tail-recompute path (`kv_cache` false; a config without
+    the key means false), and the output of pass 2 in swa_2pass (`pass_output` 2; a config without the key means 2)."""
+    kind, out = mc.get("kind"), []
+    if kind == "swa_va":
+        out.append("model kind 'swa_va' (value adaptation, E1)")
+    if kind == "swa_fb":
+        if float(mc.get("noise", CODE_DEFAULTS["model.noise"])) != 0:
+            out.append(f"model.noise = {mc['noise']} (noise on the loop vector)")
+        if not mc.get("kv_cache", CODE_DEFAULTS["model.kv_cache"]):
+            out.append("model.kv_cache false (the tail-recompute path; a config without the key means false: state kv_cache: true to use the key/value cache path, which computes the same function up to rounding)")
+    if kind == "swa_2pass":
+        if not mc.get("kv_cache", True):
+            out.append("model.kv_cache false (the tail-recompute path)")
+        if mc.get("pass_output", CODE_DEFAULTS["model.pass_output"]) != 1:
+            out.append(f"model.pass_output = {mc.get('pass_output', CODE_DEFAULTS['model.pass_output'])} (the output of pass 2; a config without the key means 2: state pass_output: 1)")
+    return out
+
+
+def removed_train_settings(tc: dict) -> list[str]:
+    """What a `train:` block asks for that E7 removed: a passkey loss weight other than 1, or its annealing."""
+    out = []
+    if float(tc.get("passkey_weight", CODE_DEFAULTS["train.passkey_weight"])) != 1.0:
+        out.append(f"train.passkey_weight = {tc['passkey_weight']} (re-weighting of the passkey loss)")
+    if int(tc.get("passkey_weight_anneal_steps", CODE_DEFAULTS["train.passkey_weight_anneal_steps"])) != 0:
+        out.append(f"train.passkey_weight_anneal_steps = {tc['passkey_weight_anneal_steps']} (annealing of the passkey loss weight)")
+    return out
+
+
+def removed_message(found: list[str]) -> str:
+    return (f"removed in {REMOVED_IN}: " + "; ".join(found) + ". The results of runs with these settings stay in results/ as an archive; to run one again use the code from before that commit.")
+
+
+def check_removed_model(mc: dict) -> None:
+    """Raise ValueError naming the commit when the `model:` block uses a removed setting (called by models.build_from_config)."""
+    found = removed_model_settings(mc)
+    if found:
+        raise ValueError(removed_message(found))
+
+
+def check_removed(cfg: dict) -> None:
+    """The same for a whole run config, `train:` block included (called by train.py and launch.py before a run is started)."""
+    found = removed_model_settings(cfg["model"]) + removed_train_settings(cfg.get("train", {}))
+    if found:
+        raise ValueError(removed_message(found))
 
 
 def is_ignored(key: str) -> bool:
@@ -164,8 +217,6 @@ def footprint_gb(cfg: dict) -> float:
     if mc["kind"] == "swa_fb":
         seg = mc.get("segment") or mc["window"]
         return 8.0 if seg <= 8 else 6.5 if seg <= 16 else 5.0
-    if mc["kind"] == "swa_va":  # CUDA-graph step, measured alone on an idle GPU: segment 8 7.0, segment 32 6.3 (peak of the nvidia-smi reading, evaluation up to N = 1024 included)
-        return 7.5 if (mc.get("segment") or mc["window"]) <= 8 else 6.5
     if mc["kind"] == "swa_2pass":  # CUDA-graph step, measured alone on an idle GPU (nvidia-smi peak, evaluation up to N = 1024 included): segment 32 6.5, segment 64 6.1
         return 7.0 if (mc.get("segment") or mc["window"]) <= 32 else 6.5
     if mc["kind"] in ("gdn_fixed", "gdn", "gdn2"):

@@ -25,6 +25,16 @@ def cfg_of(config: str, *overrides):
     return C.load_config(ROOT / "configs" / config, list(overrides))[0]
 
 
+def old_fb(*overrides):
+    """A swa_fb config as the runs from before E7 stored it: the working config without its `kv_cache: true` (E7 added that key, so a run of the working config differs from the reference by it)."""
+    cfg = C.load_config(ROOT / "configs" / "swa_fb.yaml", [])[0]
+    del cfg["model"]["kv_cache"]
+    for o in overrides:
+        k, _, v = o.partition("=")
+        C.set_nested(cfg, k, C.parse_value(v))
+    return cfg
+
+
 class FrozenReferences(unittest.TestCase):
     def test_reference_files_are_unchanged(self):
         for name, sha in FROZEN.items():
@@ -40,17 +50,24 @@ class FrozenReferences(unittest.TestCase):
 
 class Diff(unittest.TestCase):
     def test_the_reference_recipe_has_an_empty_diff(self):
-        self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml")), {})
+        self.assertEqual(C.reference_diff(old_fb()), {})
         self.assertEqual(C.describe_diff({}), "reference recipe")
 
-    def test_the_value_adaptation_recipe_and_its_segment(self):
-        self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml")), {})
-        self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml", "model.segment=8", "seed=2")), {"model.segment": [32, 8]})
-        self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml", "model.segment=0")), {"model.segment": [32, 64]})  # 0 = one per window
-        self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml", "model.segment=32")), {})
-        self.assertEqual(C.reference_diff(cfg_of("swa_va.yaml", "train.cuda_graph=false")), {"train.cuda_graph": [True, False]})
-        cfg, keys = C.load_config(ROOT / "configs" / "swa_va.yaml", ["model.segment=8", "seed=1"])
-        self.assertEqual(C.run_name(cfg, keys), "swa_va_seg8_s1")
+    def test_the_working_loop_config_differs_from_its_reference_by_the_cache_path_only(self):
+        """E7: swa_fb.yaml states `kv_cache: true` (the only path), the frozen reference has no such key (= false), so new runs carry `kv_cache False -> True` and their change lists stay explicit."""
+        self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml")), {"model.kv_cache": [False, True]})
+        self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml", "model.segment=8")), {"model.kv_cache": [False, True], "model.segment": [64, 8]})
+        for key in ("noise", "passkey_weight"):   # the removed options are gone from the working config (the frozen reference keeps them)
+            self.assertNotIn(key, {**cfg_of("swa_fb.yaml")["model"], **cfg_of("swa_fb.yaml")["train"]})
+        self.assertEqual(C.load_reference({"model": {"kind": "swa_fb"}})["model"]["noise"], 0.0)
+
+    def test_a_removed_kind_keeps_its_reference_so_stored_results_still_have_a_diff(self):
+        """The value-adaptation code is gone (E7) but its frozen reference stays: the stored results of the archive are still stamped and grouped by it."""
+        ref = C.load_reference({"model": {"kind": "swa_va"}})
+        self.assertEqual(C.reference_diff(ref), {})
+        self.assertEqual(C.reference_diff({**ref, "model": {**ref["model"], "segment": 8}}), {"model.segment": [32, 8]})
+        self.assertEqual(C.reference_diff({**ref, "model": {**ref["model"], "segment": 0}}), {"model.segment": [32, 64]})  # 0 = one per window
+        self.assertFalse((ROOT / "configs" / "swa_va.yaml").exists())
 
     def test_the_two_pass_recipe_and_its_choices(self):
         """E3: the working config swa_2pass.yaml has pass_output 1; the frozen reference swa_2pass_v1 still has 2, so a run of the working config differs from it in exactly that."""
@@ -63,37 +80,37 @@ class Diff(unittest.TestCase):
         self.assertEqual(C.reference_diff(cfg_of("swa_2pass.yaml", "model.segment=0")), {"model.segment": [32, 64], "model.pass_output": [2, 1]})  # 0 = one per window
         cfg, keys = C.load_config(ROOT / "configs" / "swa_2pass.yaml", ["model.pass_output=1", "model.segment=64", "seed=1"])
         self.assertEqual(C.run_name(cfg, keys), "swa_2pass_po1_seg64_s1")
-        # the working config and the reference are the same recipe apart from the output pass
-        a, b = C.flatten(cfg_of("swa_2pass.yaml")), C.flatten(C.load_reference({"model": {"kind": "swa_2pass"}}))
+        # the working config and the reference are the same recipe apart from the output pass (a key one lacks counts as the code default)
+        a, b = {**C.CODE_DEFAULTS, **C.flatten(cfg_of("swa_2pass.yaml"))}, {**C.CODE_DEFAULTS, **C.flatten(C.load_reference({"model": {"kind": "swa_2pass"}}))}
         self.assertEqual({k for k in set(a) | set(b) if a.get(k) != b.get(k)}, {"model.pass_output"})
         # the first-round runs launched with an explicit pass_output keep their config (and so their finished-result match) when the default changes
         first_round, _ = C.load_config(ROOT / "configs" / "swa_2pass.yaml", ["model.segment=32", "model.pass_output=2", "seed=0"])
         self.assertEqual(first_round["model"]["pass_output"], 2)
 
     def test_changed_settings_are_listed_with_both_values(self):
-        cfg = cfg_of("swa_fb.yaml", "model.gain_init=0", "train.steps=50000", "model.segment=32", "model.nonlin=none")
+        cfg = old_fb("model.gain_init=0", "train.steps=50000", "model.segment=32", "model.nonlin=none")
         self.assertEqual(C.reference_diff(cfg), {"model.gain_init": [0.1, 0], "model.nonlin": ["tanh", "none"], "model.segment": [64, 32], "train.steps": [20000, 50000]})
         self.assertEqual(C.describe_diff(C.reference_diff(cfg)), "gain_init 0.1 → 0, nonlin tanh → none, segment 64 → 32, steps 20000 → 50000")
 
     def test_segment_zero_means_one_per_window_so_an_explicit_window_sized_segment_is_no_difference(self):
-        self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml", "model.segment=64")), {})  # review L10
-        self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml", "model.segment=0")), {})
-        self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml", "model.segment=8")), {"model.segment": [64, 8]})
+        self.assertEqual(C.reference_diff(old_fb("model.segment=64")), {})  # review L10
+        self.assertEqual(C.reference_diff(old_fb("model.segment=0")), {})
+        self.assertEqual(C.reference_diff(old_fb("model.segment=8")), {"model.segment": [64, 8]})
         # a different window with segment left at 0 moves the segment with it: both entries are told
-        d = C.reference_diff(cfg_of("swa_fb.yaml", "model.window=128"))
+        d = C.reference_diff(old_fb("model.window=128"))
         self.assertEqual(d, {"model.window": [64, 128], "model.segment": [64, 128]})
         # plain SWA has no segment: nothing is added to its diff
         self.assertEqual(C.reference_diff(cfg_of("swa.yaml", "model.window=128")), {"model.window": [64, 128]})
 
     def test_seed_logging_and_evaluation_settings_are_not_differences(self):
-        cfg = cfg_of("swa_fb.yaml", "seed=2", "experiment=other", "train.eval_every=100", "train.eval_ns=[32]", "train.eval_examples=5",
+        cfg = old_fb("seed=2", "experiment=other", "train.eval_every=100", "train.eval_ns=[32]", "train.eval_examples=5",
                      "train.eval_examples_by_n=[[4096,10]]", "train.log_every=7", "eval.tokens_per_batch=1", "eval.ns=[32]", "project=x")
         self.assertEqual(C.reference_diff(cfg), {})
 
     def test_settings_that_the_old_report_key_ignored_are_differences(self):
         for override, key in [("model.proj_std=0.5", "model.proj_std"), ("train.loop_lr_mult=1", "train.loop_lr_mult"), ("train.curriculum_stage_steps=0", "train.curriculum_stage_steps"),
                               ("model.kv_cache=true", "model.kv_cache"), ("train.lr=0.002", "train.lr"), ("train.batch_size=64", "train.batch_size"), ("data_dir=elsewhere", "data_dir")]:
-            self.assertEqual(list(C.reference_diff(cfg_of("swa_fb.yaml", override))), [key], override)
+            self.assertEqual(list(C.reference_diff(old_fb(override))), [key], override)
 
     def test_a_key_the_stored_config_lacks_counts_as_the_code_default(self):
         old = cfg_of("swa.yaml")  # configs written before the curriculum existed have no curriculum key
@@ -101,7 +118,7 @@ class Diff(unittest.TestCase):
         self.assertEqual(C.reference_diff(old), {})
         new = cfg_of("swa.yaml", "train.curriculum_stage_steps=2000")
         self.assertEqual(C.reference_diff(new), {"train.curriculum_stage_steps": [0, 2000]})
-        fb = cfg_of("swa_fb.yaml")  # no kv_cache key either: stored as the code default False
+        fb = old_fb()  # a run from before E7 has no kv_cache key either: stored as the code default False
         self.assertNotIn("kv_cache", fb["model"])
         self.assertEqual(C.reference_diff(fb), {})
         self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml", "model.kv_cache=false")), {})

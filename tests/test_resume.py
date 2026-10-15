@@ -32,7 +32,7 @@ def quiet(fn, *a, **k):
 @unittest.skipUnless(torch.cuda.is_available(), "needs a GPU")
 class ResumeTraining(unittest.TestCase):
     STEPS = 40
-    OVERRIDES = ["model.d_model=64", "model.num_heads=2", "model.window=16", "model.segment=8", "model.noise=0.1", "model.gain_init=0.1",
+    OVERRIDES = ["model.d_model=64", "model.num_heads=2", "model.window=16", "model.segment=8", "model.gain_init=0.1",
                  f"train.steps={STEPS}", "train.batch_size=4", "train.train_ns=[32]", "train.curriculum_stage_steps=0",
                  "train.log_every=10", "train.eval_every=15", "train.eval_ns=[32]", "train.eval_examples=16", "train.warmup_steps=5",
                  "eval.ns=[32]", "eval.splits=[validation]", "eval.tokens_per_batch=65536", "--no-wandb"]
@@ -103,7 +103,7 @@ class ResumeTraining(unittest.TestCase):
         self.assertLess(worst, 1e-4, "weights after a resume differ from an uninterrupted run")
 
     def test_a_graphed_run_resumes_like_an_uninterrupted_graphed_run(self):
-        extra = ["train.cuda_graph=true", "model.noise=0"]  # the graph's noise stream is the graph-safe generator's, so compare without noise
+        extra = ["train.cuda_graph=true"]
         ref_root, crash_root = self.tmp / "gref", self.tmp / "gcrash"
         self.train(ref_root, extra=extra)
         real_pad, calls = T.D.pad_batch, []

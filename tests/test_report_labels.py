@@ -13,7 +13,6 @@ import report as R
 import report_groups as RG
 import tests.test_report_2pass as T2  # (the modules, not their TestCase classes: those would be run a second time here)
 import tests.test_report_capacity as TC
-import tests.test_report_va as TV
 
 PX = 6.7  # px per character of the heatmap's row labels
 
@@ -84,11 +83,6 @@ class RenderedReports(unittest.TestCase):
         data, _, _ = t.build()
         got, _ = self.check(data)
         self.assertTrue(any("\n" in r["label"] for r in got["rows"]), "at least one label of this report is long enough to wrap")
-
-    def test_the_value_adaptation_report(self):
-        t = TV.VaReport()
-        t.setUp()
-        self.check(t.build()[0])
 
     def test_the_capacity_report(self):
         t = TC.CapacityReport()

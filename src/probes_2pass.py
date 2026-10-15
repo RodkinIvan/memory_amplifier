@@ -1,15 +1,15 @@
 #!/usr/bin/env python
-"""Diagnostics of the value-adaptation model (`swa_va`, design experiment E1) and of the two-pass model (`swa_2pass`, E2): where does the passkey live once it has left the window's reach?
-(`cache` and `perturb` work for both; `delta` is specific to `swa_va`.)
+"""Diagnostics of the two-pass model (`swa_2pass`, design experiment E2): where does the passkey live once it has left the window's reach? (They were written for the value-adaptation
+model of E1 as well; that model was removed in E7, see `config.REMOVED_IN`, and the probe results of both stay in results/probes/ as an archive.)
 
-    # (1) linear probe: is the passkey decodable from the cached values (and keys, and dW_v) of the last window, at growing distance after it was written?
-    python src/probes_va.py cache --runs swa_va_seg32_s2 --control swa_w64_L2_steps50000_cur2000_s0 --out results/probes/va_cache_probe.json
-    # (2) size, effective rank and drift of dW_v along a long stream
-    python src/probes_va.py delta --runs swa_va_seg32_s2 --out results/probes/va_delta_w.json
-    # (3) perturb the cached values / the previous segment's encoding (value adaptation) or the cached keys and values (two-pass) in the middle of the stream: does the passkey survive, does the perturbation die out?
-    python src/probes_va.py perturb --runs swa_va_seg32_s2 --out results/probes/va_perturb.json
+    # (1) linear probe: is the passkey decodable from the cached keys and values of the last window, at growing distance after it was written?
+    python src/probes_2pass.py cache --runs swa_2pass_seg32_po1_s5 --control swa_w64_L2_steps50000_cur2000_s0 --out results/probes/p2_cache_probe.json
+    # (2) perturb the cached keys and / or values in the middle of the stream: does the passkey survive, does the perturbation die out?
+    python src/probes_2pass.py perturb --runs swa_2pass_seg32_po1_s5 --out results/probes/p2_perturb.json
+    # (3) statistics of the learned per-channel gains (CPU only)
+    python src/probes_2pass.py gains --runs swa_2pass_seg32_po1_s5 --out results/probes/p2_gains.json
 
-Streams are generated on the fly with their own seeds (77 for the probe's test set, 78 for its training set), never the dataset's. All probes need a CUDA GPU.
+Streams are generated on the fly with their own seeds (77 for the probe's test set, 78 for its training set), never the dataset's. The cache and perturb probes need a CUDA GPU.
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def ridge_probe(x_train, y_train, x_test, y_test, n_classes: int, lambdas=(1e-1,
 
 # ---- hooks ---------------------------------------------------------------------------------------------------------------------------------------------------
 class CacheHook:
-    """`cache_hook` of `ValueAdaptSWA` / `TwoPassSWA`: at the segments in `record` (all if `record_all`) it keeps a copy of the window's cached keys / values of every layer; at
+    """`cache_hook` of `TwoPassSWA`: at the segments in `record` (all if `record_all`) it keeps a copy of the window's cached keys / values of every layer; at
     segment `s_star` it perturbs the cached values (`which` = "v"), keys ("k") or both ("kv") of every layer: `noise` adds Gaussian noise of `eps` times the tensor's RMS (per
     example), `zero` sets them to 0."""
 
@@ -86,96 +86,9 @@ class CacheHook:
             self.snap[s] = [(cache.k[i].detach().float(), cache.v[i].detach().float()) for i in range(len(cache.v))]
 
 
-class StateHook:
-    """`ValueAdaptSWA.probe_hook`: records the (keys, values) a segment hands to the next one (detached) when `record`, and at segment `s_star` perturbs them (`noise`:
-    Gaussian noise of `eps` times their RMS, `zero`) -- the encoding of the previous segment's outputs, from which dW_v of the next segment is built."""
-
-    def __init__(self, s_star: int | None = None, eps: float = 0.0, mode: str = "noise", seed: int = 0, record: bool = False):
-        self.s_star, self.eps, self.mode, self.seed, self.record, self.state, self.gen = s_star, eps, mode, seed, record, {}, None
-
-    def __call__(self, s: int, i: int, state):
-        import torch
-        if s == self.s_star and (self.eps > 0 or self.mode == "zero"):
-            if self.gen is None:
-                self.gen = torch.Generator(device=state[0].device)
-                self.gen.manual_seed(self.seed)
-            new = []
-            for t in state:
-                if self.mode == "zero":
-                    new.append(torch.zeros_like(t))
-                else:
-                    rms = t.detach().float().pow(2).mean((-1, -2), keepdim=True).sqrt()
-                    new.append(t + self.eps * rms * torch.randn(t.shape, generator=self.gen, device=t.device))
-            state = tuple(new)
-        if self.record:
-            self.state[(s, i)] = tuple(t.detach().float() for t in state)
-        return state
-
-
-def delta_w(model, i: int, a, b):
-    """dW_v = (gain / C) b^T a for layer `i`: [examples, d_value, d] from the keys a [examples, C, d] and values b [examples, C, d_value]."""
-    import torch
-    return model.loops[i].gain.detach().float() / a.shape[1] * torch.einsum("bjv,bjd->bvd", b, a)
-
-
-def matrix_stats(dw) -> dict:
-    """Per example statistics of a batch of matrices [examples, m, n]: Frobenius norm, spectral norm, participation-ratio rank (sum s^2)^2 / sum s^4, the largest entry."""
-    import torch
-    sv = torch.linalg.svdvals(dw.float())
-    fro2 = (sv ** 2).sum(-1)
-    return {"fro": fro2.sqrt(), "spectral": sv[:, 0], "rank": fro2 ** 2 / ((sv ** 4).sum(-1) + 1e-30), "max_entry": dw.abs().amax((-1, -2))}
-
-
-def common_mode(a, b) -> dict:
-    """Split (1/C) sum_j b_j a_j^T into the outer product of the means (b-bar a-bar^T: the same for every token of the segment, content-free if the means do not depend on the stream)
-    and the covariance part (1/C) sum_j (b_j - b-bar)(a_j - a-bar)^T, which is where token-specific information can live. a [examples, C, d], b [examples, C, d_value].
-    Returns per example: the share of the squared Frobenius norm in the mean part, the Frobenius norm of the covariance part, and the share of entries of a and b with |value| > 0.95."""
-    import torch
-    full = torch.einsum("bjv,bjd->bvd", b, a) / a.shape[1]
-    mean_part = torch.einsum("bv,bd->bvd", b.mean(1), a.mean(1))
-    cov = full - mean_part
-    return {"mean_share": mean_part.pow(2).sum((-1, -2)) / full.pow(2).sum((-1, -2)).clamp_min(1e-30), "cov_fro": cov.flatten(1).norm(dim=1),
-            "saturated": 0.5 * ((a.abs() > 0.95).float().mean((-1, -2)) + (b.abs() > 0.95).float().mean((-1, -2)))}
-
-
 def autocast(model_cfg: dict, device):
     import torch
     return torch.autocast(device.type, dtype=torch.bfloat16, enabled=model_cfg["train"].get("precision", "fp32") == "bf16")
-
-
-# ---- (2) dW_v along a long stream -----------------------------------------------------------------------------------------------------------------------------
-def delta_profile(name: str, n_writes: int = 4096, n_examples: int = 8, fractions=(0.02, 0.1, 0.5, 0.9, 1.0)) -> dict:
-    """Size, effective rank and drift of dW_v per layer along a stream: norms relative to the layer's own W_v, the cosine between the dW_v of consecutive segments and the
-    one `lag` segments later, at the given fractions of the stream (mean over examples)."""
-    import torch
-    model, cfg = P.load_run(name)
-    if not hasattr(model, "probe_hook"):
-        raise ValueError(f"{name}: dW_v statistics exist for the value-adaptation model (swa_va) only")
-    dev = torch.device("cuda")
-    p = P.make_packed(G.GenParams(), n_writes, n_examples)
-    ids, _ = D.pad_batch(p, np.arange(n_examples), model.segment)
-    hook = StateHook(record=True)
-    model.probe_hook = hook
-    with torch.no_grad(), autocast(cfg, dev):
-        model(input_ids=torch.from_numpy(ids).to(dev))
-    model.probe_hook = None
-    n_seg = max(s for s, _ in hook.state) + 1
-    out = {"name": name, "segment": model.segment, "n_writes": n_writes, "segments": n_seg, "layers": []}
-    for i in range(len(model.loops)):
-        w_v = model.base.model.layers[i].attn.v_proj.weight.detach().float()
-        dws = [delta_w(model, i, *hook.state[(s, i)]) for s in range(n_seg)]
-        cos = lambda x, y: float((x.flatten(1) * y.flatten(1)).sum(1).div(x.flatten(1).norm(dim=1) * y.flatten(1).norm(dim=1) + 1e-30).mean())  # noqa: E731
-        layer = {"gain": float(model.loops[i].gain), "w_v_fro": float(w_v.norm()), "at": {}}
-        for f in fractions:
-            s = min(n_seg - 1, int(f * (n_seg - 1)))
-            st = matrix_stats(dws[s])
-            cm = common_mode(*hook.state[(s, i)])
-            gain = abs(float(model.loops[i].gain))
-            layer["at"][f"{f:g}"] = {"segment": s, **{k: float(v.mean()) for k, v in st.items()}, "fro_over_w_v": float(st["fro"].mean() / w_v.norm()),
-                                     "mean_share": float(cm["mean_share"].mean()), "cov_fro_over_w_v": float(gain * cm["cov_fro"].mean() / w_v.norm()), "saturated": float(cm["saturated"].mean()),
-                                     "cos_next": cos(dws[s], dws[min(s + 1, n_seg - 1)]), "cos_lag16": cos(dws[s], dws[min(s + 16, n_seg - 1)])}
-        out["layers"].append(layer)
-    return out
 
 
 # ---- (1) linear probe of the passkey from the cached window ---------------------------------------------------------------------------------------------------
@@ -194,32 +107,28 @@ def cut_points(distances: list[int], segment: int, passkey_len: int = G.PASSKEY_
 
 
 def collect_window(model, cfg, toks: list[list[int]], cuts: dict[int, int], batch: int = 50) -> dict[int, dict[str, np.ndarray]]:
-    """Run the model on `toks` and return, for every cut segment, the features of the cache after it: cached values `v`, cached keys `k` (both layers, flattened) and, for
-    a swa_va model, dW_v of the next segment (`dw`: from that segment's state). Streams are cut at the last needed segment."""
+    """Run the model on `toks` and return, for every cut segment, the features of the cache after it: cached values `v` and cached keys `k` (both layers, flattened).
+    Streams are cut at the last needed segment."""
     import torch
     dev = torch.device("cuda")
     segs, C_ = sorted(set(cuts.values())), model.segment
-    feats: dict[int, dict[str, list]] = {s: {"v": [], "k": [], "dw": []} for s in segs}
+    feats: dict[int, dict[str, list]] = {s: {"v": [], "k": []} for s in segs}
     for b0 in range(0, len(toks), batch):
         chunk = toks[b0:b0 + batch]
         ids = torch.tensor([t[:(segs[-1] + 1) * C_] for t in chunk], device=dev)
-        ch, sh = CacheHook(record=set(segs)), StateHook(record=hasattr(model, "probe_hook"))  # dW_v features exist for the value-adaptation model only
+        ch = CacheHook(record=set(segs))
         model.cache_hook = ch
-        if sh.record:
-            model.probe_hook = sh
         with torch.no_grad(), autocast(cfg, dev):
             model(input_ids=ids)
-        model.cache_hook = model.probe_hook = None
+        model.cache_hook = None
         for s in segs:
             feats[s]["k"].append(torch.cat([k.flatten(1) for k, _ in ch.snap[s]], 1).cpu())
             feats[s]["v"].append(torch.cat([v.flatten(1) for _, v in ch.snap[s]], 1).cpu())
-            if sh.record and (s, 0) in sh.state:
-                feats[s]["dw"].append(torch.cat([delta_w(model, i, *sh.state[(s, i)]).flatten(1) for i in range(len(model.loops))], 1).cpu())
     return {s: {k: torch.cat(v).numpy() for k, v in f.items() if v} for s, f in feats.items()}
 
 
 def cache_probe(name: str, distances=(32, 96, 160, 256, 512, 1024, 2048), n_train: int = 3000, n_test: int = 500, control: str | None = None) -> dict:
-    """Linear read-out of every passkey token from the cached window of a finished run (values, keys, dW_v) at growing distance after the passkey; with `control` (a plain
+    """Linear read-out of every passkey token from the cached window of a finished run (values, keys) at growing distance after the passkey; with `control` (a plain
     sliding-window run) the same read-out of its cache, whose values cannot carry the passkey beyond the reach (L * (W - 1) tokens)."""
     import torch
     dev = torch.device("cuda")
@@ -234,7 +143,7 @@ def cache_probe(name: str, distances=(32, 96, 160, 256, 512, 1024, 2048), n_trai
         raise ValueError(f"streams of {n_writes} writes are only {short} tokens, the longest cut needs {need}: raise n_writes")
     out = {"distances": list(distances), "n_train": n_train, "n_test": n_test, "chance": 1.0 / p0.n_values, "passkey_len": p0.passkey_len, "models": {}}
     for tag, run in models.items():
-        model, cfg = P.load_run(run) if tag == "model" else load_plain_as_va(run)
+        model, cfg = P.load_run(run) if tag == "model" else load_plain_as_2pass(run)
         cuts = cut_points(list(distances), model.segment, p0.passkey_len)
         tr, te = collect_window(model, cfg, toks_tr, cuts), collect_window(model, cfg, toks_te, cuts)
         res = {"run": run, "segment": model.segment, "reach": 2 * (model.window - 1), "by_distance": {}}
@@ -250,27 +159,25 @@ def cache_probe(name: str, distances=(32, 96, 160, 256, 512, 1024, 2048), n_trai
     return out
 
 
-def load_plain_as_va(name: str):
-    """A finished plain sliding-window run (`swa`) as a `ValueAdaptSWA` with every gain 0, so its cache can be read with the same code (it computes exactly the plain model)."""
+def load_plain_as_2pass(name: str):
+    """A finished plain sliding-window run (`swa`) as a `TwoPassSWA` with every gain 0, so its cache can be read with the same code (it computes exactly the plain model)."""
     import torch
-    from models import ValueAdaptSWA
+    from models import TwoPassSWA
     base, cfg = P.load_run(name)
-    seg = 32
-    m = ValueAdaptSWA(base, window=cfg["model"]["window"], segment=seg).to(torch.device("cuda")).eval()
+    m = TwoPassSWA(base, window=cfg["model"]["window"], segment=32).to(torch.device("cuda")).eval()
     return m, cfg
 
 
-# ---- (3) perturbation ------------------------------------------------------------------------------------------------------------------------------------------
+# ---- (2) perturbation ------------------------------------------------------------------------------------------------------------------------------------------
 def perturbation_probe(name: str, n_writes: int = 1024, n_exact: int = 200, n_traj: int = 16, frac: float = 0.25, eps=(0.1, 0.3, 1.0, 3.0), eps_traj: float = 0.3) -> dict:
-    """Passkey exact match when, at `frac` of the stream (far beyond the reach), memory is perturbed by Gaussian noise of eps times its RMS, or zeroed. For the value-adaptation
-    model: the cached values ("values"), the previous segment's encoding ("state", from which dW_v of the next segment is built) or both. For the two-pass model, which has
-    nothing but the cache: the cached values ("values"), the cached keys ("keys") or both ("both"). Plus how a perturbation of the cache decays or grows over later segments
-    (distance between the cached entries of a clean and a perturbed run, relative to the distance right after the kick): values only for the value-adaptation model, keys and
-    values for the two-pass model."""
+    """Passkey exact match when, at `frac` of the stream (far beyond the reach), the cache is perturbed by Gaussian noise of eps times its RMS, or zeroed: the cached values ("values"),
+    the cached keys ("keys") or both ("both"). Plus how a perturbation of the cache decays or grows over later segments (distance between the cached keys and values of a clean and a
+    perturbed run, relative to the distance right after the kick)."""
     import torch
     from models import TwoPassSWA
     model, cfg = P.load_run(name)
-    two_pass = isinstance(model, TwoPassSWA)
+    if not isinstance(model, TwoPassSWA):
+        raise ValueError(f"{name}: the perturbation probe is for the two-pass model (swa_2pass), not {cfg['model']['kind']}")
     dev = torch.device("cuda")
     p = P.make_packed(G.GenParams(), n_writes, n_exact)
     C_ = model.segment
@@ -278,46 +185,32 @@ def perturbation_probe(name: str, n_writes: int = 1024, n_exact: int = 200, n_tr
     amp = torch.bfloat16 if cfg["train"].get("precision", "fp32") == "bf16" else None
     out = {"name": name, "kind": cfg["model"]["kind"], "segment": C_, "n_writes": n_writes, "s_star": s_star, "s_star_tokens": s_star * C_, "exact": {}}
 
-    def exact(cache_kw=None, state_kw=None) -> float:
+    def exact(cache_kw=None) -> float:
         model.cache_hook = CacheHook(s_star=s_star, seed=1, **cache_kw) if cache_kw else None
-        if not two_pass:
-            model.probe_hook = StateHook(s_star=s_star, seed=2, **state_kw) if state_kw else None
         try:
             return P.token_profile(P.passkey_token_hits(model, p, dev, amp_dtype=amp))["exact"]
         finally:
             model.cache_hook = None
-            if not two_pass:
-                model.probe_hook = None
 
     out["exact"]["clean"] = exact()
-    if two_pass:
-        for e in eps:
-            out["exact"][f"values_{e:g}"] = exact({"eps": e, "which": "v"})
-            out["exact"][f"keys_{e:g}"] = exact({"eps": e, "which": "k"})
-            out["exact"][f"both_{e:g}"] = exact({"eps": e, "which": "kv"})
-        for key, which in (("values", "v"), ("keys", "k"), ("both", "kv")):
-            out["exact"][f"{key}_zero"] = exact({"mode": "zero", "which": which})
-    else:
-        for e in eps:
-            out["exact"][f"values_{e:g}"] = exact({"eps": e})
-            out["exact"][f"state_{e:g}"] = exact(None, {"eps": e})
-            out["exact"][f"both_{e:g}"] = exact({"eps": e}, {"eps": e})
-        out["exact"]["values_zero"] = exact({"mode": "zero"})
-        out["exact"]["state_zero"] = exact(None, {"mode": "zero"})
-        out["exact"]["both_zero"] = exact({"mode": "zero"}, {"mode": "zero"})
+    for e in eps:
+        out["exact"][f"values_{e:g}"] = exact({"eps": e, "which": "v"})
+        out["exact"][f"keys_{e:g}"] = exact({"eps": e, "which": "k"})
+        out["exact"][f"both_{e:g}"] = exact({"eps": e, "which": "kv"})
+    for key, which in (("values", "v"), ("keys", "k"), ("both", "kv")):
+        out["exact"][f"{key}_zero"] = exact({"mode": "zero", "which": which})
     # trajectories of the cached entries after a kick
     ids, _ = D.pad_batch(p, np.arange(n_traj), C_)
     x = torch.from_numpy(ids).to(dev)
     rec = {}
     for tag, e in (("clean", 0.0), ("perturbed", eps_traj)):
-        model.cache_hook = hook = CacheHook(record_all=True, s_star=s_star, eps=e, which="kv" if two_pass else "v", seed=3)
+        model.cache_hook = hook = CacheHook(record_all=True, s_star=s_star, eps=e, which="kv", seed=3)
         with torch.no_grad(), torch.autocast(dev.type, dtype=amp or torch.float32, enabled=amp is not None):
             model(input_ids=x)
         model.cache_hook = None
         full = [s for s in sorted(hook.snap) if hook.snap[s][0][1].shape[1] == model.window - 1]  # the first segments have a part-filled cache: leave them out
         first = full[0]
-        parts = (lambda k, v: [k, v]) if two_pass else (lambda k, v: [v])
-        rec[tag] = np.stack([torch.cat([t.flatten(1) for k, v in hook.snap[s] for t in parts(k, v)], 1).cpu().numpy() for s in full])  # [segments, examples, D]
+        rec[tag] = np.stack([torch.cat([t.flatten(1) for k, v in hook.snap[s] for t in (k, v)], 1).cpu().numpy() for s in full])  # [segments, examples, D]
     if s_star < first:
         raise ValueError(f"the kick at segment {s_star} lands before the cache is full (segment {first})")
     out["contraction"] = P.contraction_profile(rec["clean"], rec["perturbed"], s_star - first)
@@ -340,7 +233,7 @@ def gain_stats(name: str) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for cmd in ("cache", "delta", "perturb", "gains"):
+    for cmd in ("cache", "perturb", "gains"):
         s = sub.add_parser(cmd)
         s.add_argument("--runs", nargs="+", required=True)
         s.add_argument("--out", type=Path, required=True)
@@ -349,8 +242,8 @@ def main() -> None:
             s.add_argument("--distances", type=int, nargs="+", default=[32, 96, 160, 256, 512, 1024, 2048])
             s.add_argument("--train", type=int, default=3000)
             s.add_argument("--test", type=int, default=500)
-        if cmd in ("delta", "perturb"):
-            s.add_argument("--n-writes", type=int, default=4096 if cmd == "delta" else 1024)
+        if cmd == "perturb":
+            s.add_argument("--n-writes", type=int, default=1024)
     a = ap.parse_args()
     res = {}
     a.out.parent.mkdir(parents=True, exist_ok=True)
@@ -360,9 +253,6 @@ def main() -> None:
             print(name, " | ".join(f"layer {i}: mean {l['mean']:+.2f} |g| {l['abs_mean']:.2f}" for i, l in enumerate(res[name]["layers"])), flush=True)
         elif a.cmd == "cache":
             res[name] = cache_probe(name, tuple(a.distances), a.train, a.test, a.control)
-        elif a.cmd == "delta":
-            res[name] = delta_profile(name, a.n_writes)
-            print(name, json.dumps(res[name]["layers"][0]["at"]["0.5"]), flush=True)
         else:
             res[name] = perturbation_probe(name, a.n_writes)
             print(name, json.dumps(res[name]["exact"]), "| contraction", res[name]["contraction"], flush=True)

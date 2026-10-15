@@ -92,6 +92,11 @@ def main() -> None:
     args = make_parser().parse_args()
     jobs = build_jobs(args.config, args.set, args.sweep)
     todo = [j for j in jobs if not is_done(j)]
+    for j in todo:  # a sweep over a setting that E7 removed would start workers that all stop at once: refuse it here
+        try:
+            C.check_removed(j["config"])
+        except ValueError as e:
+            sys.exit(f"{j['name']}: {e}")
     print(f"{len(jobs)} runs in the sweep, {len(jobs) - len(todo)} already done, {len(todo)} to run")
     for j in todo:
         print("  ", j["name"])

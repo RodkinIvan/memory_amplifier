@@ -51,16 +51,6 @@ def lr_at(step: int, tc: dict) -> float:
     return tc["lr"] * (tc["min_lr_ratio"] + (1 - tc["min_lr_ratio"]) * 0.5 * (1 + math.cos(math.pi * min(frac, 1.0))))
 
 
-def passkey_weight_at(step: int, tc: dict) -> float:
-    """Loss weight of the passkey tokens at `step`: `train.passkey_weight` decays log-linearly to 1 over
-    `train.passkey_weight_anneal_steps` steps (0 = constant). A large start value bootstraps a memory loop that would
-    otherwise look like noise; annealing back to 1 makes the final model train on the plain objective."""
-    w0, T = float(tc.get("passkey_weight", 1.0)), int(tc.get("passkey_weight_anneal_steps", 0))
-    if T <= 0 or w0 == 1.0:
-        return w0
-    return math.exp(math.log(w0) * (1.0 - min(1.0, step / T)))
-
-
 def active_train_ns(step: int, tc: dict) -> list[int]:
     """Training configs that may be sampled at `step`. With `train.curriculum_stage_steps` = S > 0 training starts on the
     first config of `train.train_ns` only (shortest streams, fewest memory-loop hops) and adds the next config every S
@@ -128,17 +118,13 @@ def make_optimizer(model, tc: dict, capturable: bool = False):
     return torch.optim.AdamW(groups, lr=tc["lr"], betas=tuple(tc["betas"]))
 
 
-def weighted_ce(logits: torch.Tensor, labels: torch.Tensor, passkey_weight: float = 1.0, passkey_len: int = 4) -> torch.Tensor:
-    """Cross-entropy on supervised positions (label != -100). The last `passkey_len` supervised tokens of every row are the passkey;
-    `passkey_weight` multiplies their weight (1.0 = the plain mean over supervised tokens)."""
+def masked_ce(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """Cross-entropy on the supervised positions (label != -100): the plain mean over them. (Before E7 the passkey tokens could be weighted up and the weight annealed
+    (`train.passkey_weight`), which only a few 12k-step exploratory runs used and which starved the AR task; the setting was removed.)"""
     tgt = labels[:, 1:]
     ce = F.cross_entropy(logits[:, :-1].reshape(-1, logits.size(-1)).float(), tgt.reshape(-1), ignore_index=-100, reduction="none")
     ce = ce.view_as(tgt)
-    sup = tgt != -100
-    w = sup.float()
-    if passkey_weight != 1.0:
-        from_end = sup.flip(1).cumsum(1).flip(1)  # 1 for the last supervised token of a row, 2 for the one before, ...
-        w = w * (1.0 + (passkey_weight - 1.0) * (sup & (from_end <= passkey_len)).float())
+    w = (tgt != -100).float()
     return (ce * w).sum() / w.sum()
 
 
@@ -194,6 +180,10 @@ def main(argv=None) -> None:
         print(f"[{name}] already done, skipping", flush=True)
         return
 
+    try:
+        C.check_removed(cfg)  # a setting that E7 removed (names the commit): stop before anything is built or logged
+    except ValueError as e:
+        sys.exit(f"[{name}] {e}")
     mc, tc, ec = cfg["model"], cfg["train"], cfg["eval"]
     data_dir = C.data_dir_for(cfg)
     meta = json.loads((data_dir / "gen_meta.json").read_text())
@@ -234,10 +224,7 @@ def main(argv=None) -> None:
         start += rows
     val = {n: D.load_packed(data_dir / f"n{n}" / "validation.parquet", kinds=True).subset(eval_examples_for(tc, n))
            for n in tc["eval_ns"]}
-    pk_len = int(cfg.get("passkey_len", 4))  # the last pk_len supervised tokens of a stream are the passkey (loss weighting)
     graph = bool(tc.get("cuda_graph", False))  # one CUDA graph per batch shape instead of ~33k kernel launches per step (src/graphed.py)
-    if graph and float(tc.get("passkey_weight", 1.0)) != 1.0 and int(tc.get("passkey_weight_anneal_steps", 0)) > 0:
-        sys.exit("train.cuda_graph needs a constant passkey weight (passkey_weight_anneal_steps = 0)")
     opt = make_optimizer(model, tc, capturable=graph)
     model.train()
     loss_acc, n_acc, last, start, elapsed, resumed_at, history = torch.zeros((), device=dev), 0, 0.0, 1, 0.0, [], []
@@ -251,14 +238,13 @@ def main(argv=None) -> None:
         n_acc, last, start, elapsed, resumed_at = state["n_acc"], state["last_loss"], state["step"] + 1, state["train_time_s"], [*state["resumed_at_steps"], state["step"]]
         history = state["history"]
         print(f"[{name}] resuming from step {state['step']} ({resume_file})", flush=True)
-    stepper = GraphedTrainStep(model, opt, lambda lg, lb: weighted_ce(lg, lb, passkey_weight_at(1, tc), pk_len), tc["grad_clip"], amp) if graph else None
+    stepper = GraphedTrainStep(model, opt, masked_ce, tc["grad_clip"], amp) if graph else None
     git = git_state()  # of this start; a resumed run may have been started from another commit
     t0 = time.time() - elapsed  # the time of the earlier attempts counts as training time
     for step in range(start, tc["steps"] + 1):
         lrs = [lr_at(step, tc) * g.get("lr_mult", 1.0) for g in opt.param_groups]
         ids, labs = D.pad_batch(train, sample_train_indices(rng, tc, bounds, step, len(train), tc["batch_size"]), tc["pad_multiple"])
         ids, labs = torch.from_numpy(ids).to(dev), torch.from_numpy(labs).to(dev)
-        pk_w = passkey_weight_at(step, tc)
         if graph:
             loss, gnorm = stepper.step(ids, labs, lrs)
         else:
@@ -266,7 +252,7 @@ def main(argv=None) -> None:
                 g["lr"] = v
             with torch.autocast("cuda", dtype=torch.bfloat16, enabled=amp is not None):
                 logits = model(input_ids=ids).logits
-            loss = weighted_ce(logits, labs, pk_w, pk_len)
+            loss = masked_ce(logits, labs)
             loss.backward()
             gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), tc["grad_clip"])
             opt.step()
@@ -277,7 +263,7 @@ def main(argv=None) -> None:
             last = float(loss_acc) / n_acc
             if not math.isfinite(last):
                 raise RuntimeError(f"[{name}] non-finite loss at step {step}")
-            wandb.log({"train/loss": last, "train/lr": float(opt.param_groups[0]["lr"]), "train/grad_norm": float(gnorm), "train/passkey_weight": pk_w, "train/active_max_n": max(active_train_ns(step, tc)),
+            wandb.log({"train/loss": last, "train/lr": float(opt.param_groups[0]["lr"]), "train/grad_norm": float(gnorm), "train/active_max_n": max(active_train_ns(step, tc)),
                        "train/steps_per_s": step / (time.time() - t0)}, step=step)
             loss_acc.zero_()
             n_acc = 0

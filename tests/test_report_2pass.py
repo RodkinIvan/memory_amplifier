@@ -21,7 +21,7 @@ class TwoPassReport(unittest.TestCase):
         self.p2_64 = mk(["model.segment=64", "model.pass_output=2"], range(3), {256: 0.5, 1024: 0.05, 16384: 0.0}, H(0.1, 0.5))
         self.fb32 = [fake_run("swa_fb.yaml", [*FB, "model.segment=32", "model.nonlin=none"], s, {256: 1.0, 1024: 0.6}, hist=H(0.1, 0.5)) for s in range(3)]
         self.fb64 = [fake_run("swa_fb.yaml", [*FB, "model.segment=64", "model.nonlin=tanh"], s, {256: 0.9, 1024: 0.3}, hist=H(0.1, 0.5)) for s in range(3)]
-        self.va32 = [fake_run("swa_va.yaml", ["model.segment=32"], s, {256: 0.4, 1024: 0.1}, hist=H(0.1, 0.4)) for s in range(3)]
+        self.va32 = [fake_run("ref/swa_va_v1.yaml", ["model.segment=32"], s, {256: 0.4, 1024: 0.1}, hist=H(0.1, 0.4)) for s in range(3)]
         self.swa = [fake_run("swa.yaml", ["model.n_layers=2", "train.steps=50000", "train.curriculum_stage_steps=2000"], s, {32: 1.0}) for s in range(3)]
         self.runs = [*self.p2_32, *self.p1_32, *self.p2_64, *self.fb32, *self.fb64, *self.va32, *self.swa]
 

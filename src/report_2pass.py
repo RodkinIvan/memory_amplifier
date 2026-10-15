@@ -11,6 +11,7 @@ against the frozen reference (H7).
 from __future__ import annotations
 
 import html
+import json
 import sys
 import time
 from pathlib import Path
@@ -22,12 +23,48 @@ import aggregate as A  # noqa: E402
 import config as C  # noqa: E402
 import report_groups as RG  # noqa: E402
 import report_rounds as RR  # noqa: E402
-import report_va as V  # noqa: E402
 from report_best import mean_curve, over_n, pick_best  # noqa: E402
 from report_groups import NS, cells_for_row, label_margin, number_figures  # noqa: E402
 
 f2 = lambda x: f"{x:.2f}"
 COLORS = ["var(--s2)", "var(--s3)", "var(--s1)", "var(--ink)"]
+PROBE_DIR = C.ROOT / "results" / "probes"
+
+
+def load_probes(directory: Path = PROBE_DIR, prefix: str = "p2") -> dict:
+    """{'cache': ..., 'perturb': ..., 'gains': ...} from results/probes/<prefix>_cache_probe*.json, <prefix>_perturb*.json, <prefix>_gains*.json (whatever exists; several files of one kind
+    are merged by run name). `p2` = the two-pass probes (src/probes_2pass.py)."""
+    out: dict = {}
+    for key, stem in (("cache", f"{prefix}_cache_probe"), ("perturb", f"{prefix}_perturb"), ("gains", f"{prefix}_gains")):
+        for f in sorted(directory.glob(f"{stem}*.json")):
+            out.setdefault(key, {}).update(json.loads(f.read_text()))
+    return out
+
+
+def cache_figure(probes: dict) -> list[dict]:
+    """The linear read-out of the passkey from the cached keys and values: one table per feature, all probed runs (empty when nothing was probed)."""
+    cache = probes.get("cache", {})
+    if not cache:
+        return []
+    runs = list(cache)
+    first = cache[runs[0]]
+    dists = list(first["models"]["model"]["by_distance"])
+    tokens = [first["models"]["model"]["by_distance"][d]["tokens"] for d in dists]
+    ctl = next((res["models"]["control"] for res in cache.values() if "control" in res["models"]), None)
+    head = ["run"] + [f"{t:,} tokens" for t in tokens]
+
+    def table(feature: str) -> str:
+        rows = [[html.escape(r)] + [f2(cache[r]["models"]["model"]["by_distance"][d][feature]["mean"]) if feature in cache[r]["models"]["model"]["by_distance"][d] else "–" for d in dists] for r in runs]
+        if ctl:
+            rows.append([f"control: {html.escape(ctl['run'])}"] + [f2(ctl["by_distance"][d][feature]["mean"]) if feature in ctl["by_distance"][d] else "–" for d in dists])
+        return RR._table(head, rows)
+    reach = first["models"]["model"]["reach"]
+    return [{"key": "probe_cache", "title": "Passkey read out of the cached window",
+             "sub": f"Linear (ridge) read-out of each passkey token from the {reach // 2} cached positions of both layers, at growing numbers of tokens after the passkey; mean accuracy over the {first['passkey_len']} tokens, chance {first['chance']:.3f}; "
+                    f"{first['n_train']} streams to fit, {first['n_test']} to test. Tables: cached values, cached keys.",
+             "caption": "<p>The read-out never sees the passkey tokens themselves, only the cached values (or keys) after the given number of tokens. A plain window model with these dimensions reaches "
+                        f"{reach} tokens" + (f"; the control ({html.escape(ctl['run'])}) is a plain sliding-window model, whose cache cannot hold the passkey beyond that." if ctl else ".") + "</p>",
+             "spec": None, "html": "<p><b>Values</b></p>" + table("v") + "<p><b>Keys</b></p>" + table("k")}]
 
 
 def method_svg() -> str:
@@ -324,7 +361,7 @@ def e4_paragraph(raw: list[dict], logs: dict) -> str:
 def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dict | None = None) -> tuple[dict, str, str]:
     raw = raw if raw is not None else A.load_runs(C.ROOT / "results" / "raw")
     logs = logs if logs is not None else RR.log_curves(C.ROOT / "logs")
-    probes = probes if probes is not None else V.load_probes(prefix="p2")
+    probes = probes if probes is not None else load_probes()
     dgroups = RG.diff_groups([r for r in raw if r["cfg"]["model"]["kind"] in ("swa", "swa_fb", "swa_va", "swa_2pass", "gdn2")])
     p2 = {(RG.effective_segment(g), int(RG.setting(g, "model.pass_output")), float(RG.setting(g, "model.gain_init"))): g for g in dgroups
           if g["kind"] == "swa_2pass" and set(g["diff"]) <= {"model.segment", "model.pass_output", "model.gain_init"}}
@@ -421,7 +458,7 @@ def p2_data(raw: list[dict] | None = None, logs: dict | None = None, probes: dic
             figs.append({"key": key, "title": f"Training: validation passkey at N = {n:,}", "sub": "Validation streams, every 2,000 steps (N = 4,096: 100 streams, N = 16,384: 32 streams). Solid = two-pass, dashed = the vector loop m at the same segment; bars from the worst to the best seed.",
                          "caption": "", "spec": c})
     e4_figs, e4_sentences = longer_training(raw, logs)
-    figs += e4_figs + V.probe_figures(probes, kinds=("cache",)) + perturb_figure(probes) + gains_figure(probes)
+    figs += e4_figs + cache_figure(probes) + perturb_figure(probes) + gains_figure(probes)
     figs.append(RR.configuration_appendix([g for g in dgroups if g["kind"] == "swa_2pass" or g in list(fb.values()) + [x for x in (va32, swa64, gdn2) if x]]))
 
     # ---------------------------------------------------------------- text

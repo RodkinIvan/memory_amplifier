@@ -1,4 +1,7 @@
 # Overnight queue for src/run_queue.py (one stage per line: `<tmux session> | <launch.py arguments>`), in priority order.
+# NOTE (E7): stages marked "[archive: ...]" launched settings that E7 removed (noise on the loop vector, value adaptation, the output of pass 2); they are commented out because
+# launch.py and train.py now refuse them (the message names the commit). Their results stay in results/raw/ and results/explore/. Every other stage of this file still names runs
+# that exist; the swa_fb stages use configs/swa_fb.yaml, which since E7 says `kv_cache: true`, so a re-run of a finished swa_fb stage is refused by train.py ("different config, same name").
 # Main grid (session fbsweep): nonlin {tanh,none} x segment {64,32,16} x seed {0,1,2}, window 64, 20k steps.
 # GPU 1 was handed over: everything runs on GPU 0 only. With --start-below 6 and 2 workers per stage, at most 8 runs share GPU 0.
 
@@ -11,7 +14,7 @@ fbre_s1b | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --sweep model
 fbseg8 | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --set experiment=swa_fb_extra model.segment=8 --sweep model.nonlin=tanh,none seed=0,1
 
 # 2. Noise on the segment vector during training (std 0.1 / 0.3), segment 32, tanh and linear loop: does robustness help extrapolation?
-fbnoise | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --set experiment=swa_fb_extra model.segment=32 --sweep model.noise=0.1,0.3 model.nonlin=tanh,none
+# [archive: launches a setting that E7 removed, a re-run is refused] fbnoise | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --set experiment=swa_fb_extra model.segment=32 --sweep model.noise=0.1,0.3 model.nonlin=tanh,none
 
 # 3. Twice the training steps (40k) for segment 64 and 32: is the extrapolation gap an optimisation-time effect?
 fblong | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 2 --set experiment=swa_fb_extra train.steps=40000 --sweep model.segment=64,32 model.nonlin=tanh,none
@@ -47,19 +50,19 @@ m9_b_re | --config configs/swa_fb.yaml --gpus 0 --procs-per-gpu 1 --set experime
 # ---- Design experiment E1 (2026-10-08): value adaptation of the short-term store (kind swa_va, frozen reference configs/ref/swa_va_v1.yaml).
 # Same recipe as H5 (window 64, 2 layers, 50k steps, curriculum 2000, lr 1e-3, adaptation parameters at 10x lr, gain 0); CUDA-graph step (part of the reference).
 # Segment 32 first (3 seeds, GPU 1), segment 8 (3 seeds, two workers on GPU 0 and two on GPU 1) started once the first one was running. Launched by hand with launch.py (no queue driver was running).
-va_32 | --config configs/swa_va.yaml --gpus 1 --procs-per-gpu 3 --set model.segment=32 --sweep seed=0,1,2
-va_8 | --config configs/swa_va.yaml --gpus 0 1 --procs-per-gpu 2 --set model.segment=8 --sweep seed=0,1,2
+# [archive: launches a setting that E7 removed, a re-run is refused] va_32 | --config configs/swa_va.yaml --gpus 1 --procs-per-gpu 3 --set model.segment=32 --sweep seed=0,1,2
+# [archive: launches a setting that E7 removed, a re-run is refused] va_8 | --config configs/swa_va.yaml --gpus 0 1 --procs-per-gpu 2 --set model.segment=8 --sweep seed=0,1,2
 
 # ---- Design experiment E2 (2026-10-13): two-pass layer, the short-term store re-written with what it read (kind swa_2pass, frozen reference configs/ref/swa_2pass_v1.yaml).
 # Same recipe as H5 (window 64, 2 layers, 50k steps, curriculum 2000, lr 1e-3, gains at 10x lr, gain 0); CUDA-graph step (part of the reference). Launched by hand with launch.py (no queue driver was running).
 # Segment 32 with the second pass (default) and the first pass as the output to the next layer, 3 seeds each; then segment 64 with the default output (the review does not say which output to use there).
-p2_32 | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 3 --set model.segment=32 --sweep model.pass_output=2,1 seed=0,1,2
-p2_64 | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 2 --set model.segment=64 model.pass_output=2 --sweep seed=0,1,2
+# [archive: launches a setting that E7 removed, a re-run is refused] p2_32 | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 3 --set model.segment=32 --sweep model.pass_output=2,1 seed=0,1,2
+# [archive: launches a setting that E7 removed, a re-run is refused] p2_64 | --config configs/swa_2pass.yaml --gpus 0 1 --procs-per-gpu 2 --set model.segment=64 model.pass_output=2 --sweep seed=0,1,2
 
 # E2 pilots (2026-10-13, seed 0 only): the output-of-pass-2 runs above did not learn even the N = 32 passkey in the first 6000 steps (output of pass 1: 0.9+ by step 2000). Short checks
 # (3000 steps, N = 32 stage): gain frozen at 0 (= plain SWA) 0.46, gain at 1x learning rate 0.36, so the 10x learning rate of the gains is the suspect. The review's pilot with gain_init 0.1 is run too.
-p2_pilot_lr1 | --config configs/swa_2pass.yaml --gpus 1 --procs-per-gpu 1 --set model.segment=32 model.pass_output=2 train.loop_lr_mult=1 seed=0
-p2_pilot_gi | --config configs/swa_2pass.yaml --gpus 0 --procs-per-gpu 1 --set model.segment=32 model.pass_output=2 model.gain_init=0.1 seed=0
+# [archive: launches a setting that E7 removed, a re-run is refused] p2_pilot_lr1 | --config configs/swa_2pass.yaml --gpus 1 --procs-per-gpu 1 --set model.segment=32 model.pass_output=2 train.loop_lr_mult=1 seed=0
+# [archive: launches a setting that E7 removed, a re-run is refused] p2_pilot_gi | --config configs/swa_2pass.yaml --gpus 0 --procs-per-gpu 1 --set model.segment=32 model.pass_output=2 model.gain_init=0.1 seed=0
 
 # ---- E4 (2026-10-14): does longer training fix the seed instability? swa_2pass, pass_output 1, segment 32 (the working config swa_2pass.yaml; E3 made output 1 the default, the overrides below
 # spell it out so the run names carry it and the stored configs equal those of the first-round output-1 runs). Metric fixed before the runs, per arm and over its 6 seeds: the share of seeds that

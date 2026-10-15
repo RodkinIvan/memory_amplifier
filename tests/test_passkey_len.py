@@ -151,22 +151,6 @@ class PerPositionAndLongPasskeys(DatasetsAndEvaluation):
         for B in (7, 40):
             self.assertEqual(E.evaluate_packed(Peek(break_after_value=True), p, torch.device("cpu"), tokens_per_batch=B * L)["passkey_pos_acc"], ref["passkey_pos_acc"])
 
-    def test_the_passkey_weight_applies_to_the_last_p_supervised_tokens_not_the_last_4(self):
-        import train as T
-        torch.manual_seed(0)
-        P, n_ar = 8, 5
-        labels = torch.full((1, 40), -100)
-        labels[0, 3:3 + n_ar] = torch.randint(8, 40, (n_ar,))               # AR answers
-        labels[0, 20:20 + P] = torch.randint(8, 40, (P,))                    # the passkey: the last P supervised positions
-        logits = torch.randn(1, 40, 40)
-        ce = F.cross_entropy(logits[0, :-1].float(), labels[0, 1:], ignore_index=-100, reduction="none")
-        sup = labels[0, 1:] != -100
-        w = torch.ones(39)
-        w[19:19 + P] = 10.0                                                  # target positions 20..27 shifted by one
-        expect = (ce * w * sup).sum() / (w * sup).sum()
-        self.assertAlmostEqual(float(T.weighted_ce(logits, labels, 10.0, P)), float(expect), places=5)
-        self.assertNotAlmostEqual(float(T.weighted_ce(logits, labels, 10.0, 4)), float(expect), places=3)   # the default of 4 would weight the wrong tokens
-
     def test_probes_scan_the_stream_after_a_passkey_of_any_length(self):
         import probes as PR
         from probes import make_packed
@@ -224,7 +208,7 @@ class ConfigAndNames(unittest.TestCase):
     def test_old_results_without_the_key_are_passkey_len_4(self):
         cfg, _ = self.cfg()
         self.assertNotIn("passkey_len", cfg)
-        self.assertEqual(C.reference_diff(cfg), {})
+        self.assertEqual(C.reference_diff(cfg), {"model.kv_cache": [False, True]})  # the one difference of the working config (E7); the passkey length is not one: a missing key is 4
 
 
 if __name__ == "__main__":

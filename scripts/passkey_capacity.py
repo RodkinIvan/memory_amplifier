@@ -42,7 +42,6 @@ OUT = ROOT / "results" / "capacity.json"
 MODELS = {  # what a stage fine-tunes: the config file, the wandb group, the model overrides (the checkpoint's architecture), the segment and the default weights of the checkpoint
     "swa_fb": {"config": "configs/swa_fb.yaml", "experiment": "swa_fb_capacity", "segment": 8, "overrides": ["model.nonlin=none", "model.gain_init=0"],
                "init": "checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt"},
-    "swa_va": {"config": "configs/swa_va.yaml", "experiment": "swa_va_capacity", "segment": 32, "overrides": [], "init": None},
     "swa_2pass": {"config": "configs/swa_2pass.yaml", "experiment": "swa_2pass_capacity", "segment": 32, "overrides": ["model.pass_output=1"],
                   "init": "checkpoints/swa_2pass_seg32_po1_s5.pt"},  # the best two-pass checkpoint: highest validation passkey at N = 16,384 of the 14 output-1 runs of E4 (test 1.00 / 0.99 / 0.96 / 0.87 at N = 256 / 1,024 / 4,096 / 16,384)
 }
@@ -272,9 +271,9 @@ def reevaluate(gpu: int) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", choices=list(MODELS), default="swa_fb", help="the model kind of the checkpoint (swa_va: value adaptation, swa_2pass: two-pass layer; the results of a model other than swa_fb go under `stages_<model>` / `budget_runs_<model>`)")
+    ap.add_argument("--model", choices=list(MODELS), default="swa_fb", help="the model kind of the checkpoint (swa_2pass: two-pass layer; the results of a model other than swa_fb go under `stages_<model>` / `budget_runs_<model>`)")
     ap.add_argument("--tag", default="", help="suffix of the result keys, to keep two chains of one model with different recipes apart (e.g. 'budget': `stages_swa_2pass_budget`)")
-    ap.add_argument("--segment", type=int, default=None, help="segment of the checkpoint (default: 8 for swa_fb, 32 for swa_va)")
+    ap.add_argument("--segment", type=int, default=None, help="segment of the checkpoint (default: 8 for swa_fb, 32 for swa_2pass)")
     ap.add_argument("--init", default=None, help="weights of the checkpoint trained on 4-token passkeys (default: the best checkpoint of the model, see MODELS)")
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--start", type=int, default=8)

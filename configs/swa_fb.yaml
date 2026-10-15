@@ -3,7 +3,7 @@
 # which is added (learned per-channel gain) to that layer's input at every token of the NEXT segment.
 # Defaults = the recipe found in the 12k-step exploration (wandb group swa_fb_explore): a stream-length curriculum
 # (n32 -> n64 -> n128 -> n256, one stage per 2000 steps), loop parameters at 10x learning rate, small non-zero gain init.
-# Re-weighting the passkey loss (train.passkey_weight/_anneal_steps) is NOT used: it starved the AR task.
+# Since E7 the model has only the key/value cache path (`kv_cache: true`, below); the noise option, the tail-recompute path and the passkey-loss weighting were removed (see config.REMOVED_IN).
 # Sweep (src/launch.py):  model.nonlin in {tanh, none} x model.segment in {64, 32, 16} (window fixed at 64) x seed
 experiment: swa_fb
 project: passkey_swar
@@ -15,9 +15,9 @@ model:
   window: 64
   segment: 0               # tokens per segment; 0 = one segment per window
   nonlin: tanh             # tanh (bounded, fixed points) | none (no tanh; the RMSNorm stays, so the loop is still not linear) | gelu
-  noise: 0.0               # std of gaussian noise added to m during training
   gain_init: 0.1           # injection gain at init; 0 = start as plain SWA (gain 1 stalls early learning)
   proj_std: 0.1            # init std of the loop projection
+  kv_cache: true           # the only path since E7 (the keys and values of the last W-1 tokens come from a cache); a config that says false or omits the key is refused
   n_layers: 2
   d_model: 128
   num_heads: 4
@@ -35,9 +35,7 @@ train:
   pad_multiple: 256
   precision: bf16
   loop_lr_mult: 10.0       # learning-rate multiplier for the feedback-loop parameters
-  passkey_weight: 1.0      # loss weight of the 4 passkey tokens at step 0 (1 = plain mean over supervised tokens)
   curriculum_stage_steps: 2000  # >0: start on the first train config only and add the next one every this many steps
-  passkey_weight_anneal_steps: 0  # decay the weight log-linearly to 1 over this many steps (0 = keep it constant)
   log_every: 50
   eval_every: 2000
   eval_examples: 200

@@ -9,7 +9,7 @@
     python src/probes.py profile --runs swa_fb_nltanh_seg64_s2 --ns 256 1024 4096 --out results/probes/passkey_profile.json
     # is the loop an attractor? perturb m mid-stream (does the passkey survive, does the perturbation die out over later hops?),
     # Jacobian of m(s) -> m(s+1), and the size and drift of m over a long stream
-    python src/probes.py attractor --runs swa_fb_seg32_noise0.3_nltanh_s0 --out results/probes/attractor_probe.json
+    python src/probes.py attractor --runs swa_fb_gi0_nlnone_seg8_steps50000_s2 --out results/probes/attractor_probe.json
 
 Probe streams use their own seed (77), distinct from the train/validation/test seeds of the dataset.
 """
@@ -88,7 +88,8 @@ def load_run(name: str, device="cuda"):
     cfg = json.loads((C.ROOT / "results" / "raw" / f"{name}.json").read_text())["config"]
     data_dir = C.data_dir_for(cfg)
     vocab = json.loads((data_dir / "vocab.json").read_text())["size"]
-    model = build_from_config(cfg["model"], vocab).to(device)
+    mc = {**cfg["model"], "kv_cache": True} if cfg["model"]["kind"] == "swa_fb" else cfg["model"]  # the loop model has only the key/value cache path since E7: the same function as the tail path some of these runs were trained with, up to rounding
+    model = build_from_config(mc, vocab).to(device)
     model.load_state_dict(torch.load(C.ROOT / "runs" / name / "model.pt", map_location=device))
     return model.eval(), cfg
 
@@ -215,7 +216,6 @@ def attractor_probe(name: str, n_writes: int = 4096, n_exact: int = 200, n_traj:
     import torch
     import evaluate as E
     model, cfg = load_run(name)
-    model.kv_cache = True  # same result as recomputing the tail, much less memory on long streams
     dev, C_ = torch.device("cuda"), model.segment
     amp = torch.bfloat16 if cfg["train"].get("precision", "fp32") == "bf16" else None
     L = len(model.loops)
