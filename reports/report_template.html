@@ -236,7 +236,7 @@ function scatter(host, n) {
   host.insertAdjacentHTML('beforeend', `<div>${s}</svg></div>`);
 }
 
-// ---- generic line chart: spec = { xTicks, x0, x1, xLog, xLabel, yLabel, yMax, series[], vlines[], note }
+// ---- generic line chart: spec = { xTicks, xTickLabels (optional {x: label}), x0, x1, xLog, xLabel, yLabel, yMax, series[], vlines[], note }
 // series: { label, short, c (css colour, optional), width, dashed, points: [{x, y, lo, hi, tip}] }
 function lineChart(host, legendHost, spec) {
   const W = 760, H = spec.height || 340, m = { l: 52, r: spec.rightPad || 132, t: 14, b: 44 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
@@ -251,7 +251,7 @@ function lineChart(host, legendHost, spec) {
   });
   spec.xTicks.forEach(x => {
     s += `<line x1="${X(x)}" x2="${X(x)}" y1="${m.t + ih}" y2="${m.t + ih + 4}" stroke="var(--axis)"/>`;
-    s += `<text x="${X(x)}" y="${m.t + ih + 17}" font-size="10.5" text-anchor="middle">${x}</text>`;
+    s += `<text x="${X(x)}" y="${m.t + ih + 17}" font-size="10.5" text-anchor="middle">${spec.xTickLabels && spec.xTickLabels[x] != null ? esc(spec.xTickLabels[x]) : x}</text>`;
   });
   s += `<line x1="${m.l}" x2="${m.l + iw}" y1="${m.t + ih}" y2="${m.t + ih}" stroke="var(--axis)"/>`;
   s += `<text x="${m.l + iw / 2}" y="${H - 8}" font-size="11" text-anchor="middle">${esc(spec.xLabel)}</text>`;
@@ -291,9 +291,11 @@ function table(cols, rows) {
 }
 
 function renderCharts() {
-  heatmap($('#hm-passkey'), 'passkey', 'Passkey exact match', r => `${r.n_examples} examples per seed`);
-  heatmap($('#hm-valid'), 'valid', DATA.valid_title, r => `${r.n_valid.toLocaleString()} queries per seed`);
-  heatmap($('#hm-stale'), 'stale', DATA.stale_title, r => `${r.n_stale.toLocaleString()} queries per seed`);
+  if (!DATA.hide_heatmaps) {
+    heatmap($('#hm-passkey'), 'passkey', 'Passkey exact match', r => `${r.n_examples} examples per seed`);
+    heatmap($('#hm-valid'), 'valid', DATA.valid_title, r => `${r.n_valid.toLocaleString()} queries per seed`);
+    heatmap($('#hm-stale'), 'stale', DATA.stale_title, r => `${r.n_stale.toLocaleString()} queries per seed`);
+  }
   if (!DATA.hide_scatter) { $('#scatter').innerHTML = ''; DATA.scatter_ns.forEach(n => scatter($('#scatter'), n)); }
   DATA.extra_figs.forEach((f, i) => { if (f.spec) lineChart($('#ch-' + i), $('#lg-' + i), f.spec); });  // a figure may carry html instead of a line chart
 }
@@ -305,16 +307,16 @@ function fillText() {
   $('#tested-h').textContent = DATA.tested_title || 'What was tested'; $('#results-h').textContent = DATA.results_title || 'Results'; $('#next-h').textContent = DATA.next_title || 'What is next';
   if (DATA.fig1_title) $('#fig1-title').textContent = DATA.fig1_title;
   if (DATA.hide_scatter) $('#fig2-fig').remove();
+  if (DATA.hide_heatmaps) $('#fig1-fig').remove();  // a report whose results are not accuracy by configuration and stream length (the attractor report)
   $('#tested').innerHTML = DATA.tested.map(c => `<div class="card"><h3>${c.title} <span class="tag ${c.ok ? 'ok' : ''}">${esc(c.tag)}</span></h3><p>${c.body}</p></div>`).join('');
   if (!DATA.tested.length) { $('#tested-h').remove(); $('#tested').remove(); }
   $('#results-intro').innerHTML = DATA.results_intro;
-  $('#fig1-sub').innerHTML = DATA.fig1_sub;
-  $('#cap1').innerHTML = DATA.cap1;
+  if (!DATA.hide_heatmaps) { $('#fig1-sub').innerHTML = DATA.fig1_sub; $('#cap1').innerHTML = DATA.cap1; }
   if (!DATA.hide_scatter) { $('#fig2-sub').innerHTML = DATA.fig2_sub; $('#cap2').innerHTML = DATA.cap2; }
   $('#next').innerHTML = DATA.next;
   const rows = [];
   ROWS.forEach(row => NS.forEach(n => { const r = cell(row.key, n); if (r) rows.push([flat(row.label), n, fmt2(r.passkey), fmt2(r.valid), fmt2(r.stale), fmt2(r.expired), r.n_stale]); }));
-  $('#tbl1').innerHTML = table([DATA.row_name, 'N', 'passkey', 'ar_valid', 'expired (stale)', 'expired (all)', '# stale queries per seed'], rows);
+  if (!DATA.hide_heatmaps) $('#tbl1').innerHTML = table([DATA.row_name, 'N', 'passkey', 'ar_valid', 'expired (stale)', 'expired (all)', '# stale queries per seed'], rows);
   if (!DATA.hide_scatter) {
     const rows2 = [];
     DATA.scatter_ns.forEach(n => ROWS.forEach(row => { const r = cell(row.key, n); if (r) rows2.push([n, flat(row.label), fmt2(r.expired), fmt2(r.passkey), fmt2(r.valid)]); }));

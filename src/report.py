@@ -7,6 +7,7 @@
     python src/report.py best --out reports/best_report.html # presentation sub-report: the method and the best checkpoint
     python src/report.py p2 --out reports/p2_report.html     # design experiment E2: the two-pass layer
     python src/report.py capacity --out reports/capacity_report.html  # passkey capacity: how many passkey tokens fit
+    python src/report.py attractor --out reports/attractor_report.html  # design experiment E5: attractor states of the two-pass layer
 
 All numbers in the text are computed from the data; the template is reports/report_template.html. (The value-adaptation report of E1, `va`, is an archive: its code was removed in E7,
 reports/va_report.html stays as it was published.)
@@ -785,7 +786,7 @@ def fb_data() -> tuple[dict, str, str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("kind", choices=["gdn", "swa", "fb", "best", "p2", "capacity"])
+    ap.add_argument("kind", choices=["gdn", "swa", "fb", "best", "p2", "capacity", "attractor"])
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
     if a.kind == "best":
@@ -795,6 +796,10 @@ def main() -> None:
     if a.kind == "capacity":
         import report_capacity  # the passkey-capacity experiment
         render(*report_capacity.capacity_data(), a.out)
+        return
+    if a.kind == "attractor":
+        import report_attractor  # design experiment E5: attractor states of the two-pass layer
+        render(*report_attractor.report_data(), a.out)
         return
     if a.kind == "p2":
         import report_2pass  # design experiment E2: the two-pass layer
