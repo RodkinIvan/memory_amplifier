@@ -84,7 +84,7 @@ data/    make_passkey_swar.py  generator (deterministic, per-example seeds)
 src/     models.py (fixed-decay GDN, sliding-window attention, segment-feedback SWA), data.py, evaluate.py, train.py (resumable), graphed.py (CUDA-graph step),
          launch.py, run_queue.py (unattended queue of sweeps), aggregate.py, probes.py (checkpoint probes on fresh streams), report.py + report_groups.py +
          report_rounds.py (HTML reports; rows = configurations), config.py (configs, run names, diff against the frozen references)
-checkpoints/ the best weights (2.3 MB each, manifest.json with hashes and metrics; `python scripts/backup_checkpoints.py <run>`)
+checkpoints/ the best weights, LOCAL ONLY (git-ignored, review K2; 2.1-2.3 MB each); manifest.json (tracked) has their hashes and metrics; `python scripts/backup_checkpoints.py <run>`
 configs/ experiment YAMLs, configs/ref/ frozen references      reports/ statistics + plans      results/ summary tables, plots, raw per-run json
 tests/   python -m unittest discover -s tests -t .
 ```

@@ -14,3 +14,6 @@ wandb_token
 .env
 *.key
 results/capacity.lock
+
+# model weights stay on the local disk (review K2): checkpoints/manifest.json (text: hashes, parameter counts, scores) is tracked, the .pt files are not
+checkpoints/*.pt

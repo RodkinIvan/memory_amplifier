@@ -1,4 +1,186 @@
 {
+ "swa_2pass_seg32_po1_pk16_steps50000_lr0.001_warmup_steps500_cur2000_s1": {
+  "bytes": 2128928,
+  "diff_vs_reference": {
+   "model.pass_output": [
+    2,
+    1
+   ],
+   "passkey_len": [
+    4,
+    16
+   ],
+   "train.init_from": [
+    null,
+    "runs/swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s1/model.pt"
+   ]
+  },
+  "file": "checkpoints/swa_2pass_seg32_po1_pk16_steps50000_lr0.001_warmup_steps500_cur2000_s1.pt",
+  "n_params": 530304,
+  "sha256": "4f05cf0fe0a5bf94a646b9b68292cafd81e6d3115140c7bea729f947614066b5",
+  "test_ar_valid": {
+   "256": 0.999
+  },
+  "test_passkey": {
+   "256": 0.967
+  }
+ },
+ "swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s0": {
+  "bytes": 2128928,
+  "diff_vs_reference": {
+   "model.pass_output": [
+    2,
+    1
+   ],
+   "passkey_len": [
+    4,
+    8
+   ],
+   "train.init_from": [
+    null,
+    "checkpoints/swa_2pass_seg32_po1_s5.pt"
+   ]
+  },
+  "file": "checkpoints/swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s0.pt",
+  "n_params": 530304,
+  "sha256": "a72c2ac063a6d362141211d2e4fe333270cae5c1df5cc86960c6ae74bd1ed9ef",
+  "test_ar_valid": {
+   "256": 0.997
+  },
+  "test_passkey": {
+   "256": 0.988
+  }
+ },
+ "swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s1": {
+  "bytes": 2128928,
+  "diff_vs_reference": {
+   "model.pass_output": [
+    2,
+    1
+   ],
+   "passkey_len": [
+    4,
+    8
+   ],
+   "train.init_from": [
+    null,
+    "checkpoints/swa_2pass_seg32_po1_s5.pt"
+   ]
+  },
+  "file": "checkpoints/swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s1.pt",
+  "n_params": 530304,
+  "sha256": "2d27b77ccff930ca251b1f7f4bf9ff20355c594ab5a315acb26549282af771c9",
+  "test_ar_valid": {
+   "256": 0.996
+  },
+  "test_passkey": {
+   "256": 0.974
+  }
+ },
+ "swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s2": {
+  "bytes": 2128928,
+  "diff_vs_reference": {
+   "model.pass_output": [
+    2,
+    1
+   ],
+   "passkey_len": [
+    4,
+    8
+   ],
+   "train.init_from": [
+    null,
+    "checkpoints/swa_2pass_seg32_po1_s5.pt"
+   ]
+  },
+  "file": "checkpoints/swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s2.pt",
+  "n_params": 530304,
+  "sha256": "87b34bdb009cbb9aa74475d8c9a3cafaa5012d2dcae68fd1851732b884b5d390",
+  "test_ar_valid": {
+   "256": 0.996
+  },
+  "test_passkey": {
+   "256": 0.972
+  }
+ },
+ "swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s3": {
+  "bytes": 2128928,
+  "diff_vs_reference": {
+   "model.pass_output": [
+    2,
+    1
+   ],
+   "passkey_len": [
+    4,
+    8
+   ],
+   "train.init_from": [
+    null,
+    "checkpoints/swa_2pass_seg32_po1_s5.pt"
+   ]
+  },
+  "file": "checkpoints/swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s3.pt",
+  "n_params": 530304,
+  "sha256": "3a58134ed4a9d9c1124159cd6bd83cbbec7e678092ea3239250c081fe86a2e67",
+  "test_ar_valid": {
+   "256": 0.994
+  },
+  "test_passkey": {
+   "256": 0.999
+  }
+ },
+ "swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s4": {
+  "bytes": 2128928,
+  "diff_vs_reference": {
+   "model.pass_output": [
+    2,
+    1
+   ],
+   "passkey_len": [
+    4,
+    8
+   ],
+   "train.init_from": [
+    null,
+    "checkpoints/swa_2pass_seg32_po1_s5.pt"
+   ]
+  },
+  "file": "checkpoints/swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s4.pt",
+  "n_params": 530304,
+  "sha256": "430ed4127cdcf443e65c3ed06c47bd2c0ea016079b18373ed3d4d633173e88dd",
+  "test_ar_valid": {
+   "256": 0.997
+  },
+  "test_passkey": {
+   "256": 0.986
+  }
+ },
+ "swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s5": {
+  "bytes": 2128928,
+  "diff_vs_reference": {
+   "model.pass_output": [
+    2,
+    1
+   ],
+   "passkey_len": [
+    4,
+    8
+   ],
+   "train.init_from": [
+    null,
+    "checkpoints/swa_2pass_seg32_po1_s5.pt"
+   ]
+  },
+  "file": "checkpoints/swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s5.pt",
+  "n_params": 530304,
+  "sha256": "b6829fafc64c3679e838dcf98fcaf087b655cc05edd79036e547edd86ae5732a",
+  "test_ar_valid": {
+   "256": 0.997
+  },
+  "test_passkey": {
+   "256": 0.993
+  }
+ },
  "swa_2pass_seg32_po1_s5": {
   "bytes": 2128928,
   "diff_vs_reference": {
@@ -10,7 +192,12 @@
   "file": "checkpoints/swa_2pass_seg32_po1_s5.pt",
   "n_params": 530304,
   "sha256": "27bc24b988c3e5c2bfe98b146fbf09a5bf65bc2e6ee571b44dd05e302d3fb458",
-  "test_ar_valid_at_16384": 0.996,
+  "test_ar_valid": {
+   "1024": 0.997,
+   "16384": 0.996,
+   "256": 0.996,
+   "4096": 0.996
+  },
   "test_passkey": {
    "1024": 0.994,
    "16384": 0.87,
@@ -41,7 +228,12 @@
   "file": "checkpoints/swa_fb_gi0_nlnone_seg8_steps50000_s2.pt",
   "n_params": 563584,
   "sha256": "63804c2a8855a10c4ad930c6d7ab94cdb0510dba75363a24239ef161b57be743",
-  "test_ar_valid_at_16384": 0.994,
+  "test_ar_valid": {
+   "1024": 0.995,
+   "16384": 0.994,
+   "256": 0.994,
+   "4096": 0.994
+  },
   "test_passkey": {
    "1024": 0.999,
    "16384": 0.993,
@@ -68,7 +260,12 @@
   "file": "checkpoints/swa_fb_gi0_seg8_nlnone_s0.pt",
   "n_params": 563584,
   "sha256": "fa53efb66e21e8bc08c02563ce3ce3e85c97f01bd940216e7cda3f6a9df938d7",
-  "test_ar_valid_at_16384": 0.994,
+  "test_ar_valid": {
+   "1024": 0.995,
+   "16384": 0.994,
+   "256": 0.994,
+   "4096": 0.994
+  },
   "test_passkey": {
    "1024": 0.984,
    "16384": 0.928,
