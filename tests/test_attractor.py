@@ -216,6 +216,49 @@ class Objective(unittest.TestCase):
         self.assertLess(trace[-1][1], trace[0][1])
 
 
+@unittest.skipUnless(CUDA, "needs a CUDA GPU")
+class Variants(unittest.TestCase):
+    def setUp(self):
+        self.m = model(window=24, segment=8)
+        for p in self.m.parameters():
+            p.requires_grad_(False)
+        self.orig = A.N_SEGMENTS_BEFORE
+        A.N_SEGMENTS_BEFORE = 4
+
+    def tearDown(self):
+        A.N_SEGMENTS_BEFORE = self.orig
+
+    def test_the_sphere_variant_keeps_the_norm_of_every_layers_state(self):
+        x = tokens(4, 8 * 4)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            S0 = A.window_states(self.m, x, 4)
+
+        class Pool(A.SegmentPool):
+            def __init__(self):
+                self.tokens, self.length = tokens(50, 200, seed=3), 200
+
+        ev = Pool().sample((4, 4), 8, torch.Generator(device="cuda").manual_seed(1))
+        S, _, res = A.find_attractor(self.m, S0, Pool(), 40, 3e-2, 4, 0, ev, sphere=True)
+        n0, n1 = S0.pow(2).sum((2, 3)).sqrt(), S.pow(2).sum((2, 3)).sqrt()
+        self.assertLess(float((n1 / n0 - 1).abs().max()), 1e-4)                  # per state and layer
+        self.assertGreater(float((S - S0).abs().max()), 1e-3)                    # and it did move
+        S_free, _, res_free = A.find_attractor(self.m, S0, Pool(), 40, 3e-2, 4, 0, ev)
+        self.assertLess(float((S_free.pow(2).sum((2, 3)).sqrt() / n0).mean()), 1.0)     # the free objective shrinks the state
+
+    def test_the_trajectory_convergence_of_identical_starts_is_zero_and_of_different_ones_is_not(self):
+        st = A.Streams(G.GenParams(), 8, n_pass=3, n_ctx=2)
+        a = np.where(st.kind == "A")[0]
+        S = torch.randn(len(st), 2, 23, 64).cuda()
+        for k in range(3):                                                      # the two contexts of a passkey start from the same state
+            S[a[st.c[a] == 1][k]] = S[a[st.c[a] == 0][k]]
+        ar = tokens(len(st), 8 * 8, seed=2)
+        r = A.trajectory_convergence(self.m, st, S, ar, 8, marks=(1, 4, 8))
+        self.assertEqual(r["t"], [0, 1, 4, 8])
+        self.assertAlmostEqual(r["same_passkey"][0], 0.0, places=5)
+        self.assertAlmostEqual(r["same_passkey"][-1], 0.0, places=5)           # the same input from the same state: the same trajectory
+        self.assertGreater(r["different_passkey"][0], 0.5)
+
+
 class Convergence(unittest.TestCase):
     @unittest.skipUnless(CUDA, "needs a CUDA GPU")
     def test_states_of_one_passkey_that_became_identical_have_distance_zero_and_ratio_zero(self):

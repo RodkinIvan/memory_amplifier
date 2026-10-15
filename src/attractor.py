@@ -219,12 +219,14 @@ def objective(model, S, S0, ids, per_slot: bool = False):
     return per_state, slot
 
 
-def find_attractor(model, S0, pool: SegmentPool, steps: int, lr_scale: float, n_x: int, seed: int, eval_ids, log_every: int = 100, at_steps=(), callback=None):
+def find_attractor(model, S0, pool: SegmentPool, steps: int, lr_scale: float, n_x: int, seed: int, eval_ids, log_every: int = 100, at_steps=(), callback=None, sphere: bool = False):
     """Adam from S0 on the objective with fresh segments every step (cosine decay of the learning rate to 10%). The learning rate is `lr_scale` times the RMS of S0. Returns S*, the trace
-    (step, mean training objective of the last interval) and the held-out objective of S* and S0. `callback(step, S)` is called at the steps in `at_steps` (and at 0)."""
+    (step, mean training objective of the last interval) and the held-out objective of S* and S0. `callback(step, S)` is called at the steps in `at_steps` (and at 0). With `sphere` every
+    layer's state keeps the norm of S0 (rescaled after every step): the objective as specified lets the state shrink, because the error is divided by the energy of S0 (see `run`)."""
     import torch
     gen = torch.Generator(device="cuda").manual_seed(seed)
     S = S0.clone().requires_grad_(True)
+    norm0 = S0.pow(2).sum((2, 3), keepdim=True).sqrt()
     lr = lr_scale * float(S0.pow(2).mean().sqrt())
     opt = torch.optim.Adam([S], lr=lr)
     trace, acc = [], []
@@ -239,6 +241,9 @@ def find_attractor(model, S0, pool: SegmentPool, steps: int, lr_scale: float, n_
         opt.zero_grad()
         loss.sum().backward()
         opt.step()
+        if sphere:
+            with torch.no_grad():
+                S.mul_(norm0 / S.pow(2).sum((2, 3), keepdim=True).sqrt())
         acc.append(float(loss.detach().mean()))
         if step % log_every == 0 or step == steps:
             trace.append((step, float(np.mean(acc))))
@@ -317,7 +322,7 @@ def rel_dist(a, b):
     return num / den
 
 
-def run(name: str, steps: int = 3000, lr_grid=(1e-3, 3e-3, 1e-2, 3e-2, 1e-1), n_x: int = 8, n_pass: int = 16, n_ctx: int = 4, repeats: int = 3, track: int = 64, lr: float | None = None,
+def run(name: str, steps: int = 3000, lr_grid=(1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-1, 1.0), n_x: int = 8, n_pass: int = 16, n_ctx: int = 4, repeats: int = 3, track: int = 64, lr: float | None = None,
         pilot_steps: int = 300, log=print) -> dict:
     import torch
     t0 = time.time()
@@ -393,15 +398,22 @@ def run(name: str, steps: int = 3000, lr_grid=(1e-3, 3e-3, 1e-2, 3e-2, 1e-1), n_
                 res[K][1].append(pos.float().mean(0).cpu().tolist())
         return {str(K): {"exact": float(np.mean(v[0])), "per_position": np.mean(v[1], 0).tolist()} for K, v in res.items()}
 
-    out["decoding"] = {"s0": decode(S0), "star": decode(S_star)}
-    log(f"[{name}] exact after K = {KS} random segments: S0 " + " ".join(f"{out['decoding']['s0'][str(K)]['exact']:.2f}" for K in KS) + " | S* " + " ".join(f"{out['decoding']['star'][str(K)]['exact']:.2f}" for K in KS))
+    S_sph, trace_sph, ev_sph = find_attractor(model, S0, pool, steps, lr, n_x, SEEDS["optimizer"], eval_ids, sphere=True)  # extension: the same objective on the sphere of ||S0|| (no shrinking)
+    out["sphere"] = {"trace": trace_sph, "objective_star": float(ev_sph["star"].mean()),
+                     "moved_from_s0": [float(((S_sph[:, i] - S0[:, i]).pow(2).sum((1, 2)).sqrt() / S0[:, i].pow(2).sum((1, 2)).sqrt()).mean()) for i in range(L)],
+                     "error_kept_vs_new": {"kept": [float(ev_sph["slot_star"][i, kept].mean()) for i in range(L)], "new": [float(ev_sph["slot_star"][i, new].mean()) for i in range(L)]},
+                     "convergence": convergence(st, S0, S_sph)}
+    out["decoding"] = {"s0": decode(S0), "star": decode(S_star), "sphere": decode(S_sph)}
+    log(f"[{name}] exact after K = {KS} random segments: S0 " + " ".join(f"{out['decoding']['s0'][str(K)]['exact']:.2f}" for K in KS) + " | S* " + " ".join(f"{out['decoding']['star'][str(K)]['exact']:.2f}" for K in KS) + " | sphere " + " ".join(f"{out['decoding']['sphere'][str(K)]['exact']:.2f}" for K in KS))
     out["stability"] = stability(model, S0, S_star, A, pool, ar, truth, r_values[0], track)
     out["basins"] = basins(model, st, S0, S_star, ar, r_values)
+    out["passkey_difference"] = difference_dynamics(model, st, S0, S_star, ar, track)
     out["convergence"] = convergence(st, S0, S_star)
+    out["trajectory_convergence"] = trajectory_convergence(model, st, S0, ar, track)
     out["seconds"] = round(time.time() - t0)
     states = C.ROOT / "runs" / "attractor"  # the states themselves stay local (git-ignored, like every weight file)
     states.mkdir(parents=True, exist_ok=True)
-    torch.save({"S0": S0.cpu(), "S_star": S_star.cpu(), "kind": st.kind, "k": st.k, "c": st.c, "passkeys": st.passkeys}, states / f"{name}.pt")
+    torch.save({"S0": S0.cpu(), "S_star": S_star.cpu(), "S_sphere": S_sph.cpu(), "kind": st.kind, "k": st.k, "c": st.c, "passkeys": st.passkeys}, states / f"{name}.pt")
     return out
 
 
@@ -466,6 +478,59 @@ def basins(model, st: Streams, S0, S_star, ar, r_values) -> dict:
     return res
 
 
+def difference_dynamics(model, st: Streams, S0, S_star, ar, track: int) -> dict:
+    """The distance between the states of two passkeys that share their context (B differs from A in one position, or in all), both run on the same random input, relative to the distance at the
+    start, over `track` segments: does the part of the state that holds the passkey shrink like noise does (see `stability`) or persist? For S0 and S*."""
+    import torch
+    C_ = model.segment
+    n = st.n_pass
+    ia = torch.from_numpy(st.index("A", np.arange(n), 0)).cuda()
+    res = {}
+    for tag, S in (("s0", S0), ("star", S_star)):
+        res[tag] = {}
+        for kind in ("B1", "Ball"):
+            ib = torch.from_numpy(st.index(kind, np.arange(n))).cuda()
+            seg = ar[ia][:, :track * C_]
+            d0 = (S[ib] - S[ia]).pow(2).sum((1, 2, 3)).sqrt()
+            dist = []
+            with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+                ca, cb = cache_from_state(model, S[ia], N_SEGMENTS_BEFORE * C_), cache_from_state(model, S[ib], N_SEGMENTS_BEFORE * C_)
+                cur_a, cur_b = S[ia], S[ib]
+                for (_, _, h2a), (_, _, h2b) in zip(advance(model, ca, seg), advance(model, cb, seg)):
+                    cur_a, cur_b = next_window(cur_a, h2a, C_), next_window(cur_b, h2b, C_)
+                    dist.append(float(((cur_b - cur_a).pow(2).sum((1, 2, 3)).sqrt() / d0).mean()))
+            res[tag][{"B1": "one_position", "Ball": "all_positions"}[kind]] = {"distance_ratio": dist, "start_distance": float(rel_dist(S[ib], S[ia]).mean())}
+    return res
+
+
+def trajectory_convergence(model, st: Streams, S0, ar, track: int, marks=(1, 2, 4, 8, 16, 32, 64)) -> dict:
+    """Do starts with the same passkey and different contexts converge when they are fed the same random input? The mean relative distance between the states of the same passkey
+    (different contexts) and between different passkeys, after t = 0 (the start) and the given number of segments. An attractor per passkey would leave the first one at the rounding floor
+    and the second one apart."""
+    import torch
+    C_ = model.segment
+    a = np.where(st.kind == "A")[0]
+    k, c = st.k[a], st.c[a]
+    same, diff = (k[:, None] == k[None]) & (c[:, None] != c[None]), k[:, None] != k[None]
+    ia = torch.from_numpy(a).cuda()
+    seg = ar[ia[:1]][:, :track * C_].expand(len(a), -1)  # one input stretch for every state
+
+    def dists(S):
+        d = rel_dist(S[:, None], S[None]).cpu().numpy()
+        return float(d[same].mean()), float(d[diff].mean())
+
+    cur = S0[ia]
+    res = {"t": [0], "same_passkey": [dists(cur)[0]], "different_passkey": [dists(cur)[1]]}
+    with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+        cache = cache_from_state(model, cur, N_SEGMENTS_BEFORE * C_)
+        for s, _, h2s in advance(model, cache, seg):
+            cur = next_window(cur, h2s, C_)
+            if s + 1 in marks:
+                d_same, d_diff = dists(cur)
+                res["t"].append(s + 1), res["same_passkey"].append(d_same), res["different_passkey"].append(d_diff)
+    return res
+
+
 def convergence(st: Streams, S0, S_star) -> dict:
     """Do starts with the same passkey (different contexts) reach the same S*? Mean relative distance between the states of the same passkey and between different passkeys, for S0 and S*
     (and the ratio): the optimisation should make the first one small while keeping the second."""
@@ -482,9 +547,32 @@ def convergence(st: Streams, S0, S_star) -> dict:
     return res
 
 
+def fill_missing(name: str, res: dict, track: int = 64) -> dict:
+    """Add the analyses a result was written without (from the saved states in runs/attractor/<name>.pt, no optimisation): `passkey_difference`, `trajectory_convergence`."""
+    import torch
+    model, cfg, _, _ = load_model(name)
+    for p in model.parameters():
+        p.requires_grad_(False)
+    saved = torch.load(C.ROOT / "runs" / "attractor" / f"{name}.pt", weights_only=False)
+    P = int(cfg.get("passkey_len", 4))
+    params = G.GenParams(passkey_len=P)
+    st = Streams(params, model.segment, res["record"]["n_pass"], res["record"]["n_ctx"])
+    assert np.array_equal(st.passkeys, saved["passkeys"]), "the states were made from other passkeys"
+    C_ = model.segment
+    n_writes = int((max(KS) * C_ + 4 * C_) / 3.2) + 64
+    dec = ar_contents(params, SEEDS["ar_decode"], 12, n_writes)
+    need = max(KS) * C_ + 2 * C_
+    ar = torch.from_numpy(np.stack([dec[i % len(dec)][(3 * (i // len(dec)) * 7):][:need] for i in range(len(st))])).cuda().long()
+    if "passkey_difference" not in res:
+        res["passkey_difference"] = difference_dynamics(model, st, saved["S0"].cuda(), saved["S_star"].cuda(), ar, track)
+    if "trajectory_convergence" not in res:
+        res["trajectory_convergence"] = trajectory_convergence(model, st, saved["S0"].cuda(), ar, track)
+    return res
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["run"])
+    ap.add_argument("cmd", choices=["run", "fill"], help="run: the whole analysis of the given runs; fill: add the analyses a result file was written without, from the saved states")
     ap.add_argument("--run", nargs="+", required=True, help="finished runs (results/raw/<name>.json) with weights in checkpoints/ or runs/")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--steps", type=int, default=3000)
@@ -495,7 +583,7 @@ def main() -> None:
     res = json.loads(a.out.read_text()) if a.out.exists() else {}
     a.out.parent.mkdir(parents=True, exist_ok=True)
     for name in a.run:
-        res[name] = run(name, steps=a.steps, lr=a.lr, n_pass=a.n_pass, n_ctx=a.n_ctx)
+        res[name] = run(name, steps=a.steps, lr=a.lr, n_pass=a.n_pass, n_ctx=a.n_ctx) if a.cmd == "run" else fill_missing(name, res[name])
         a.out.write_text(json.dumps(res, indent=1))
 
 
