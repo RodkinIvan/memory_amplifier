@@ -181,6 +181,30 @@
    "256": 0.993
   }
  },
+ "swa_2pass_seg32_po1_s2": {
+  "bytes": 2128928,
+  "diff_vs_reference": {
+   "model.pass_output": [
+    2,
+    1
+   ]
+  },
+  "file": "checkpoints/swa_2pass_seg32_po1_s2.pt",
+  "n_params": 530304,
+  "sha256": "96151634c480fc759583286da54583c3786b06e693d8ab25fe791bced2df1d2f",
+  "test_ar_valid": {
+   "1024": 0.998,
+   "16384": 0.998,
+   "256": 0.998,
+   "4096": 0.998
+  },
+  "test_passkey": {
+   "1024": 0.205,
+   "16384": 0.001,
+   "256": 0.999,
+   "4096": 0.0
+  }
+ },
  "swa_2pass_seg32_po1_s5": {
   "bytes": 2128928,
   "diff_vs_reference": {
@@ -203,6 +227,34 @@
    "16384": 0.87,
    "256": 0.999,
    "4096": 0.956
+  }
+ },
+ "swa_L2_steps50000_cur2000_w64_s0": {
+  "bytes": 2127018,
+  "diff_vs_reference": {
+   "train.curriculum_stage_steps": [
+    0,
+    2000
+   ],
+   "train.steps": [
+    30000,
+    50000
+   ]
+  },
+  "file": "checkpoints/swa_L2_steps50000_cur2000_w64_s0.pt",
+  "n_params": 530048,
+  "sha256": "3612de1f2ac8f3a08e06aeb407518bfa67f2cd92b7e42b053b56b6f51afcf2d7",
+  "test_ar_valid": {
+   "1024": 0.995,
+   "16384": 0.994,
+   "256": 0.994,
+   "4096": 0.994
+  },
+  "test_passkey": {
+   "1024": 0.0,
+   "16384": 0.0,
+   "256": 0.0,
+   "4096": 0.0
   }
  },
  "swa_fb_gi0_nlnone_seg8_steps50000_s2": {

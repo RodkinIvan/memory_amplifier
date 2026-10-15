@@ -300,24 +300,30 @@ class TwoPassSWA(nn.Module):
         d = base.config.hidden_size
         self.loops = nn.ModuleList(PassGain(d, gain_init) for _ in base.model.layers)  # named `loops` for the optimizer's loop group
 
+    def run_segment(self, h: torch.Tensor, cache: "_TailCache") -> tuple[torch.Tensor, list[torch.Tensor]]:
+        """One segment through every layer on `cache` (which is advanced): the input embeddings h [B, C, d] -> (output of the last layer, the pass-2 inputs h2 of every layer
+        [B, C, d] each). The h2 are what pass 2 stored the keys and values of: the window the next segment reads is a function of the last W-1 of them."""
+        h2s = []
+        for layer, loop in zip(self.base.model.layers, self.loops):
+            y1 = layer(h, past_key_values=_PeekCache(cache), use_cache=True)[0]
+            h2 = h + (loop.gain * (y1 - h).float()).to(h.dtype)
+            write_kv(layer, h2, cache)  # pass 2: only the keys and values it writes to the cache count (E6: its attention and MLP are not run)
+            h2s.append(h2)
+            h = y1
+        return h, h2s
+
     def forward(self, input_ids: torch.Tensor, **_) -> SimpleNamespace:
         B, T = input_ids.shape
         C_, W = self.segment, self.window
         if T % C_:  # right-pad with PAD (causal, so earlier outputs are unaffected)
             input_ids = F.pad(input_ids, (0, C_ - T % C_), value=0)
         x = self.base.model.embeddings(input_ids)
-        layers = self.base.model.layers
         if x.shape[1] > self.base.config.max_position_embeddings:
             raise ValueError(f"the key/value cache uses absolute positions: {x.shape[1]} tokens exceed max_position_embeddings")
-        cache = _TailCache(W - 1, len(layers))
+        cache = _TailCache(W - 1, len(self.base.model.layers))
         outs = []
         for s in range(x.shape[1] // C_):
-            h = x[:, s * C_:(s + 1) * C_]
-            for layer, loop in zip(layers, self.loops):
-                y1 = layer(h, past_key_values=_PeekCache(cache), use_cache=True)[0]
-                h2 = h + (loop.gain * (y1 - h).float()).to(h.dtype)
-                write_kv(layer, h2, cache)  # pass 2: only the keys and values it writes to the cache count (E6: its attention and MLP are not run)
-                h = y1
+            h, _ = self.run_segment(x[:, s * C_:(s + 1) * C_], cache)
             outs.append(h)
             if self.cache_hook is not None:
                 self.cache_hook(s, cache)
