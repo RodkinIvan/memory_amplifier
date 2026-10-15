@@ -14,13 +14,14 @@ right, teacher forced) on the validation and test split at N = 32 ... 256. The c
 Results: results/capacity.json (`stages`: one entry per stage, rewritten after every stage; `budget_runs`: single stages run with another budget), runs in results/raw/ as usual
 (wandb group swa_fb_capacity). Every entry has the exact match, the per-token accuracy and the accuracy of every passkey position (and how many positions are at 0.9 or more), per N,
 for both splits, plus the step at which each position first reached 0.9 at N = 256 (from the validation history). Datasets have the base dataset's sizes (100,000 training streams per N). Resumable: a finished stage is read
-from its result file, an unfinished one resumes from its checkpoint; an out-of-memory crash waits for free memory and starts again.
+from its result file (after checking that the file is the result of this stage: same config, same starting weights, review K1), an unfinished one resumes from its checkpoint; an out-of-memory crash waits for free memory and starts again.
 """
 from __future__ import annotations
 
 import argparse
 import contextlib
 import fcntl
+import hashlib
 import json
 import re
 import subprocess
@@ -61,6 +62,30 @@ def stage_overrides(P: int, init: str, steps: int, lr: float, seed: int = 0, war
     return [f"experiment={m['experiment']}", f"seed={seed}", f"model.segment={segment or m['segment']}", *m["overrides"], f"passkey_len={P}", f"train.init_from={init}",
             f"train.steps={steps}", f"train.lr={lr:g}", f"train.warmup_steps={warmup}", f"train.curriculum_stage_steps={curriculum}", "train.eval_every=1000",
             f"train.eval_ns={ns}", f"eval.ns={ns}"]
+
+
+def sha256_of(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def reusable_result(result: dict, cfg: dict, name: str, root: Path = ROOT) -> dict:
+    """The stored result of a stage, if it is the result of this stage and not of another one with the same name (review K1). The run name does not say which weights the stage started
+    from (`train.init_from` is left out of names), so a chain started from another checkpoint, or after its previous stage was trained again, would find the old result and go on from
+    the old weights. Stops with a message when the stored config differs from the stage's, or when the starting weights file is no longer the file the run started from (its sha256 is
+    recorded by train.py; results from before that have none, and only the config is compared)."""
+    stored, wanted = result["config"], json.loads(json.dumps(cfg))
+    if stored != wanted:
+        a, b = C.flatten(stored), C.flatten(wanted)
+        diff = {k: [a.get(k), b.get(k)] for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)}
+        raise SystemExit(f"{name}: results/raw/{name}.json was trained with a different config (the run name does not identify the starting weights); differs in {diff}. "
+                         f"Use another --tag or --seed, or move the old result and runs/{name} away.")
+    sha, init = result.get("init_from_sha256"), cfg["train"].get("init_from")
+    if sha and init:
+        f = Path(init) if Path(init).is_absolute() else root / init
+        if not f.exists() or sha256_of(f) != sha:
+            raise SystemExit(f"{name}: {init} is not the file this stage was trained from (sha256 {sha[:12]}...{' now ' + sha256_of(f)[:12] if f.exists() else ', file missing'}): the previous stage was trained again. "
+                             f"Move the old result and runs/{name} away to train this stage again.")
+    return result
 
 
 def stage_name(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0, model: str = "swa_fb", segment: int | None = None) -> str:
@@ -278,7 +303,7 @@ def main() -> None:
             wait_for_memory(a.gpu, C.footprint_gb(cfg))
             print(f"stage {P}: training {name} from {init}", flush=True)
             run_training(overrides, name, a.gpu, C.footprint_gb(cfg), ROOT / "logs" / "capacity" / f"{name}.log", config=MODELS[a.model]["config"])
-        result = json.loads(result_file.read_text())
+        result = reusable_result(json.loads(result_file.read_text()), cfg, name)
         return summarize(P, name, init, result), str((ROOT / "runs" / name / "model.pt").relative_to(ROOT))
 
     if a.budget_run:

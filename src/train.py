@@ -13,6 +13,7 @@ do this by themselves after an out-of-memory crash, and running the same launch 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -207,9 +208,12 @@ def main(argv=None) -> None:
     rng = np.random.default_rng(cfg["seed"])
     dev = torch.device("cuda")
     model = build_from_config(mc, vocab_size).to(dev)
+    init_sha = None
     if tc.get("init_from"):  # fine-tune: start from the weights of an earlier run (optimizer, schedule and step count start fresh)
         init = Path(tc["init_from"])
-        model.load_state_dict(torch.load(init if init.is_absolute() else C.ROOT / init, map_location="cpu", weights_only=True))
+        init = init if init.is_absolute() else C.ROOT / init
+        model.load_state_dict(torch.load(init, map_location="cpu", weights_only=True))
+        init_sha = hashlib.sha256(init.read_bytes()).hexdigest()  # recorded in the result: the config has the path, not what the file held (review K1)
         print(f"[{name}] initialised from {tc['init_from']}", flush=True)
     n_params = sum(p.numel() for p in model.parameters())
     amp = torch.bfloat16 if tc.get("precision", "fp32") == "bf16" else None  # flash-attention models need bf16
@@ -311,7 +315,7 @@ def main(argv=None) -> None:
         print(f"[{name}] {split}: " + " ".join(f"n{r['N']}:{r['passkey_acc']:.2f}/{r['ar_expired_acc']:.2f}" for r in rows if r["split"] == split), flush=True)
 
     write_json_atomic(out_json, C.stamp_diff({"name": name, "config": cfg, "explicit_keys": explicit, "n_params": n_params,
-                                              "final_train_loss": last, "train_time_s": train_time, "resumed_at_steps": resumed_at, "git": git,
+                                              "final_train_loss": last, "train_time_s": train_time, "resumed_at_steps": resumed_at, "git": git, "init_from_sha256": init_sha,
                                               "dataset": {"dir": data_dir.name, "sizes": meta.get("sizes"), "params": meta["params"]},  # how big and how generated the data was (the config only names the folder)
                                               "val_history": history, "rows": rows}))
     resume_file.unlink(missing_ok=True)  # the result file is the record now

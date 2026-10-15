@@ -321,5 +321,50 @@ class Chain(unittest.TestCase):
         self.assertEqual([s["passkey_len"] for s in stages], [8, 16, 32])
 
 
+class ReuseOfAFinishedStage(unittest.TestCase):
+    """Review K1: the run name does not say which weights a stage started from, so a stored result is reused only when it really is this stage's result."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / "runs" / "prev").mkdir(parents=True)
+        self.weights = self.root / "runs" / "prev" / "model.pt"
+        self.weights.write_bytes(b"weights of the previous stage")
+        self.init = "runs/prev/model.pt"
+        self.cfg, _ = C.load_config(_paths.ROOT / "configs" / "swa_2pass.yaml", CAP.stage_overrides(16, self.init, 50000, 1e-3, 0, 500, 2000, "swa_2pass"))
+        self.result = {"config": json.loads(json.dumps(self.cfg)), "init_from_sha256": CAP.sha256_of(self.weights)}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_a_result_of_this_stage_is_reused(self):
+        self.assertIs(CAP.reusable_result(self.result, self.cfg, "stage", self.root), self.result)
+
+    def test_a_result_from_before_the_hash_was_recorded_is_checked_by_its_config_alone(self):
+        del self.result["init_from_sha256"]
+        self.assertIs(CAP.reusable_result(self.result, self.cfg, "stage", self.root), self.result)
+
+    def test_a_result_started_from_other_weights_is_refused_and_the_message_names_the_difference(self):
+        other, _ = C.load_config(_paths.ROOT / "configs" / "swa_2pass.yaml", CAP.stage_overrides(16, "checkpoints/another.pt", 50000, 1e-3, 0, 500, 2000, "swa_2pass"))
+        self.assertEqual(CAP.stage_name(16, self.init, 50000, 1e-3, 0, 500, 2000, "swa_2pass"), CAP.stage_name(16, "checkpoints/another.pt", 50000, 1e-3, 0, 500, 2000, "swa_2pass"))  # the name is the same ...
+        with self.assertRaises(SystemExit) as cm:
+            CAP.reusable_result(self.result, other, "stage", self.root)                    # ... but the result is not reused
+        self.assertIn("train.init_from", str(cm.exception))
+        self.assertIn("checkpoints/another.pt", str(cm.exception))
+
+    def test_a_result_is_refused_when_the_previous_stage_was_trained_again(self):
+        self.weights.write_bytes(b"new weights of the previous stage")                    # same path, same config, other file
+        with self.assertRaises(SystemExit) as cm:
+            CAP.reusable_result(self.result, self.cfg, "stage", self.root)
+        self.assertIn("trained again", str(cm.exception))
+        self.weights.unlink()
+        with self.assertRaises(SystemExit):
+            CAP.reusable_result(self.result, self.cfg, "stage", self.root)                    # a missing starting file is not silently accepted either
+
+    def test_the_driver_checks_every_stored_result_before_it_reads_it(self):
+        src = (_paths.ROOT / "scripts" / "passkey_capacity.py").read_text()
+        self.assertIn("reusable_result(json.loads(result_file.read_text()), cfg, name)", src)
+
+
 if __name__ == "__main__":
     unittest.main()
