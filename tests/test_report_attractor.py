@@ -129,6 +129,14 @@ class Report(unittest.TestCase):
             self.assertNotIn(" ".join(yl).strip().lower(), ("share", "share of initial distance"), f["key"])
             self.assertRegex(f["sub"] + f["caption"], r"=|‖|argmax", f["key"])
 
+    def test_the_basin_figure_says_which_positions_are_counted(self):
+        data, _, _ = self.build()
+        f = next(f for f in data["extra_figs"] if f["key"] == "basin")
+        self.assertIn("The positions where A and B agree are not counted", f["sub"])
+        self.assertIn("A = 1, B = 0 means that single token is read out as A's", f["caption"])
+        self.assertIn("the plotted fractions equal the exact matches", f["caption"])        # the fixture reads the shared tokens right at every alpha
+        self.assertTrue(any("the 1 token that differs" in s["label"] for s in f["spec"]["series"]))
+
     def test_the_weaker_stage_is_named_in_the_noise_caption(self):
         data, _, _ = self.build()
         cap = next(f for f in data["extra_figs"] if f["key"] == "noise")["caption"]

@@ -257,7 +257,12 @@ def basin_caption(b: dict) -> str:
         other = max(c["32"]["other"] for c in b[kind])
         if hi is not None and lo is not None:
             parts.append(f"{lab}: the fraction read as A falls from 90% to 10% between α = {hi:.2f} and {lo:.2f} (at most {other:.0%} of the positions are read as neither)")
-    return "<p>The read-out does not blend: " + "; ".join(parts) + ". Each passkey has its own basin, with the boundary near the middle between the two states.</p>"
+    one = b["one_position"]
+    shared_ok = all(abs(c["32"]["exact_a"] - c["32"]["match_a"]) < 1e-9 and abs(c["32"]["exact_b"] - c["32"]["match_b"]) < 1e-9 for c in one)
+    note = (" When only one position differs, A and B share the other tokens, so a read-out of A is right on those and wrong at the one position for B: A = 1, B = 0 means that single token is read out as A's, "
+            "B's exact match is then 0 although its other tokens are right. The shared tokens were read out right at every α here (the plotted fractions equal the exact matches of A and of B).") if shared_ok else \
+           " When only one position differs, only that token is counted, so A = 1, B = 0 means it is read out as A's token."
+    return "<p>The read-out does not blend: " + "; ".join(parts) + ". Each passkey has its own basin, with the boundary near the middle between the two states." + note + "</p>"
 
 
 def basin_figure(res: dict) -> dict | None:
@@ -267,13 +272,14 @@ def basin_figure(res: dict) -> dict | None:
     series = []
     for kind, lab, dash in (("all_positions", "all positions differ", False), ("one_position", "one position differs", True)):
         curve = b[kind]
+        what = "all 4 tokens" if kind == "all_positions" else "the 1 token that differs"
         for who, key, col in (("A", "match_a", COLORS["main"]), ("B", "match_b", COLORS["e4"])):
-            series.append({"label": f"read out as {who}'s token, {lab}", "short": f"{who}, {lab.split()[0]} {lab.split()[1]}", "c": col, "width": 2.4, "dashed": dash,
+            series.append({"label": f"{who}'s token read out ({what}; {lab})", "short": f"{who}, {lab.split()[0]} {lab.split()[1]}", "c": col, "width": 2.4, "dashed": dash,
                            "points": [{"x": c["alpha"], "y": c["32"][key], "tip": f"α = {c['alpha']}: {c['32'][key]:.2f} of the differing positions read out as {who}'s token"} for c in curve]})
     spec = {"series": series, "xTicks": [round(0.1 * i, 1) for i in range(11)], "x0": 0, "x1": 1, "xLog": False, "xLabel": "α = mixing weight: S_α = (1 − α) · S(A) + α · S(B)", "yLabel": ["fraction of differing positions", "read out as A's / as B's token"],
             "legendLine": True, "rightPad": label_margin(["B, one position"]), "aria": "Read-out between the states of two passkeys"}
     return {"key": "basin", "title": "Between the states of two passkeys (best checkpoint, S0)",
-            "sub": "Two passkeys A and B with the same context (B differs from A in one position or in all of them); S_α = (1 − α) · S(A) + α · S(B); then K = 32 random segments and the model's own greedy read-out (16 pairs, mean of 2 filler lengths). Y: of the positions where A and B differ, the fraction read out as A's (orange) or B's (green) token.",
+            "sub": "Two passkeys A and B with the same context (B differs from A in one position or in all of them); S_α = (1 − α) · S(A) + α · S(B); then K = 32 random segments and the model's own greedy read-out (16 pairs, mean of 2 filler lengths). Y counts only the positions where A and B differ (all of them in one case, the single differing one in the other, a different position in each of the 16 pairs): the fraction of those read out as A's (orange) or B's (green) token. The positions where A and B agree are not counted.",
             "caption": basin_caption(b), "spec": spec}
 
 
