@@ -236,10 +236,12 @@ function scatter(host, n) {
   host.insertAdjacentHTML('beforeend', `<div>${s}</svg></div>`);
 }
 
-// ---- generic line chart: spec = { xTicks, xTickLabels (optional {x: label}), x0, x1, xLog, xLabel, yLabel, yMax, series[], vlines[], note }
+// ---- generic line chart: spec = { xTicks, xTickLabels (optional {x: label}), x0, x1, xLog, xLabel, yLabel (a string, or an array of lines: two lines widen the margin), yMax, yPercent (false: plain numbers on the y axis), series[], vlines[], note }
+const lab = v => [].concat(v).join(' ');
 // series: { label, short, c (css colour, optional), width, dashed, points: [{x, y, lo, hi, tip}] }
 function lineChart(host, legendHost, spec) {
-  const W = 760, H = spec.height || 340, m = { l: 52, r: spec.rightPad || 132, t: 14, b: 44 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const xl = [].concat(spec.xLabel), yl = [].concat(spec.yLabel);
+  const W = 760, H = spec.height || 340, m = { l: 52 + 14 * (yl.length - 1), r: spec.rightPad || 132, t: 14, b: 44 + 14 * (xl.length - 1) }, iw = W - m.l - m.r, ih = H - m.t - m.b;
   const tr = v => spec.xLog === false ? v : Math.log2(v);
   const y0 = spec.yMin || 0, y1 = spec.yMax || 1;
   const X = v => m.l + (tr(v) - tr(spec.x0)) / (tr(spec.x1) - tr(spec.x0)) * iw, Y = v => m.t + (1 - (v - y0) / (y1 - y0)) * ih;
@@ -247,15 +249,15 @@ function lineChart(host, legendHost, spec) {
   [0, .25, .5, .75, 1].forEach(t => {
     const v = y0 + t * (y1 - y0);
     s += `<line x1="${m.l}" x2="${m.l + iw}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--grid)" stroke-width=".8"/>`;
-    s += `<text x="${m.l - 8}" y="${Y(v) + 3.5}" font-size="10.5" text-anchor="end">${(v * 100).toFixed(y1 - y0 < .5 ? 1 : 0)}%</text>`;
+    s += `<text x="${m.l - 8}" y="${Y(v) + 3.5}" font-size="10.5" text-anchor="end">${spec.yPercent === false ? +v.toFixed(2) : (v * 100).toFixed(y1 - y0 < .5 ? 1 : 0) + '%'}</text>`;
   });
   spec.xTicks.forEach(x => {
     s += `<line x1="${X(x)}" x2="${X(x)}" y1="${m.t + ih}" y2="${m.t + ih + 4}" stroke="var(--axis)"/>`;
     s += `<text x="${X(x)}" y="${m.t + ih + 17}" font-size="10.5" text-anchor="middle">${spec.xTickLabels && spec.xTickLabels[x] != null ? esc(spec.xTickLabels[x]) : x}</text>`;
   });
   s += `<line x1="${m.l}" x2="${m.l + iw}" y1="${m.t + ih}" y2="${m.t + ih}" stroke="var(--axis)"/>`;
-  s += `<text x="${m.l + iw / 2}" y="${H - 8}" font-size="11" text-anchor="middle">${esc(spec.xLabel)}</text>`;
-  s += `<text transform="translate(13 ${m.t + ih / 2}) rotate(-90)" font-size="11" text-anchor="middle">${esc(spec.yLabel)}</text>`;
+  xl.forEach((t, i) => { s += `<text x="${m.l + iw / 2}" y="${H - 8 - 14 * (xl.length - 1 - i)}" font-size="11" text-anchor="middle">${esc(t)}</text>`; });
+  yl.forEach((t, i) => { s += `<text transform="translate(${13 + 14 * i} ${m.t + ih / 2}) rotate(-90)" font-size="11" text-anchor="middle">${esc(t)}</text>`; });
   (spec.vlines || []).forEach(v => {
     s += `<line x1="${X(v.x)}" x2="${X(v.x)}" y1="${m.t}" y2="${m.t + ih}" stroke="var(--ink-2)" stroke-dasharray="3 3" stroke-width=".8"/>`;
     if (v.label) s += `<text x="${X(v.x) + 4}" y="${m.t + 10 + (v.dy || 0)}" font-size="9.5">${esc(v.label)}</text>`;
@@ -268,7 +270,7 @@ function lineChart(host, legendHost, spec) {
     pts.forEach(p => {
       if (p.lo != null && p.hi != null && p.hi - p.lo > 1e-6) s += `<line x1="${X(p.x)}" x2="${X(p.x)}" y1="${Y(p.lo)}" y2="${Y(p.hi)}" style="stroke:${col}" stroke-width="1.4" opacity=".6"/>`;
       if (sr.noDots) return;
-      const t = p.tip || `${sr.label}<br>${esc(spec.xLabel)}: ${p.x}<br>${esc(spec.yLabel)}: ${p.y.toFixed(3)}`;
+      const t = p.tip || `${sr.label}<br>${esc(lab(spec.xLabel))}: ${p.x}<br>${esc(lab(spec.yLabel))}: ${p.y.toFixed(3)}`;
       s += `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="${sr.dashed ? 3.5 : 5}" style="fill:${sr.dashed ? 'var(--surface)' : col};stroke:${sr.dashed ? col : 'var(--surface)'}" stroke-width="1.6" data-tip="${esc(t)}"/>`;
     });
     if (sr.short && pts.length) { const last = pts[pts.length - 1]; ends.push({ x: X(last.x), py: Y(last.y), y: Y(last.y), text: sr.short }); }
@@ -333,7 +335,7 @@ function fillText() {
   DATA.extra_figs.forEach((f, i) => {
     if (!f.spec) return;
     const rws = []; f.spec.series.forEach(sr => sr.points.forEach(p => rws.push([sr.label, p.x, p.y == null ? '–' : p.y.toFixed(3), p.lo != null ? `${p.lo.toFixed(3)} to ${p.hi.toFixed(3)}` : ''])));
-    $('#tb-' + i).innerHTML = table(['series', f.spec.xLabel, f.spec.yLabel, 'range over seeds'], rws);
+    $('#tb-' + i).innerHTML = table(['series', lab(f.spec.xLabel), lab(f.spec.yLabel), 'range over seeds'], rws);
   });
 }
 fillText();

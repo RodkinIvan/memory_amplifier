@@ -3,7 +3,7 @@
     python src/report.py attractor --out reports/attractor_report.html
 
 Reads results/probes/p2_attractor_*.json (src/attractor.py): per checkpoint the real window state S0 after three segments of a stream that saw the passkey, the state S* that minimises the
-step-map error E_x ||F(S, x) - S||^2 / ||S0||^2 (and its variant on the sphere of ||S0||), the passkey read out after K random segments, noise on the state, interpolation between the
+step-map error E_x ‖F(S, x) - S‖^2 / ‖S0‖^2 (and its variant on the sphere of ‖S0‖), the passkey read out after K random segments, noise on the state, interpolation between the
 states of two passkeys, and the convergence of starts with the same passkey. Every number in the text is computed from those files.
 """
 from __future__ import annotations
@@ -146,12 +146,13 @@ def decode_figure(res: dict) -> dict:
     if MAIN in res:
         series.append({"label": "S* of the best checkpoint (minimiser of the objective)", "short": "S*", "c": "var(--axis)", "width": 2.2, "dashed": True,
                        "points": pts([exact(res[MAIN], "star", k) for k in KS], "S* of the best checkpoint")})
-    spec = {"series": series, "xTicks": xs, "xTickLabels": {x: k for x, k in zip(xs, KS)}, "x0": 1, "x1": 513, "xLabel": "random segments K between the state and the read-out (32 tokens each; log scale, K = 0 at the left)",
-            "yLabel": "passkey exact match", "legendLine": True, "rightPad": label_margin([s["short"] for s in series]), "aria": "Passkey exact match against the number of random segments after the state"}
+    spec = {"series": series, "xTicks": xs, "xTickLabels": {x: k for x, k in zip(xs, KS)}, "x0": 1, "x1": 513, "xLabel": ["K = number of random 32-token segments fed between the state and the read-out", "(log scale; K = 0 is the read-out right after the state, at the left)"],
+            "yLabel": ["exact match: share of streams", "with all passkey tokens right"], "legendLine": True, "rightPad": label_margin([s["short"] for s in series]), "aria": "Passkey exact match against the number of random segments after the state"}
     return {"key": "decode", "title": "The passkey read out of the real state after K random segments",
-            "sub": "State S0 = the real window at position 96 of a stream that saw the passkey; K segments of random associative-recall content (held-out streams), then the filler, PKQ and the passkey, teacher forced. 64 states per checkpoint (16 passkeys x 4 contexts), mean of 3 filler lengths.",
-            "caption": "<p>The state is the entire interface between segments: running on from a state rebuilt from the 63 stored entries gives exactly the logits of the real stream (tested). K = 512 is 16,384 tokens, the length of the longest evaluation stream. The dashed grey line is the state that minimises the objective, "
-                       "which holds no passkey even at K = 0.</p>", "spec": spec}
+            "sub": "S0 = the real window at position 96 of a stream that saw the passkey; then K segments of random associative-recall content (held-out streams), r filler tokens, PKQ, and the passkey, teacher forced. Y: exact match = share of streams with argmax logits_j = p_j for all P positions j. 64 states per checkpoint (16 passkeys × 4 contexts), mean of 3 filler lengths r.",
+            "caption": "<p>Exact match = the share of the 64 streams per checkpoint in which, for every passkey position j, argmax of the logits = the true token pj (teacher forced; this equals the model's own greedy read-out). "
+                       "The state is the entire interface between segments: running on from a state rebuilt from the 63 stored entries gives exactly the logits of the real stream (tested). K = 512 is 16,384 tokens, the length of the longest evaluation stream. "
+                       "The dashed grey line is S*, the state that minimises the objective L(S): it holds no passkey even at K = 0.</p>", "spec": spec}
 
 
 def decode_table(res: dict) -> dict:
@@ -176,10 +177,10 @@ def optimization_table(res: dict) -> dict:
                      f"{o['rms']['star'][0] / o['rms']['s0'][0]:.2f} / {o['rms']['star'][1] / o['rms']['s0'][1]:.2f}", f"{kn['kept'][0]:.3f} / {kn['kept'][1]:.3f}", f"{kn['new'][0]:.3f} / {kn['new'][1]:.3f}",
                      f"{sp['objective_star']:.2f}" if sp else "–"])
     return {"key": "opt_table", "title": "The optimisation: objective, distance moved, error by slot",
-            "sub": "Held-out objective (fresh random segments) from S0 to S*; distance moved ||S* - S0|| / ||S0|| (layer 0 / layer 1); RMS(S*) / RMS(S0); the error of the kept slots (0-30, the shifted entries) and of the new slots (31-62) at S*, "
-                   "normalised by the mean slot energy of S0; the objective reached on the sphere of ||S0||.",
+            "sub": "Held-out objective (fresh random segments) from S0 to S*; distance moved ‖S* - S0‖ / ‖S0‖ (layer 0 / layer 1); RMS(S*) / RMS(S0); the error of the kept slots (0-30, the shifted entries) and of the new slots (31-62) at S*, "
+                   "normalised by the mean slot energy of S0; the objective reached on the sphere of ‖S0‖.",
             "caption": "<p>The objective falls by two orders of magnitude, mostly by making S* small: the state is divided by its own norm before it makes keys and values (RMSNorm), so its scale is free, and the error is measured against the energy of S0. "
-                       "On the sphere of ||S0|| (last column) the error cannot be made small.</p>", "spec": None,
+                       "On the sphere of ‖S0‖ (last column) the error cannot be made small.</p>", "spec": None,
             "html": RR._table(["checkpoint", "objective", "moved", "RMS ratio", "kept slots", "new slots", "on the sphere"], rows, "wide compact")}
 
 
@@ -190,16 +191,16 @@ def path_figure(res: dict) -> dict | None:
     xs = [p["step"] + 1 for p in path]
     obj0 = path[0]["objective"]
     mk = lambda key, f: [{"x": x, "y": f(p[key]), "tip": f"step {p['step']}: {key} {p[key]:.3f}"} for x, p in zip(xs, path)]
-    series = [{"label": "passkey exact match after K = 4 segments", "short": "passkey", "c": COLORS["main"], "points": mk("exact_k4", lambda v: v), "width": 2.6},
-              {"label": "objective, as a share of its value at S0", "short": "objective", "c": COLORS["e4"], "points": mk("objective", lambda v: v / obj0), "width": 2.6},
-              {"label": "distance moved from S0 (relative, 100% = the norm of S0)", "short": "moved", "c": "var(--s1)", "points": mk("moved", lambda v: v), "width": 2.6, "dashed": True}]
+    series = [{"label": "passkey exact match after K = 4 segments (fraction of streams, 0 to 1)", "short": "exact match", "c": COLORS["main"], "points": mk("exact_k4", lambda v: v), "width": 2.6},
+              {"label": "objective ratio L(S_t) / L(S_0), held out (1 = as at the real state)", "short": "L ratio", "c": COLORS["e4"], "points": mk("objective", lambda v: v / obj0), "width": 2.6},
+              {"label": "distance moved d(S_t, S_0) (0 = not moved, about 1.4 = unrelated state)", "short": "d moved", "c": "var(--s1)", "points": mk("moved", lambda v: v), "width": 2.6, "dashed": True}]
     ticks = xs[::2] if len(xs) > 8 else xs
-    spec = {"series": series, "xTicks": ticks, "xTickLabels": {x: str(x - 1) for x in xs}, "x0": 1, "x1": xs[-1], "yMax": y_max(series), "xLabel": "Adam step (log scale)", "yLabel": "share", "legendLine": True,
-            "rightPad": label_margin(["passkey", "objective", "moved"]), "aria": "Passkey read-out, objective and distance moved along the optimisation"}
+    spec = {"series": series, "xTicks": ticks, "xTickLabels": {x: str(x - 1) for x in xs}, "x0": 1, "x1": xs[-1], "yMax": y_max(series), "yPercent": False, "xLabel": "Adam step t (log scale; 0 = the real state S_0)", "yLabel": ["unitless value of each curve", "(fraction or ratio, see legend)"], "legendLine": True,
+            "rightPad": label_margin(["exact match", "L ratio", "d moved"]), "aria": "Passkey read-out, objective and distance moved along the optimisation"}
     first_lost = next((p["step"] for p in path if p["exact_k4"] < 0.5), None)
     return {"key": "path", "title": "Where the optimisation loses the passkey (best checkpoint)",
-            "sub": "Along the Adam path from S0: the objective, the passkey exact match after 4 random segments (64 states) and the distance moved from S0.",
-            "caption": f"<p>The passkey is gone after {first_lost} steps, when the state has moved {next(p['moved'] for p in path if p['step'] == first_lost):.2f} of its norm and the objective is still "
+            "sub": "Along the Adam path S_t from S_0. Curves: exact match after K = 4 random segments (64 states); the held-out objective L(S_t) / L(S_0); the distance moved d(S_t, S_0) = ‖S_t − S_0‖ / √((‖S_t‖² + ‖S_0‖²) / 2).",
+            "caption": f"<p>The passkey is gone after {first_lost} steps, when the state has moved d = {next(p['moved'] for p in path if p['step'] == first_lost):.2f} from S_0 and the objective is still "
                        f"{next(p['objective'] for p in path if p['step'] == first_lost) / obj0:.0%} of its starting value: the descent does not pass through states that keep the passkey.</p>" if first_lost is not None else "", "spec": spec}
 
 
@@ -216,12 +217,13 @@ def noise_figure(res: dict) -> dict | None:
     segs = len(next(iter(st.values()))["distance_ratio"])
     xs = list(range(1, segs + 1))
     cols = ["var(--s3)", "var(--s1)", "var(--s2)", "var(--ink)", "var(--muted)"]
-    series = [{"label": f"noise {sg} x RMS", "short": f"{sg}", "c": cols[i % 5], "width": 2.2, "noDots": True,
-               "points": [{"x": x, "y": v, "tip": f"noise {sg} x RMS<br>after {x} segments: {v:.3f} of the initial distance"} for x, v in zip(xs, st[sg]["distance_ratio"])]} for i, sg in enumerate(st)]
-    spec = {"series": series, "xTicks": [1, 2, 4, 8, 16, 32, 64][:7], "x0": 1, "x1": segs, "yMax": 1.0, "xLabel": "segments of the same random input after the kick (log scale)", "yLabel": "share of initial distance",
-            "legendLine": True, "rightPad": label_margin([f"{k}" for k in st]), "aria": "Distance between a noisy and a clean trajectory over later segments"}
+    series = [{"label": f"noise σ = {sg} × RMS of the state", "short": f"{sg}", "c": cols[i % 5], "width": 2.2, "noDots": True,
+               "points": [{"x": x, "y": v, "tip": f"noise σ = {sg} × RMS<br>after {x} segments: δ(t) / δ(0) = {v:.3f}"} for x, v in zip(xs, st[sg]["distance_ratio"])]} for i, sg in enumerate(st)]
+    spec = {"series": series, "xTicks": [1, 2, 4, 8, 16, 32, 64][:7], "x0": 1, "x1": segs, "yMax": 1.0, "yPercent": False,
+            "xLabel": ["t = segments of the same random input fed to the noisy and the clean run", "(log scale; the noise is added at t = 0)"],
+            "yLabel": ["noise left: δ(t) / δ(0)", "(1 = unchanged, 0 = erased)"], "legendLine": True, "rightPad": label_margin([f"{k}" for k in st]), "aria": "Distance between a noisy and a clean trajectory over later segments"}
     return {"key": "noise", "title": "Noise on the real state (best checkpoint)",
-            "sub": "Gaussian noise of the given std times the RMS of the state (per layer) is added to S0; both runs get the same random input; 64 states per noise level.",
+            "sub": "Noisy start: S0 + σ · rms(S0) · ε, ε ~ N(0, 1) in every entry (rms per layer); clean start: S0. Both runs get the same random input. δ(t) = ‖noisy state(t) − clean state(t)‖ after t segments, so δ(0) = σ‖S0‖; 64 states per noise level.",
             "caption": f"<p>The curves end at a flat floor that is the same absolute distance for every noise level (the rounding of the two bf16 runs), reached within {max(settle(st[k]['distance_ratio']) for k in st if float(k) <= 0.3)} segments for every kick up to 0.3 x RMS, "
                        "while the passkey read-out stays intact (table). A kick of 1 x RMS is the size of the state itself; it does damage the passkey." + weaker_note(res) + "</p>", "spec": spec}
 
@@ -234,9 +236,9 @@ def noise_table(res: dict) -> dict:
             for sg in levels:
                 v = r["stability"][start][sg]
                 rows.append([html.escape(row_name(name, r)), lab, sg, f3(v["distance_ratio"][3]), f3(v["distance_ratio"][15]), f3(v["distance_ratio"][-1]), f2(v["exact"]["4"]), f2(v["exact"]["32"]), f2(v["exact"]["512"])])
-    return {"key": "noise_table", "title": "Noise: distance after later segments and the read-out, all checkpoints", "sub": "Distance to the clean trajectory after 4, 16 and 64 segments, as a share of the initial distance; passkey exact match after K = 4, 32, 512 random segments from the noisy state "
+    return {"key": "noise_table", "title": "Noise: distance after later segments and the read-out, all checkpoints", "sub": "δ(t) / δ(0) after t = 4, 16 and 64 segments (the distance between the noisy and the clean run relative to its start, see the noise figure); passkey exact match after K = 4, 32, 512 random segments from the noisy state "
                                                                                            "(S0 at three noise levels; S* only for the best checkpoint; all levels are in the result files).",
-            "caption": "", "spec": None, "html": RR._table(["checkpoint", "state", "noise x RMS", "d(4)", "d(16)", "d(64)", "exact K=4", "exact K=32", "exact K=512"], rows, "wide compact")}
+            "caption": "", "spec": None, "html": RR._table(["checkpoint", "state", "noise x RMS", "δ(4)/δ(0)", "δ(16)/δ(0)", "δ(64)/δ(0)", "exact K=4", "exact K=32", "exact K=512"], rows, "wide compact")}
 
 
 def crossing(curve: list[dict], key: str, level: float, K: str = "32") -> float | None:
@@ -254,7 +256,7 @@ def basin_caption(b: dict) -> str:
         hi, lo = crossing(b[kind], "match_a", 0.9), crossing(b[kind], "match_a", 0.1)
         other = max(c["32"]["other"] for c in b[kind])
         if hi is not None and lo is not None:
-            parts.append(f"{lab}: the share read as A falls from 90% to 10% between alpha = {hi:.2f} and {lo:.2f} (at most {other:.0%} of the positions are read as neither)")
+            parts.append(f"{lab}: the fraction read as A falls from 90% to 10% between α = {hi:.2f} and {lo:.2f} (at most {other:.0%} of the positions are read as neither)")
     return "<p>The read-out does not blend: " + "; ".join(parts) + ". Each passkey has its own basin, with the boundary near the middle between the two states.</p>"
 
 
@@ -266,12 +268,12 @@ def basin_figure(res: dict) -> dict | None:
     for kind, lab, dash in (("all_positions", "all positions differ", False), ("one_position", "one position differs", True)):
         curve = b[kind]
         for who, key, col in (("A", "match_a", COLORS["main"]), ("B", "match_b", COLORS["e4"])):
-            series.append({"label": f"share of the differing positions read as {who}'s token ({lab})", "short": f"{who}, {lab.split()[0]} {lab.split()[1]}", "c": col, "width": 2.4, "dashed": dash,
-                           "points": [{"x": c["alpha"], "y": c["32"][key], "tip": f"alpha {c['alpha']}: {c['32'][key]:.2f} read as {who}"} for c in curve]})
-    spec = {"series": series, "xTicks": [round(0.1 * i, 1) for i in range(11)], "x0": 0, "x1": 1, "xLog": False, "xLabel": "alpha: S = (1 - alpha) S(A) + alpha S(B)", "yLabel": "share of positions read as A / as B",
+            series.append({"label": f"read out as {who}'s token, {lab}", "short": f"{who}, {lab.split()[0]} {lab.split()[1]}", "c": col, "width": 2.4, "dashed": dash,
+                           "points": [{"x": c["alpha"], "y": c["32"][key], "tip": f"α = {c['alpha']}: {c['32'][key]:.2f} of the differing positions read out as {who}'s token"} for c in curve]})
+    spec = {"series": series, "xTicks": [round(0.1 * i, 1) for i in range(11)], "x0": 0, "x1": 1, "xLog": False, "xLabel": "α = mixing weight: S_α = (1 − α) · S(A) + α · S(B)", "yLabel": ["fraction of differing positions", "read out as A's / as B's token"],
             "legendLine": True, "rightPad": label_margin(["B, one position"]), "aria": "Read-out between the states of two passkeys"}
     return {"key": "basin", "title": "Between the states of two passkeys (best checkpoint, S0)",
-            "sub": "Two passkeys A and B with the same context (B differs from A in one position or in all of them), the states S(A) and S(B) mixed with weight alpha, then 32 random segments and the model's own greedy read-out (16 pairs, mean of 2 filler lengths).",
+            "sub": "Two passkeys A and B with the same context (B differs from A in one position or in all of them); S_α = (1 − α) · S(A) + α · S(B); then K = 32 random segments and the model's own greedy read-out (16 pairs, mean of 2 filler lengths). Y: of the positions where A and B differ, the fraction read out as A's (orange) or B's (green) token.",
             "caption": basin_caption(b), "spec": spec}
 
 
@@ -293,14 +295,15 @@ def convergence_figure(res: dict) -> dict | None:
         return None
     t = res[MAIN]["trajectory_convergence"]
     xs = [x + 1 for x in t["t"]]
-    series = [{"label": "same passkey, different contexts", "short": "same passkey", "c": COLORS["e4"], "width": 2.6,
+    series = [{"label": "same passkey, different contexts (mean d over the pairs)", "short": "same passkey", "c": COLORS["e4"], "width": 2.6,
                "points": [{"x": x, "y": v, "tip": f"same passkey, different contexts<br>after {x - 1} segments: relative distance {v:.3f}"} for x, v in zip(xs, t["same_passkey"])]},
-              {"label": "different passkeys", "short": "other passkey", "c": COLORS["main"], "width": 2.6,
+              {"label": "different passkeys (mean d over the pairs)", "short": "other passkey", "c": COLORS["main"], "width": 2.6,
                "points": [{"x": x, "y": v, "tip": f"different passkeys<br>after {x - 1} segments: relative distance {v:.3f}"} for x, v in zip(xs, t["different_passkey"])]}]
-    spec = {"series": series, "xTicks": xs, "xTickLabels": {x: str(x - 1) for x in xs}, "x0": 1, "x1": xs[-1], "yMax": y_max(series), "xLabel": "segments of the same random input (log scale, 0 = the start)", "yLabel": "relative distance between states",
+    spec = {"series": series, "xTicks": xs, "xTickLabels": {x: str(x - 1) for x in xs}, "x0": 1, "x1": xs[-1], "yMax": y_max(series), "xLabel": ["t = segments of the same random input fed to every state", "(log scale; t = 0 is the start state S_0)"], "yPercent": False,
+            "yLabel": ["distance d between two states", "(0 = same state, 1.4 = unrelated)"],
             "legendLine": True, "rightPad": label_margin(["other passkey"]), "aria": "Distance between states of the same and of different passkeys under the same input"}
     return {"key": "convergence", "title": "Starts with the same passkey converge (best checkpoint)",
-            "sub": "64 states (16 passkeys x 4 contexts) run on one and the same random input; the mean relative distance ||a - b|| / rms(||a||, ||b||) between states with the same passkey and different contexts, and between states with different passkeys.",
+            "sub": "64 states (16 passkeys × 4 contexts) run on one and the same random input. Y: d(a, b) = ‖a − b‖ / √((‖a‖² + ‖b‖²) / 2), averaged over the pairs of states with the same passkey and different contexts, and over the pairs with different passkeys; 0 = identical, 1.4 (= √2) = unrelated states of equal norm.",
             "caption": convergence_caption(res), "spec": spec}
 
 
@@ -313,7 +316,7 @@ def convergence_table(res: dict) -> dict:
             continue
         pick = lambda key, seg: f3(t[key][t["t"].index(seg)]) if seg in t["t"] else "–"
         rows.append([html.escape(row_name(name, r))] + [f"{pick('same_passkey', s)} / {pick('different_passkey', s)}" for s in (0, 4, 16, 64)])
-    return {"key": "conv_table", "title": "Convergence of starts with the same passkey, all checkpoints", "sub": "Relative distance between states of the same passkey / of different passkeys, after 0, 4, 16 and 64 segments of the same input.",
+    return {"key": "conv_table", "title": "Convergence of starts with the same passkey, all checkpoints", "sub": "d(a, b) = ‖a − b‖ / √((‖a‖² + ‖b‖²) / 2) between states of the same passkey / of different passkeys, after t = 0, 4, 16 and 64 segments of the same input.",
             "caption": "", "spec": None, "html": RR._table(["checkpoint", "t = 0", "t = 4", "t = 16", "t = 64"], rows, "wide compact")}
 
 
@@ -328,8 +331,20 @@ def difference_table(res: dict) -> dict:
             x = d["s0"][kind]["distance_ratio"]
             rows.append([html.escape(row_name(name, r)), lab, f2(x[0]), f2(x[3]), f2(x[15]), f2(x[-1])])
     return {"key": "diff_table", "title": "The difference between two passkeys is not erased",
-            "sub": "The distance between the real states of two passkeys with the same context, both run on the same random input, as a share of the distance at the start (a kick of noise, in the noise figure, decays to the rounding floor within a few segments).",
+            "sub": "The distance ‖S_t(B) − S_t(A)‖ between the real states of two passkeys with the same context, both run on the same random input, divided by the distance at t = 0 (1 = the difference is as large as at the start; a kick of noise in the noise figure decays to the rounding floor within a few segments).",
             "caption": "", "spec": None, "html": RR._table(["checkpoint", "pair", "after 1 segment", "after 4", "after 16", "after 64"], rows, "wide compact")}
+
+
+NOTATION = (
+    "<h2>Notation</h2><ul class='tight'>"
+    "<li><b>State.</b> S = (S<sub>1</sub>, S<sub>2</sub>), S<sub>l</sub> ∈ R<sup>63 × 128</sup>: the pass-2 inputs h2 of the 63 latest positions of layer l. ‖·‖ is the Frobenius norm (over layers, slots and channels unless a layer is named); rms(S) = ‖S‖ / √(number of entries).</li>"
+    "<li><b>Step map.</b> F(S, x) = [ S[32:] ; h2(x; S) ]: the 31 entries kept (shifted by 32 slots) followed by the 32 new h2 of the segment x run on the cache built from S.</li>"
+    "<li><b>Objective.</b> L(S) = E<sub>x</sub> Σ<sub>l</sub> ‖F(S, x)<sub>l</sub> − S<sub>l</sub>‖² / ‖S<sub>0,l</sub>‖², x = a random 32-token segment of associative-recall content. S<sub>0</sub> is the real state, S* the minimiser found by Adam, S<sub>t</sub> the state after t Adam steps.</li>"
+    "<li><b>Exact match.</b> The share of streams in which argmax logits<sub>j</sub> = p<sub>j</sub> for all P passkey positions j (teacher forced). K = number of random 32-token segments between the state and the read-out (then r filler tokens, PKQ and the passkey).</li>"
+    "<li><b>Distance d.</b> d(a, b) = ‖a − b‖ / √((‖a‖² + ‖b‖²) / 2): 0 for identical states, about 1.4 (= √2) for unrelated states of equal norm. In the optimisation table the 'moved' column is ‖S* − S<sub>0</sub>‖ / ‖S<sub>0</sub>‖ per layer.</li>"
+    "<li><b>Noise.</b> The noisy start is S<sub>0</sub> + σ · rms(S<sub>0,l</sub>) · ε in layer l, ε ~ N(0, 1) per entry. δ(t) = ‖noisy state(t) − clean state(t)‖ after t segments of the same input; the figure shows δ(t) / δ(0), so δ(0) = σ‖S<sub>0</sub>‖.</li>"
+    "<li><b>Mixed state.</b> S<sub>α</sub> = (1 − α) · S(A) + α · S(B), the states of two passkeys A and B that share their context; the read-out is the model's own greedy one.</li></ul>"
+)
 
 
 def report_data(res: dict | None = None) -> tuple[dict, str, str]:
@@ -354,13 +369,13 @@ def report_data(res: dict | None = None) -> tuple[dict, str, str]:
         small = ("0.01", "0.03", "0.1", "0.3")
         floors = ", ".join("%.4f" % (ns[k]["distance_ratio"][-1] * float(k)) for k in small)
         tldr.append(f"<b>The dynamics around the real state are contracting.</b> Noise of up to 0.3 x the state's RMS is gone after {max(settle(ns[k]['distance_ratio']) for k in small)} segments at most: the distance to the clean trajectory falls to a floor "
-                    f"(share of the initial distance after 16 segments: " + ", ".join(f"{ns[k]['distance_ratio'][15]:.3f}" for k in small) + " for noise 0.01 / 0.03 / 0.1 / 0.3), which is the same absolute distance for all of them "
+                    f"(δ(16) / δ(0), the distance between the noisy and the clean run after 16 segments relative to its start: " + ", ".join(f"{ns[k]['distance_ratio'][15]:.3f}" for k in small) + " for noise 0.01 / 0.03 / 0.1 / 0.3), which is the same absolute distance for all of them "
                     f"({floors} of the state's norm: the rounding of two bf16 runs). The passkey read-out never falls below "
                     f"{f2(min(ns[k]['exact'][kk] for k in small for kk in ('4', '32')))} up to K = 32; noise of 1 x RMS drops it to {f2(ns['1.0']['exact']['32'])}.")
         b = main["basins"]["s0"]["all_positions"]
         cross = next((c for c in b if c["32"]["match_b"] > c["32"]["match_a"]), None)
         tc = main.get("trajectory_convergence")
-        tldr.append("<b>Each passkey has its own basin and its own trajectory.</b> " + (f"Mixing the states of two passkeys, the read-out switches from A to B at alpha = {cross['alpha']:g} (all positions differ); " if cross else "")
+        tldr.append("<b>Each passkey has its own basin and its own trajectory.</b> " + (f"Mixing the states of two passkeys, the read-out switches from A to B at α = {cross['alpha']:g} (all positions differ); " if cross else "")
                     + (f"starts with the same passkey and different contexts, fed the same input, end at relative distance {tc['same_passkey'][-1]:.3f} after {tc['t'][-1]} segments (from {tc['same_passkey'][0]:.2f}), "
                        f"states of different passkeys at {tc['different_passkey'][-1]:.2f}." if tc else ""))
     cap8 = [r for n, r in res.items() if role(n, r) == "cap8"]
@@ -388,10 +403,10 @@ def report_data(res: dict | None = None) -> tuple[dict, str, str]:
         "tldr": tldr, "tested": [], "results_title": "Results",
         "intro": ("<h2>Method</h2><p>The short-term store of the two-pass layer is the key/value window. Its state S is, per layer, the pass-2 inputs h2 of the W - 1 = 63 latest positions (2 x 63 x 128): the keys and values are computed from them, with RoPE at the window's positions, "
                   "and nothing else crosses a segment boundary. The map F(S, x) builds the cache from S, runs one real segment x of 32 tokens and reads the new window. The start S0 is the real window at position 96 (the end of segment 2) of a stream that saw the passkey, "
-                  "taken so that the passkey is only present in the form the layers passed on. The objective is L(S) = E_x sum over layers of ||F(S, x) - S||^2 / ||S0||^2 over fresh random segments of associative-recall content, minimised by Adam from S0.</p>"
+                  "taken so that the passkey is only present in the form the layers passed on. The objective is L(S) = E_x sum over layers of ‖F(S, x) - S‖^2 / ‖S0‖^2 over fresh random segments of associative-recall content, minimised by Adam from S0.</p>"
                   + "<figure>" + method_svg() + "<figcaption>The state and the map. The 31 kept entries of the new window are the old ones shifted, so a zero error would force a period of 32 slots.</figcaption></figure>"
                   + "<p>Tests of the state (S0 as the baseline): the passkey read out after K random segments; noise added to the state; the states of two passkeys mixed; starts with the same passkey fed the same input. The learning rate of Adam is picked "
-                    "from a grid by the held-out objective, never by the read-out. Extension to the specification: the same optimisation on the sphere of ||S0||, and the trajectory analyses (they need no fixed point).</p>"),
+                    "from a grid by the held-out objective, never by the read-out. Extension to the specification: the same optimisation on the sphere of ‖S0‖, and the trajectory analyses (they need no fixed point).</p>" + NOTATION),
         "results_intro": "Every figure is computed from results/probes/p2_attractor_*.json; the best checkpoint is swa_2pass_seg32_po1_s5.",
         "extra_figs": figs, "next_title": "Notes",
         "next": ("<p>The objective of the specification has no passkey-bearing minimiser here because its scale is free (keys and values see the state through an RMSNorm) and the error is divided by the energy of S0; "

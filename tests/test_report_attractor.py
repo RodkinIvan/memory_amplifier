@@ -95,7 +95,7 @@ class Report(unittest.TestCase):
         self.assertIn("9% / 25% of the size of S0", text)                                              # 0.15 / 1.6 against 1.6 / 6.3
         self.assertIn("the passkey is already gone after 10 steps, when the objective is still 29% of its start", text)   # 1.1 / 3.8
         self.assertIn("the sphere) the objective cannot go below 0.45", text)
-        self.assertIn("switches from A to B at alpha = 0.5", text)
+        self.assertIn("switches from A to B at α = 0.5", text)
         self.assertIn("0.003 after 64 segments (from 1.20)", text)
         res[RA.MAIN]["decoding"]["s0"]["32"]["exact"] = 0.77                                         # change a result: the text follows
         self.assertIn("1.00 / 1.00 / 0.77 / 0.90 after K = 0", self.text(self.build(res)[0]))
@@ -112,6 +112,22 @@ class Report(unittest.TestCase):
         self.assertIn("1 stage of P = 8", text)
         self.assertIn("P = 16 (seed 1): 1.00 / 0.90 / 0.00", text)
         self.assertIn("never reads the passkey out with exact match above 0.00", text)
+
+    def test_every_axis_label_says_what_is_plotted_and_fits_the_chart(self):
+        """Axis labels are rotated along a plot 268 px high (about 38 characters at 6.8 px each): at most 36 characters per line and two lines; x labels at most two lines of 80 characters;
+        no label is the bare word 'share'; every chart has a formula or definition in its subtitle or caption."""
+        data, _, _ = self.build()
+        charts = [f for f in data["extra_figs"] if f.get("spec")]
+        self.assertEqual(len(charts), 5)
+        for f in charts:
+            yl, xl = [f["spec"]["yLabel"]], [f["spec"]["xLabel"]]
+            yl, xl = [x for v in yl for x in ([v] if isinstance(v, str) else v)], [x for v in xl for x in ([v] if isinstance(v, str) else v)]
+            self.assertLessEqual(len(yl), 2, f["key"])
+            self.assertLessEqual(len(xl), 2, f["key"])
+            self.assertTrue(all(len(x) <= 36 for x in yl), (f["key"], yl))
+            self.assertTrue(all(len(x) <= 80 for x in xl), (f["key"], xl))
+            self.assertNotIn(" ".join(yl).strip().lower(), ("share", "share of initial distance"), f["key"])
+            self.assertRegex(f["sub"] + f["caption"], r"=|‖|argmax", f["key"])
 
     def test_the_weaker_stage_is_named_in_the_noise_caption(self):
         data, _, _ = self.build()
