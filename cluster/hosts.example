@@ -1,0 +1,25 @@
+# Hosts of the router (cluster/route.py): ssh-config syntax, used as `ssh -F <this file>`, so the router works from any machine that can ssh to these hosts.
+# Copy to cluster/hosts (git-ignored: addresses of your machines do not belong in a public repo) and edit.
+# `#router:` lines (key=value ...) apply to the Host block above them, or to every host when they come before the first Host.
+#   root=<dir>     where projects live on the host (default $HOME/router); the project goes to <root>/<project>
+#   per-gpu=<n>    router jobs per GPU at most (default 4)
+#   gpus=0,1       the GPU indices the router may use (default all)
+#   conda=<path>   conda executable (default: looked for on the PATH and in ~/miniconda3, ~/anaconda3, /opt/conda ...)
+#   skip=1         leave the host out;  local=1  this machine itself (no ssh; a host whose address is one of this machine's is local anyway)
+#router: root=/path/to/lab per-gpu=4
+
+Host *
+    IdentityFile ~/.ssh/id_ed25519
+    IdentitiesOnly yes
+
+Host nlp3
+    HostName 192.0.2.14
+    User youruser
+
+Host nlp2.07
+    HostName 192.0.2.184
+    User youruser
+
+Host nlp
+    HostName 192.0.2.38
+    User youruser

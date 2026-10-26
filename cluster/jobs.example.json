@@ -1,0 +1,11 @@
+{"project": "memory_amplifier",
+ "env": {"file": "cluster/env.yml"},
+ "sync": ["src", "scripts", "configs", "data", "data_cache/passkey_swar_pk8"],
+ "exclude": ["__pycache__", "*.pyc", "*.parquet.tmp"],
+ "secrets": ["wandb_token"],
+ "fetch": ["results/raw/{name}*.json", "runs/{name}*/model.pt"],
+ "jobs": [
+  {"name": "swa_2pass_seg8_po1_w32_s0",
+   "cmd": "{python} src/train.py --config configs/swa_2pass.yaml --set model.segment=8 model.window=32 seed=0",
+   "gpus": 1, "gb": 7, "expect": ["results/raw/swa_2pass_seg8_po1_w32_s0.json"], "retries": 1}
+ ]}

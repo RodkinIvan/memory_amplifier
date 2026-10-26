@@ -17,3 +17,8 @@ results/capacity.lock
 
 # model weights stay on the local disk (review K2): checkpoints/manifest.json (text: hashes, parameter counts, scores) is tracked, the .pt files are not
 checkpoints/*.pt
+
+# cluster router: the hosts file has the addresses of the lab machines, the state files are local bookkeeping of one run
+cluster/hosts
+cluster/*.state.json
+*.state.json
