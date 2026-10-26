@@ -129,6 +129,11 @@ class Report(unittest.TestCase):
             self.assertNotIn(" ".join(yl).strip().lower(), ("share", "share of initial distance"), f["key"])
             self.assertRegex(f["sub"] + f["caption"], r"=|‖|argmax", f["key"])
 
+    def test_the_method_says_that_the_inputs_keep_the_datasets_grid(self):
+        data, _, _ = self.build()
+        self.assertIn("keeps the dataset's own grid of three-token units", data["intro"])
+        self.assertIn("one token for P = 8", data["intro"])
+
     def test_the_basin_figure_says_which_positions_are_counted(self):
         data, _, _ = self.build()
         f = next(f for f in data["extra_figs"] if f["key"] == "basin")

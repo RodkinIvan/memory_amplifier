@@ -412,7 +412,9 @@ def report_data(res: dict | None = None) -> tuple[dict, str, str]:
                   "taken so that the passkey is only present in the form the layers passed on. The objective is L(S) = E_x sum over layers of ‖F(S, x) - S‖^2 / ‖S0‖^2 over fresh random segments of associative-recall content, minimised by Adam from S0.</p>"
                   + "<figure>" + method_svg() + "<figcaption>The state and the map. The 31 kept entries of the new window are the old ones shifted, so a zero error would force a period of 32 slots.</figcaption></figure>"
                   + "<p>Tests of the state (S0 as the baseline): the passkey read out after K random segments; noise added to the state; the states of two passkeys mixed; starts with the same passkey fed the same input. The learning rate of Adam is picked "
-                    "from a grid by the held-out objective, never by the read-out. Extension to the specification: the same optimisation on the sphere of ‖S0‖, and the trajectory analyses (they need no fixed point).</p>" + NOTATION),
+                    "from a grid by the held-out objective, never by the read-out. Extension to the specification: the same optimisation on the sphere of ‖S0‖, and the trajectory analyses (they need no fixed point).</p>"
+                  "<p>The input keeps the dataset's own grid of three-token units (<code>W k v</code> / <code>Q k a</code>, the first at position 2 + P): the segments x of the objective start at the place in a unit that the state's position has, "
+                  "the continuation after the state starts with the tokens that complete the unit the cut at position 96 broke (one token for P = 8, none for P = 4 and 16), and PKQ follows a whole unit, at the dataset's phase.</p>" + NOTATION),
         "results_intro": "Every figure is computed from results/probes/p2_attractor_*.json; the best checkpoint is swa_2pass_seg32_po1_s5.",
         "extra_figs": figs, "next_title": "Notes",
         "next": ("<p>The objective of the specification has no passkey-bearing minimiser here because its scale is free (keys and values see the state through an RMSNorm) and the error is divided by the energy of S0; "
