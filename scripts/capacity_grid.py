@@ -12,7 +12,7 @@ One job = one cell and one base seed g:
      recipe of the earlier two-pass chains, fine-tuning seed g + 10) on N = 32 ... 256, stopping at the first stage whose validation exact match at N = 256 is below 0.9.
 The earlier six chains of (32, 64) all started from ONE base (the best of the six E4 seeds); here every seed has its own base, so this cell is a different measurement.
 
-Remote hosts: `--slots local:1:5 10.127.105.38:0:4 10.127.105.38:1:4` = host:gpu:jobs at once. A job on a remote host runs in a tmux session there (it survives a dropped connection;
+Remote hosts: `--slots local:1:5 <address>:0:4 <address>:1:4` = host:gpu:jobs at once. A job on a remote host runs in a tmux session there (it survives a dropped connection;
 `run` finds the session again after a restart), the driver polls it, then copies the job's raw results and weights (runs/<name>/model.pt, 2 MB) back and merges its chains into the local
 results/capacity_grid.json. The remote hosts need the repo folder (`sync-remote` checks out HEAD from GitHub on it (push first) and copies the datasets), the conda env under REMOTE_PY (a copy of this machine's, the fla and
 transformers versions of the hosts' own envs differ) and the git-ignored wandb_token. The cell (32, 64) is local only: its bases are the E4 runs, which exist on this machine only.
