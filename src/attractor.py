@@ -142,12 +142,20 @@ def other_values(params: G.GenParams, tokens: np.ndarray, rng) -> np.ndarray:
 
 class Streams:
     """The states one run optimizes and tests: `n_pass` passkeys x `n_ctx` contexts (the first `START` tokens of held-out AR content), plus, for the context 0 of every passkey, a variant
-    that differs in one position and one that differs in all. index(kind, k, c): `A` states are k * n_ctx + c; `B1` and `Ball` states follow."""
+    that differs in one position and one that differs in all. index(kind, k, c): `A` states are k * n_ctx + c; `B1` and `Ball` states follow.
+
+    The dataset's stream is `BOS PK p1 .. pP` followed by whole `W k v` / `Q k a` triples, the first one at position 2 + P. The state is cut at position `position` (96), which is inside a
+    triple unless (position - 2 - P) is a multiple of 3: that holds for P = 4 and P = 16 but not for P = 8 (review N3). `phase` = the number of tokens of the cut triple that the prefix
+    already holds, `rest` = the other tokens of that triple, which the continuation of every state starts with (see `continuation`), so the stream keeps its own grid across the state boundary
+    and PKQ lands where the dataset puts it (a multiple of 3 tokens after the first triple)."""
 
     def __init__(self, params: G.GenParams, segment: int, n_pass: int = 16, n_ctx: int = 4):
         self.params, self.n_pass, self.n_ctx = params, n_pass, n_ctx
         P = params.passkey_len
-        start = N_SEGMENTS_BEFORE * segment
+        start = self.position = N_SEGMENTS_BEFORE * segment
+        self.first_triple = 2 + P
+        self.phase = (start - self.first_triple) % 3  # tokens of a triple already in the prefix at the cut
+        rest_len = (3 - self.phase) % 3
         self.pk_a = random_passkeys(params, n_pass, SEEDS["passkey"])
         rng = np.random.default_rng(SEEDS["passkey"] + 1000)
         self.pos_b1 = np.arange(n_pass) % P  # the position that differs in the one-position variant
@@ -155,14 +163,15 @@ class Streams:
         pk_b1[np.arange(n_pass), self.pos_b1] = other_values(params, self.pk_a[np.arange(n_pass), self.pos_b1], rng)
         pk_ball = other_values(params, self.pk_a, rng)
         ctx = ar_contents(params, SEEDS["context"], n_ctx, 256)
-        rows, self.kind, self.k, self.c, pks = [], [], [], [], []
+        rows, rests, self.kind, self.k, self.c, pks = [], [], [], [], [], []
         for kind, pk_of, cs in (("A", lambda k: self.pk_a[k], range(n_ctx)), ("B1", lambda k: pk_b1[k], [0]), ("Ball", lambda k: pk_ball[k], [0])):
             for k in range(n_pass):
                 for c in cs:
                     pk = pk_of(k)
                     rows.append(np.concatenate([[G.BOS, G.PK], pk, ctx[c]])[:start])
+                    rests.append(ctx[c][start - self.first_triple:start - self.first_triple + rest_len])  # the tokens that complete the triple the cut broke
                     self.kind.append(kind), self.k.append(k), self.c.append(c), pks.append(pk)
-        self.prefix, self.passkeys = np.stack(rows), np.stack(pks)
+        self.prefix, self.passkeys, self.rest = np.stack(rows), np.stack(pks), np.stack(rests).reshape(len(rows), rest_len)
         self.kind, self.k, self.c = np.array(self.kind), np.array(self.k), np.array(self.c)
 
     def index(self, kind: str, k, c: int = 0):
@@ -173,9 +182,19 @@ class Streams:
         return len(self.prefix)
 
 
+def continuation(st: Streams, dec: list[np.ndarray], need: int) -> np.ndarray:
+    """The held-out input that follows each state, [n_states, need]: the rest of the triple that the cut at the state's position broke (from the state's own context), then whole triples of
+    held-out AR content, a different stretch per state (stream i % len(dec), shifted by a multiple of 21 tokens so that it still starts at a triple). The token at index j of a row is at
+    position `st.position + j` of the stream, on the dataset's grid."""
+    rows = [np.concatenate([st.rest[i], dec[i % len(dec)][3 * (i // len(dec)) * 7:]])[:need] for i in range(len(st))]
+    assert all(len(r) == need for r in rows), "the held-out streams are too short"
+    return np.stack(rows)
+
+
 # ---- the objective -------------------------------------------------------------------------------------------------------------------------------------------------
 class SegmentPool:
-    """Random segments of C tokens cut at random offsets from the AR content of held-out streams (no PK / PKQ)."""
+    """Random segments of C tokens from the AR content of held-out streams (no PK / PKQ), cut at the stream's own grid: the offset is a multiple of 3 plus `phase`, the number of tokens
+    of a triple that precede the segment's first token in the stream (review N2). The step map F(S, x) puts x right after the state, so `phase` is `Streams.phase`."""
 
     def __init__(self, params: G.GenParams, seed: int, n_streams: int, n_writes: int = 256):
         import torch
@@ -183,12 +202,12 @@ class SegmentPool:
         self.length = min(len(c) for c in content)
         self.tokens = torch.from_numpy(np.stack([c[:self.length] for c in content])).cuda()
 
-    def sample(self, shape: tuple, C_: int, gen):
+    def sample(self, shape: tuple, C_: int, gen, phase: int = 0):
         import torch
         n_streams = self.tokens.shape[0]
         flat = int(np.prod(shape))
         s = torch.randint(0, n_streams, (flat,), generator=gen, device=self.tokens.device)
-        o = torch.randint(0, self.length - C_ + 1, (flat,), generator=gen, device=self.tokens.device)
+        o = 3 * torch.randint(0, (self.length - C_ - phase) // 3 + 1, (flat,), generator=gen, device=self.tokens.device) + phase
         return self.tokens[s[:, None], o[:, None] + torch.arange(C_, device=self.tokens.device)].reshape(*shape, C_)
 
 
@@ -219,10 +238,10 @@ def objective(model, S, S0, ids, per_slot: bool = False):
     return per_state, slot
 
 
-def find_attractor(model, S0, pool: SegmentPool, steps: int, lr_scale: float, n_x: int, seed: int, eval_ids, log_every: int = 100, at_steps=(), callback=None, sphere: bool = False):
+def find_attractor(model, S0, pool: SegmentPool, steps: int, lr_scale: float, n_x: int, seed: int, eval_ids, log_every: int = 100, at_steps=(), callback=None, sphere: bool = False, phase: int = 0):
     """Adam from S0 on the objective with fresh segments every step (cosine decay of the learning rate to 10%). The learning rate is `lr_scale` times the RMS of S0. Returns S*, the trace
     (step, mean training objective of the last interval) and the held-out objective of S* and S0. `callback(step, S)` is called at the steps in `at_steps` (and at 0). With `sphere` every
-    layer's state keeps the norm of S0 (rescaled after every step): the objective as specified lets the state shrink, because the error is divided by the energy of S0 (see `run`)."""
+    layer's state keeps the norm of S0 (rescaled after every step): the objective as specified lets the state shrink, because the error is divided by the energy of S0 (see `run`). `phase`: where in a triple the segments x start (`Streams.phase`)."""
     import torch
     gen = torch.Generator(device="cuda").manual_seed(seed)
     S = S0.clone().requires_grad_(True)
@@ -235,7 +254,7 @@ def find_attractor(model, S0, pool: SegmentPool, steps: int, lr_scale: float, n_
     for step in range(1, steps + 1):
         for g in opt.param_groups:
             g["lr"] = lr * (0.1 + 0.9 * 0.5 * (1 + np.cos(np.pi * (step - 1) / max(1, steps - 1))))
-        ids = pool.sample((S.shape[0], n_x), model.segment, gen)
+        ids = pool.sample((S.shape[0], n_x), model.segment, gen, phase)
         with torch.autocast("cuda", dtype=torch.bfloat16):
             loss = objective(model, S, S0, ids)
         opt.zero_grad()
@@ -257,21 +276,23 @@ def find_attractor(model, S0, pool: SegmentPool, steps: int, lr_scale: float, n_
 
 
 # ---- read-out ----------------------------------------------------------------------------------------------------------------------------------------------------------
-def tail_tokens(ar, passkeys, K: int, r: int, C_: int, with_passkey: bool):
-    """The tokens that follow K random segments: r' tokens of AR content (r' <= r so that the AR content so far is whole triples), PKQ and, teacher forced, the passkey. [n, T]."""
+def tail_tokens(ar, passkeys, K: int, r: int, C_: int, with_passkey: bool, phase: int = 0):
+    """The tokens that follow K random segments: r' tokens of AR content (r' <= r, chosen so that the AR content before PKQ ends on a triple of the dataset's grid: `phase` tokens of AR
+    content precede the state, so phase + K * C + r' is a multiple of 3), PKQ and, teacher forced, the passkey. [n, T]."""
     import torch
     n = passkeys.shape[0]
-    r2 = r - (K * C_ + r) % 3
+    r2 = r - (phase + K * C_ + r) % 3
     parts = [ar[:, K * C_:K * C_ + r2], torch.full((n, 1), G.PKQ, device=ar.device)]
     if with_passkey:
         parts.append(passkeys)
     return torch.cat(parts, 1).long(), r2
 
 
-def read_out(model, S, ar, passkeys, Ks, r: int, greedy: bool = False, return_tokens: bool = False):
+def read_out(model, S, ar, passkeys, Ks, r: int, greedy: bool = False, return_tokens: bool = False, phase: int = 0):
     """Start from the window state S [n, layers, W - 1, d], feed random AR content `ar` [n, >= max(K) * C + C] segment by segment and, after each K in Ks, branch: feed r more AR tokens, PKQ
     and read the passkey out. Teacher forced (the inputs hold the true passkey, `passkeys` [n, P]; exact match under teacher forcing equals greedy free-running generation) or `greedy`
-    (the model's own tokens, re-running the tail segments for every token; needed when there is no true passkey). Returns {K: predicted tokens [n, P]}."""
+    (the model's own tokens, re-running the tail segments for every token; needed when there is no true passkey). `phase` = `Streams.phase` (where the stream's triple grid is at the state).
+    Returns {K: predicted tokens [n, P]}."""
     import torch
     C_, P = model.segment, passkeys.shape[1]
     out, done = {}, 0
@@ -283,7 +304,7 @@ def read_out(model, S, ar, passkeys, Ks, r: int, greedy: bool = False, return_to
                     pass
                 done += 1
             if not greedy:
-                tail, r2 = tail_tokens(ar, passkeys, K, r, C_, True)
+                tail, r2 = tail_tokens(ar, passkeys, K, r, C_, True, phase)
                 ids = pad_to_segment(tail, C_)
                 branch = clone_cache(cache)
                 hs = torch.cat([h for _, h, _ in advance(model, branch, ids)], 1)
@@ -292,7 +313,7 @@ def read_out(model, S, ar, passkeys, Ks, r: int, greedy: bool = False, return_to
             else:
                 gen = torch.zeros(S.shape[0], 0, dtype=torch.long, device=S.device)
                 for j in range(P):
-                    tail, r2 = tail_tokens(ar, gen, K, r, C_, True)
+                    tail, r2 = tail_tokens(ar, gen, K, r, C_, True, phase)
                     branch = clone_cache(cache)
                     hs = torch.cat([h for _, h, _ in advance(model, branch, pad_to_segment(tail, C_))], 1)
                     nxt = logits_of(model, hs[:, r2 + j]).argmax(-1)
@@ -337,9 +358,10 @@ def run(name: str, steps: int = 3000, lr_grid=(1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-
     with torch.autocast("cuda", dtype=torch.bfloat16):
         S0 = window_states(model, ids)
     pool, eval_pool = SegmentPool(params, SEEDS["ar_pool"], 400), SegmentPool(params, SEEDS["ar_eval"], 100)
-    eval_ids = eval_pool.sample((len(st), 16), C_, torch.Generator(device="cuda").manual_seed(SEEDS["ar_eval"]))
+    eval_ids = eval_pool.sample((len(st), 16), C_, torch.Generator(device="cuda").manual_seed(SEEDS["ar_eval"]), st.phase)
     out = {"checkpoint": name, "weights": str(weights.relative_to(C.ROOT)), "sha256": sha, "passkey_len": P, "segment": C_, "window": model.window, "kind": cfg["model"]["kind"],
-           "record": {"script": "src/attractor.py", "git": git_state(), "seeds": SEEDS, "n_pass": n_pass, "n_ctx": n_ctx, "n_states": len(st), "state_position": N_SEGMENTS_BEFORE * C_, "Ks": list(KS),
+           "record": {"script": "src/attractor.py", "git": git_state(), "seeds": SEEDS, "n_pass": n_pass, "n_ctx": n_ctx, "n_states": len(st), "state_position": N_SEGMENTS_BEFORE * C_,
+                      "grid": {"first_triple_at": st.first_triple, "phase_at_state": st.phase, "rest_tokens": int(st.rest.shape[1]), "segment_offsets_multiple_of_3_plus": st.phase}, "Ks": list(KS),
                       "noise": list(NOISE), "alphas": list(ALPHAS), "steps": steps, "n_x": n_x, "lr_grid": list(lr_grid), "pilot_steps": pilot_steps, "betas": [0.9, 0.999], "schedule": "cosine to 10%",
                       "repeats": repeats, "track_segments": track, "autocast": "bfloat16"}}
     # (1) the learning rate: the grid is run on a subset of the states for a short time and the lowest held-out objective wins (the decoding is not looked at)
@@ -347,7 +369,7 @@ def run(name: str, steps: int = 3000, lr_grid=(1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-
     if lr is None:
         grid = {}
         for lr_s in lr_grid:
-            _, tr, ev = find_attractor(model, S0[sub], pool, pilot_steps, lr_s, n_x, SEEDS["optimizer"], eval_ids[sub])
+            _, tr, ev = find_attractor(model, S0[sub], pool, pilot_steps, lr_s, n_x, SEEDS["optimizer"], eval_ids[sub], phase=st.phase)
             grid[lr_s] = float(ev["star"].mean())
             log(f"[{name}] lr {lr_s:g} x RMS: held-out objective {grid[lr_s]:.4f}")
         lr = min(grid, key=grid.get)
@@ -357,8 +379,7 @@ def run(name: str, steps: int = 3000, lr_grid=(1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-
     n_writes = int((max(KS) * C_ + 4 * C_) / 3.2) + 64
     dec = ar_contents(params, SEEDS["ar_decode"], 12, n_writes)
     need = max(KS) * C_ + 2 * C_
-    ar = torch.from_numpy(np.stack([dec[i % len(dec)][(3 * (i // len(dec)) * 7):][:need] for i in range(len(st))])).cuda().long()  # held-out AR content for the read-outs, a different stretch per state
-    assert ar.shape[1] == need, (ar.shape, need)
+    ar = torch.from_numpy(continuation(st, dec, need)).cuda().long()  # what follows each state: the rest of the cut triple, then held-out AR content, a different stretch per state
     truth = torch.from_numpy(st.passkeys).cuda().long()
     r_values = [3 + int(x) for x in np.random.default_rng(SEEDS["repeat"]).choice(np.arange(0, C_ - P - 4), size=repeats, replace=False)]  # filler lengths so that PKQ + passkey fit one segment: random phases
     out["record"]["filler_r"] = r_values
@@ -368,11 +389,11 @@ def run(name: str, steps: int = 3000, lr_grid=(1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-
     def on_path(step, S):  # the objective and the passkey read-out (after 4 random segments, teacher forced) along the optimisation: where is the passkey lost?
         with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
             obj = float(objective(model, S, S0, eval_ids).mean())
-        pred = read_out(model, S[A], ar[A], truth[A], (4,), r_values[0])
+        pred = read_out(model, S[A], ar[A], truth[A], (4,), r_values[0], phase=st.phase)
         path.append({"step": step, "objective": obj, "exact_k4": float(exact_and_positions(pred[4], truth[A])[0].float().mean()),
                      "moved": float(rel_dist(S[A], S0[A]).mean())})
 
-    S_star, trace, ev = find_attractor(model, S0, pool, steps, lr, n_x, SEEDS["optimizer"], eval_ids, at_steps=path_steps, callback=on_path)
+    S_star, trace, ev = find_attractor(model, S0, pool, steps, lr, n_x, SEEDS["optimizer"], eval_ids, at_steps=path_steps, callback=on_path, phase=st.phase)
     log(f"[{name}] optimized in {time.time() - t0:.0f}s; objective {float(ev['start'].mean()):.4f} at S0 -> {float(ev['star'].mean()):.4f} at S*")
     L = S0.shape[1]
     kept = slice(0, S0.shape[2] - C_)  # slots 0 .. W - 2 - C are the kept, shifted entries of the previous window; the last C slots are new
@@ -391,21 +412,21 @@ def run(name: str, steps: int = 3000, lr_grid=(1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-
         which = A if which is None else which
         res = {K: [[], []] for K in KS}
         for r in r_values:
-            pred = read_out(model, S[which], ar[which], truth[which], KS, r)
+            pred = read_out(model, S[which], ar[which], truth[which], KS, r, phase=st.phase)
             for K in KS:
                 ex, pos = exact_and_positions(pred[K], truth[which])
                 res[K][0].append(ex.float().mean().item())
                 res[K][1].append(pos.float().mean(0).cpu().tolist())
         return {str(K): {"exact": float(np.mean(v[0])), "per_position": np.mean(v[1], 0).tolist()} for K, v in res.items()}
 
-    S_sph, trace_sph, ev_sph = find_attractor(model, S0, pool, steps, lr, n_x, SEEDS["optimizer"], eval_ids, sphere=True)  # extension: the same objective on the sphere of ||S0|| (no shrinking)
+    S_sph, trace_sph, ev_sph = find_attractor(model, S0, pool, steps, lr, n_x, SEEDS["optimizer"], eval_ids, sphere=True, phase=st.phase)  # extension: the same objective on the sphere of ||S0|| (no shrinking)
     out["sphere"] = {"trace": trace_sph, "objective_star": float(ev_sph["star"].mean()),
                      "moved_from_s0": [float(((S_sph[:, i] - S0[:, i]).pow(2).sum((1, 2)).sqrt() / S0[:, i].pow(2).sum((1, 2)).sqrt()).mean()) for i in range(L)],
                      "error_kept_vs_new": {"kept": [float(ev_sph["slot_star"][i, kept].mean()) for i in range(L)], "new": [float(ev_sph["slot_star"][i, new].mean()) for i in range(L)]},
                      "convergence": convergence(st, S0, S_sph)}
     out["decoding"] = {"s0": decode(S0), "star": decode(S_star), "sphere": decode(S_sph)}
     log(f"[{name}] exact after K = {KS} random segments: S0 " + " ".join(f"{out['decoding']['s0'][str(K)]['exact']:.2f}" for K in KS) + " | S* " + " ".join(f"{out['decoding']['star'][str(K)]['exact']:.2f}" for K in KS) + " | sphere " + " ".join(f"{out['decoding']['sphere'][str(K)]['exact']:.2f}" for K in KS))
-    out["stability"] = stability(model, S0, S_star, A, pool, ar, truth, r_values[0], track)
+    out["stability"] = stability(model, S0, S_star, A, pool, ar, truth, r_values[0], track, st.phase)
     out["basins"] = basins(model, st, S0, S_star, ar, r_values)
     out["passkey_difference"] = difference_dynamics(model, st, S0, S_star, ar, track)
     out["convergence"] = convergence(st, S0, S_star)
@@ -417,7 +438,7 @@ def run(name: str, steps: int = 3000, lr_grid=(1e-3, 3e-3, 1e-2, 3e-2, 1e-1, 3e-
     return out
 
 
-def stability(model, S0, S_star, A, pool, ar, truth, r: int, track: int) -> dict:
+def stability(model, S0, S_star, A, pool, ar, truth, r: int, track: int, phase: int = 0) -> dict:
     """Noise of std sigma x the RMS of the state (per layer) added to S* and to S0: how the difference to the clean trajectory under the same random input develops over `track` segments
     (relative to its start), how far the clean trajectory wanders from its start, and the passkey read out after K segments from the noisy state. All noise levels run in one batch."""
     import torch
@@ -441,7 +462,7 @@ def stability(model, S0, S_star, A, pool, ar, truth, r: int, track: int) -> dict
                 dist.append((cur_b - cur_a).pow(2).sum((1, 2, 3)).sqrt() / d0)
                 wander.append(rel_dist(cur_a, Sc))
         dist, wander = torch.stack(dist).view(track, ns, n).mean(2), torch.stack(wander).view(track, ns, n).mean(2)
-        pred = read_out(model, Sn, ar[A].repeat(ns, 1), truth[A].repeat(ns, 1), (4, 32, 512), r)
+        pred = read_out(model, Sn, ar[A].repeat(ns, 1), truth[A].repeat(ns, 1), (4, 32, 512), r, phase=phase)
         res[tag] = {}
         for j, sigma in enumerate(NOISE):
             res[tag][str(sigma)] = {"distance_ratio": dist[:, j].cpu().tolist(), "wander": wander[:, j].cpu().tolist(),
@@ -465,7 +486,7 @@ def basins(model, st: Streams, S0, S_star, ar, r_values) -> dict:
             arr, ta, tb = ar[ia].repeat(na, 1), truth[ia].repeat(na, 1), truth[ib].repeat(na, 1)
             rows = {K: {"match_a": [], "match_b": [], "exact_a": [], "exact_b": [], "other": []} for K in (32, 512)}
             for r in r_values[:2]:
-                pred = read_out(model, Sa, arr, ta, (32, 512), r, greedy=True)
+                pred = read_out(model, Sa, arr, ta, (32, 512), r, greedy=True, phase=st.phase)
                 for K, p in pred.items():
                     diff = (ta != tb).view(na, n, -1)
                     p, a_, b_ = p.view(na, n, -1), ta.view(na, n, -1), tb.view(na, n, -1)
@@ -562,7 +583,7 @@ def fill_missing(name: str, res: dict, track: int = 64) -> dict:
     n_writes = int((max(KS) * C_ + 4 * C_) / 3.2) + 64
     dec = ar_contents(params, SEEDS["ar_decode"], 12, n_writes)
     need = max(KS) * C_ + 2 * C_
-    ar = torch.from_numpy(np.stack([dec[i % len(dec)][(3 * (i // len(dec)) * 7):][:need] for i in range(len(st))])).cuda().long()
+    ar = torch.from_numpy(continuation(st, dec, need)).cuda().long()
     if "passkey_difference" not in res:
         res["passkey_difference"] = difference_dynamics(model, st, saved["S0"].cuda(), saved["S_star"].cuda(), ar, track)
     if "trajectory_convergence" not in res:

@@ -58,6 +58,124 @@ class Streams(unittest.TestCase):
         self.assertEqual(sorted(set(st8.pos_b1)), [0, 1, 2, 3])
 
 
+def check_triples(toks, p: G.GenParams, until: int) -> None:
+    """The tokens from position 2 + P to `until` are whole `W k v` / `Q k a` triples (head, key, value or NULL)."""
+    keys, vals = range(G.KEY0, G.KEY0 + p.n_keys), range(p.val0, p.val0 + p.n_values)
+    for pos in range(2 + p.passkey_len, until, 3):
+        assert toks[pos] in (G.W, G.Q), (pos, toks[pos])
+        assert toks[pos + 1] in keys, (pos + 1, toks[pos + 1])
+        assert toks[pos + 2] in vals or toks[pos + 2] == G.NULL, (pos + 2, toks[pos + 2])
+
+
+class StreamGrid(unittest.TestCase):
+    """Review N3: the E5 streams keep the dataset's own triple grid across the state boundary, for every passkey length (the state is at position 96)."""
+
+    def streams(self, P, segment=32):
+        p = G.GenParams(passkey_len=P)
+        st = A.Streams(p, segment, n_pass=3, n_ctx=2)
+        dec = A.ar_contents(p, 92, 4, 400)
+        return p, st, A.continuation(st, dec, 40 * segment)
+
+    def test_the_cut_triple_is_completed_and_no_triple_is_broken_at_the_state_position(self):
+        for P, phase, rest in ((4, 0, 0), (8, 2, 1), (16, 0, 0)):
+            p, st, ar = self.streams(P)
+            self.assertEqual((st.phase, st.rest.shape[1]), (phase, rest), P)                       # P = 8: the prefix ends two tokens into a triple
+            for i in range(len(st)):
+                toks = np.concatenate([st.prefix[i], ar[i]])
+                check_triples(toks, p, len(toks) - 3)                                               # the triple that spans position 96 is whole too
+                if rest:
+                    self.assertEqual(int(st.prefix[i, -2]), int(toks[2 + P + 3 * ((96 - 2 - P) // 3)]))   # the cut triple's head and key are in the prefix, its value token follows
+
+    def test_pkq_lands_where_the_dataset_puts_it_for_every_k_and_filler(self):
+        for P in (4, 8, 16):
+            p, st, ar = self.streams(P)
+            ex = G.make_example(G.example_seed(5, 32, 0), 32, p)[0]
+            dataset_phase = ex.index(G.PKQ) % 3
+            arT = torch.from_numpy(ar).long()
+            for K in (0, 1, 4, 32):
+                for r in (3, 7, 10, 14):
+                    tail, r2 = A.tail_tokens(arT, torch.from_numpy(st.passkeys).long(), K, r, 32, True, st.phase)
+                    self.assertTrue(r - 2 <= r2 <= r)
+                    for i in range(len(st)):
+                        toks = np.concatenate([st.prefix[i], ar[i, :K * 32 + r2], tail[i, r2:].numpy()])
+                        pkq = len(st.prefix[i]) + K * 32 + r2
+                        self.assertEqual(int(toks[pkq]), G.PKQ)
+                        self.assertEqual(pkq % 3, dataset_phase, (P, K, r))                           # the phase of PKQ in the dataset's streams
+                        check_triples(toks, p, pkq)                                                  # whole triples all the way to PKQ
+                        self.assertEqual(toks[pkq + 1:pkq + 1 + P].tolist(), st.passkeys[i].tolist())
+
+    def test_the_old_layout_would_fail_for_p8(self):
+        """Sensitivity: continuing with a new whole triple at position 96 (no rest, phase 0) breaks the grid for P = 8 and only for P = 8."""
+        broken = {}
+        for P in (4, 8, 16):
+            p, st, ar = self.streams(P)
+            dec = A.ar_contents(p, 92, 4, 400)
+            old = np.stack([dec[i % 4][3 * (i // 4) * 7:][:ar.shape[1]] for i in range(len(st))])
+            toks = np.concatenate([st.prefix[0], old[0]])
+            try:
+                check_triples(toks, p, len(toks) - 3)
+                broken[P] = False
+            except AssertionError:
+                broken[P] = True
+        self.assertEqual(broken, {4: False, 8: True, 16: False})
+
+
+@unittest.skipUnless(CUDA, "needs a CUDA GPU")
+class SegmentPhase(unittest.TestCase):
+    """Review N2: the objective's segments start where the stream's grid is at the state's position."""
+
+    def pool(self, P):
+        p = G.GenParams(passkey_len=P)
+        return p, A.SegmentPool(p, 91, 12, 120)
+
+    def test_sampled_segments_start_at_the_requested_place_in_a_triple(self):
+        gen = torch.Generator(device="cuda").manual_seed(0)
+        for P, phase in ((4, 0), (8, 2), (16, 0)):
+            p, pool = self.pool(P)
+            x = pool.sample((400,), 32, gen, phase)
+            first = x[:, 0].cpu().numpy()
+            if phase == 0:
+                self.assertTrue(np.isin(first, [G.W, G.Q]).all(), P)                               # a segment starts at the head of a triple
+            else:
+                self.assertTrue(((first >= p.val0) | (first == G.NULL)).all(), P)                   # P = 8: at the third token of a triple (a value or the NULL answer)
+            self.assertEqual(x.shape, (400, 32))
+        x = pool.sample((400,), 32, gen)                                                              # the default is the triple head
+        self.assertTrue(np.isin(x[:, 0].cpu().numpy(), [G.W, G.Q]).all())
+
+    def test_the_old_sampling_would_start_inside_triples(self):
+        p, pool = self.pool(4)
+        gen = torch.Generator(device="cuda").manual_seed(0)
+        o = torch.randint(0, pool.length - 31, (400,), generator=gen, device="cuda")
+        first = pool.tokens[0, o].cpu().numpy()
+        self.assertGreater(float((~np.isin(first, [G.W, G.Q])).mean()), 0.5)                         # arbitrary offsets: about 2 of 3 start mid-triple
+
+    def test_the_optimisation_uses_the_phase_it_is_given(self):
+        m = model(window=24, segment=8)
+        for q in m.parameters():
+            q.requires_grad_(False)
+        x = tokens(4, 8 * 4)
+        orig = A.N_SEGMENTS_BEFORE
+        seen = []
+        try:
+            A.N_SEGMENTS_BEFORE = 4
+            with torch.autocast("cuda", dtype=torch.bfloat16):
+                S0 = A.window_states(m, x, 4)
+
+            class Spy(A.SegmentPool):
+                def __init__(self):
+                    self.tokens, self.length = tokens(50, 200, seed=3), 200
+
+                def sample(self, shape, C_, gen, phase=0):
+                    seen.append(phase)
+                    return super().sample(shape, C_, gen, phase)
+
+            ev = Spy().sample((4, 4), 8, torch.Generator(device="cuda").manual_seed(1), 2)
+            A.find_attractor(m, S0, Spy(), 3, 3e-2, 4, 0, ev, log_every=1, phase=2)
+        finally:
+            A.N_SEGMENTS_BEFORE = orig
+        self.assertEqual(set(seen), {2})
+
+
 @unittest.skipUnless(CUDA, "needs a CUDA GPU")
 class StateIsTheInterface(unittest.TestCase):
     def test_a_run_from_the_window_state_is_the_real_run_bit_for_bit(self):
@@ -139,6 +257,32 @@ class ReadOut(unittest.TestCase):
                 pos = self.ids.shape[1] + K * 8 + r2 + torch.arange(4, device="cuda")
                 self.assertTrue(torch.equal(pred, logits[:, pos].argmax(-1)), (K, r))
                 self.assertEqual((K * 8 + r2) % 3, 0)                         # PKQ follows whole triples of AR content, as in the data
+        finally:
+            A.N_SEGMENTS_BEFORE = orig
+
+    def test_the_read_out_of_a_p8_stream_equals_the_logits_of_its_whole_dataset_layout(self):
+        """P = 8 puts the cut at the third token of a triple (phase 2): state, rest of the triple, K random segments, filler, PKQ, passkey is the logits of that one whole stream."""
+        p8 = G.GenParams(passkey_len=8)
+        st = A.Streams(p8, 8, n_pass=4, n_ctx=1)
+        self.assertEqual(st.phase, 2)                                                                  # position 24: 24 - 10 = 14 tokens of AR, 14 % 3 = 2
+        ids = torch.from_numpy(st.prefix).cuda().long()
+        dec = A.ar_contents(p8, 92, 4, 120)
+        ar = torch.from_numpy(A.continuation(st, dec, 8 * 6 + 8 * 3)).cuda().long()
+        truth = torch.from_numpy(st.passkeys).cuda().long()
+        orig = A.N_SEGMENTS_BEFORE
+        try:
+            A.N_SEGMENTS_BEFORE = 3
+            with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+                S = A.window_states(self.m, ids)
+            for K, r in ((0, 5), (2, 9), (3, 4)):
+                pred = A.read_out(self.m, S, ar, truth, (K,), r, phase=st.phase)[K]
+                tail, r2 = A.tail_tokens(ar, truth, K, r, 8, True, st.phase)
+                full = torch.cat([ids, ar[:, :K * 8], tail], 1)
+                check_triples(full[0].cpu().numpy(), p8, ids.shape[1] + K * 8 + r2)
+                with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+                    logits = self.m(input_ids=full).logits
+                pos = ids.shape[1] + K * 8 + r2 + torch.arange(8, device="cuda")
+                self.assertTrue(torch.equal(pred, logits[:, pos].argmax(-1)), (K, r))
         finally:
             A.N_SEGMENTS_BEFORE = orig
 
