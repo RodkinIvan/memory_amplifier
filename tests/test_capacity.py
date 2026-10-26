@@ -318,6 +318,22 @@ class ReuseOfAFinishedStage(unittest.TestCase):
         with self.assertRaises(SystemExit):
             CAP.reusable_result(self.result, self.cfg, "stage", self.root)                    # a missing starting file is not silently accepted either
 
+    def test_a_finished_pre_e7_stage_passes_the_check_for_the_config_the_driver_builds_today(self):
+        """Review N1: the stored stage config still has `train.passkey_weight` and `_anneal_steps`, the config built from today's YAML lacks them: the same stage."""
+        name = "swa_2pass_seg32_po1_pk8_steps50000_lr0.001_warmup_steps500_cur2000_s0"
+        res = json.loads((_paths.ROOT / "results" / "raw" / f"{name}.json").read_text())
+        self.assertEqual(res["config"]["train"]["passkey_weight"], 1.0)
+        cfg, explicit = C.load_config(_paths.ROOT / "configs" / "swa_2pass.yaml", CAP.stage_overrides(8, "checkpoints/swa_2pass_seg32_po1_s5.pt", 50000, 1e-3, 0, 500, 2000, "swa_2pass"))
+        self.assertNotIn("passkey_weight", cfg["train"])
+        self.assertEqual(C.run_name(cfg, explicit), name)
+        self.assertIs(CAP.reusable_result(res, cfg, name), res)
+        other = json.loads(json.dumps(cfg))
+        other["train"]["steps"] = 40000                                                                   # a real difference is refused, and named
+        with self.assertRaises(SystemExit) as cm:
+            CAP.reusable_result(res, other, name)
+        self.assertIn("train.steps", str(cm.exception))
+        self.assertNotIn("passkey_weight", str(cm.exception))
+
     def test_the_driver_checks_every_stored_result_before_it_reads_it(self):
         src = (_paths.ROOT / "scripts" / "passkey_capacity.py").read_text()
         self.assertIn("reusable_result(json.loads(result_file.read_text()), cfg, name)", src)

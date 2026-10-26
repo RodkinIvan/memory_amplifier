@@ -316,6 +316,38 @@ class RestartWaitsForMemory(unittest.TestCase):
         self.assertEqual([tp(32), tp(64), tp(0)], [7.0, 6.5, 6.5])
 
 
+class FinishedRunsAreRecognised(unittest.TestCase):
+    """Review N1, on the real stored results (they were written before E7 dropped `passkey_weight` from the working YAMLs)."""
+
+    def test_launch_counts_a_finished_pre_e7_two_pass_run_as_done(self):
+        (job,) = L.build_jobs(str(_paths.ROOT / "configs" / "swa_2pass.yaml"), ["model.segment=32", "model.pass_output=1"], ["seed=5"])
+        self.assertEqual(job["name"], "swa_2pass_seg32_po1_s5")
+        self.assertNotIn("passkey_weight", job["config"]["train"])                       # today's config lacks the key, the stored one has it
+        self.assertTrue(L.is_done(job))
+        (other,) = L.build_jobs(str(_paths.ROOT / "configs" / "swa_2pass.yaml"), ["model.segment=32", "model.pass_output=1", "train.lr=0.002"], ["seed=5"])
+        self.assertFalse(L.is_done(other))                                                # a real difference is still one (and has another name anyway)
+
+    def test_train_py_skips_a_finished_pre_e7_run_instead_of_refusing_it(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            T.main(["--config", str(_paths.ROOT / "configs" / "swa_2pass.yaml"), "--no-wandb", "--set", "model.segment=32", "model.pass_output=1", "seed=5"])
+        self.assertIn("already done, skipping", buf.getvalue())
+
+    def test_a_resume_file_of_a_pre_e7_config_is_accepted(self):
+        import tempfile
+        stored = json.loads((_paths.ROOT / "results" / "raw" / "swa_2pass_seg32_po1_s5.json").read_text())["config"]
+        cfg, _ = C.load_config(_paths.ROOT / "configs" / "swa_2pass.yaml", ["model.segment=32", "model.pass_output=1", "seed=5"])
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "resume.pt"
+            torch.save({"config": stored, "step": 3}, path)
+            self.assertEqual(T.load_resume(path, cfg)["step"], 3)
+            torch.save({"config": {**stored, "seed": 9}, "step": 3}, path)
+            with self.assertRaises(SystemExit):
+                T.load_resume(path, cfg)
+
+
 class WorkerScript(unittest.TestCase):
     def test_header_pins_the_gpu_and_enables_expandable_segments(self):
         head = L.worker_header(3)

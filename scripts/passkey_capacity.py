@@ -73,9 +73,8 @@ def reusable_result(result: dict, cfg: dict, name: str, root: Path = ROOT) -> di
     the old weights. Stops with a message when the stored config differs from the stage's, or when the starting weights file is no longer the file the run started from (its sha256 is
     recorded by train.py; results from before that have none, and only the config is compared)."""
     stored, wanted = result["config"], json.loads(json.dumps(cfg))
-    if stored != wanted:
-        a, b = C.flatten(stored), C.flatten(wanted)
-        diff = {k: [a.get(k), b.get(k)] for k in sorted(set(a) | set(b)) if a.get(k) != b.get(k)}
+    if not C.same_config(stored, wanted):   # (a key the stored config has and today's lacks counts as its code default, review N1)
+        diff = C.config_difference(stored, wanted)
         raise SystemExit(f"{name}: results/raw/{name}.json was trained with a different config (the run name does not identify the starting weights); differs in {diff}. "
                          f"Use another --tag or --seed, or move the old result and runs/{name} away.")
     sha, init = result.get("init_from_sha256"), cfg["train"].get("init_from")

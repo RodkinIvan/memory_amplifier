@@ -142,7 +142,7 @@ def load_resume(path: Path, cfg: dict) -> dict | None:
     if not path.exists():
         return None
     state = torch.load(path, map_location="cpu", weights_only=True)
-    if state["config"] != cfg:
+    if not C.same_config(state["config"], cfg):
         sys.exit(f"{path} was written with a different config (same name!); remove it or use --force")
     return state
 
@@ -175,8 +175,8 @@ def main(argv=None) -> None:
     name = C.run_name(cfg, explicit)
     out_json = C.ROOT / "results" / "raw" / f"{name}.json"
     if out_json.exists() and not args.force:
-        if json.loads(out_json.read_text())["config"] != cfg:
-            sys.exit(f"{out_json} exists with a different config (same name!); use --force or change an override")
+        if not C.same_config(json.loads(out_json.read_text())["config"], cfg):
+            sys.exit(f"{out_json} exists with a different config (same name!): {C.config_difference(json.loads(out_json.read_text())['config'], cfg)}; use --force or change an override")
         print(f"[{name}] already done, skipping", flush=True)
         return
 

@@ -124,6 +124,47 @@ class Diff(unittest.TestCase):
         self.assertEqual(C.reference_diff(cfg_of("swa_fb.yaml", "model.kv_cache=false")), {})
 
 
+class SameConfig(unittest.TestCase):
+    """Review N1: a stored config that still has a key E7 dropped from the working YAMLs (`train.passkey_weight: 1.0`) is the same config as today's one without it."""
+
+    def test_a_missing_key_equals_its_code_default_and_nothing_else(self):
+        a = {"model": {"kind": "swa_2pass"}, "train": {"steps": 5, "passkey_weight": 1.0, "passkey_weight_anneal_steps": 0}}
+        b = {"model": {"kind": "swa_2pass"}, "train": {"steps": 5}}
+        self.assertTrue(C.same_config(a, b) and C.same_config(b, a))
+        self.assertEqual(C.config_difference(a, b), {})
+        self.assertFalse(C.same_config({**a, "train": {**a["train"], "passkey_weight": 10.0}}, b))                       # another value is another config
+        self.assertEqual(C.config_difference({**a, "train": {**a["train"], "passkey_weight": 10.0}}, b), {"train.passkey_weight": [10.0, 1.0]})
+        self.assertFalse(C.same_config({**b, "train": {"steps": 6}}, b))
+        self.assertFalse(C.same_config({**b, "extra_key_without_a_default": 1}, b))                                      # a key with no default is a real difference
+        # the seed, the logging and the evaluation settings count: a stored result belongs to exactly the config that was run
+        self.assertFalse(C.same_config({**b, "seed": 1}, {**b, "seed": 0}))
+
+    def test_an_old_swa_fb_config_without_the_cache_key_still_differs_from_one_that_says_true(self):
+        old, new = old_fb(), cfg_of("swa_fb.yaml")
+        self.assertEqual(C.config_difference(old, new), {"model.kv_cache": [False, True]})      # a missing key is false: the runs differ in the cache path
+        self.assertTrue(C.same_config(old, cfg_of("swa_fb.yaml", "model.kv_cache=false")))
+
+    def test_every_stored_result_of_a_kind_whose_yaml_is_alive_is_the_config_that_launched_it_today(self):
+        """Rebuild each stored result's launch config from today's YAML and the keys it overrode: equal for gdn, swa and swa_2pass; for swa_fb the only difference is kv_cache (E7 added it)."""
+        by_kind = {"gdn_fixed": "exp1.yaml", "gdn2": "gdn2.yaml", "swa": "swa.yaml", "swa_2pass": "swa_2pass.yaml", "swa_fb": "swa_fb.yaml"}
+        checked = {k: 0 for k in by_kind}
+        for f in sorted((ROOT / "results" / "raw").glob("*.json")):
+            r = json.loads(f.read_text())
+            kind = r["config"]["model"]["kind"]
+            if kind not in by_kind or "explicit_keys" not in r:
+                continue
+            overrides = [f"{k}={json.dumps(C.get_nested(r['config'], k))}" for k in r["explicit_keys"] if k != "seed"] + [f"seed={r['config']['seed']}"]
+            rebuilt, _ = C.load_config(ROOT / "configs" / by_kind[kind], overrides)
+            diff = C.config_difference(r["config"], rebuilt)
+            if kind == "swa_fb":   # E7 added kv_cache; the evaluation batch of swa_fb.yaml was lowered after the first sweeps (out-of-memory on the shared GPU)
+                diff.pop("model.kv_cache", None)
+                diff.pop("eval.tokens_per_batch", None)
+            self.assertEqual(diff, {}, (f.name, diff))
+            checked[kind] += 1
+        self.assertGreater(checked["swa_2pass"], 20)
+        self.assertGreater(checked["swa_fb"], 20)
+
+
 class StoredResults(unittest.TestCase):
     """Every results file carries the diff of its stored config, and it is the diff the code computes now."""
 

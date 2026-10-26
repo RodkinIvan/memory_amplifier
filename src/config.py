@@ -182,6 +182,21 @@ def reference_diff(cfg: dict, ref: dict | None = None) -> dict:
     return {k: [a.get(k), b.get(k)] for k in sorted(set(a) | set(b)) if not is_ignored(k) and a.get(k) != b.get(k)}
 
 
+def config_difference(a: dict, b: dict) -> dict:
+    """{dotted key: [value in a, value in b]} for every setting in which two run configs differ, after a key that one of them lacks has been filled with the code default
+    (`CODE_DEFAULTS`: what the code did for a config written before the key existed). Nothing is ignored: the seed, the logging and the evaluation settings count here, because a stored result
+    belongs to exactly the config that was run."""
+    fa, fb = {**CODE_DEFAULTS, **flatten(a)}, {**CODE_DEFAULTS, **flatten(b)}
+    return {k: [fa.get(k), fb.get(k)] for k in sorted(set(fa) | set(fb)) if fa.get(k) != fb.get(k)}
+
+
+def same_config(a: dict, b: dict) -> bool:
+    """Whether two run configs are the same config (review N1). Plain `==` called a stored config different from today's one whenever E7 had dropped a key the stored one still has
+    (`train.passkey_weight: 1.0`), although that key at its default means exactly what a missing key means; a stored `swa_fb` config without `kv_cache` still differs from one that says
+    `kv_cache: true` (a missing key is false: the runs differ in the path)."""
+    return not config_difference(a, b)
+
+
 def effective_segment(flat: dict) -> dict:
     """For the loop models, `model.segment` 0 (or absent) means one segment per window: replace it by the window, so a run that sets
     segment = window explicitly does not differ from the reference, which leaves it at 0 (review L10)."""

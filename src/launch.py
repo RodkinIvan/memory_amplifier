@@ -72,7 +72,7 @@ def run_lines(cmd: list[str], log: Path, name: str, failed: Path, gpu: int | Non
 
 def is_done(job: dict) -> bool:
     f = C.ROOT / "results" / "raw" / f"{job['name']}.json"
-    return f.exists() and json.loads(f.read_text())["config"] == job["config"]
+    return f.exists() and C.same_config(json.loads(f.read_text())["config"], job["config"])
 
 
 def make_parser() -> argparse.ArgumentParser:
