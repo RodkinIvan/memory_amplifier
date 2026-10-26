@@ -54,11 +54,14 @@ def result_keys(model: str = "swa_fb", tag: str = "") -> tuple[str, str]:
     return f"stages{suffix}", f"budget_runs{suffix}"
 
 
-def stage_overrides(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0, model: str = "swa_fb", segment: int | None = None) -> list[str]:
-    """Overrides of the model's config for one stage: the model of the checkpoint (for `swa_fb` segment 8, no tanh, gain 0), a fine-tuning schedule, the passkey length."""
+def stage_overrides(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0, model: str = "swa_fb", segment: int | None = None,
+                    window: int | None = None) -> list[str]:
+    """Overrides of the model's config for one stage: the model of the checkpoint (for `swa_fb` segment 8, no tanh, gain 0), a fine-tuning schedule, the passkey length.
+    `window` (None: the config file's 64) is only written when given, so the stages of the earlier chains keep their run names."""
     ns = "[" + ",".join(map(str, NS)) + "]"
     m = MODELS[model]
-    return [f"experiment={m['experiment']}", f"seed={seed}", f"model.segment={segment or m['segment']}", *m["overrides"], f"passkey_len={P}", f"train.init_from={init}",
+    return [f"experiment={m['experiment']}", f"seed={seed}", f"model.segment={segment or m['segment']}", *m["overrides"], *([f"model.window={window}"] if window else []),
+            f"passkey_len={P}", f"train.init_from={init}",
             f"train.steps={steps}", f"train.lr={lr:g}", f"train.warmup_steps={warmup}", f"train.curriculum_stage_steps={curriculum}", "train.eval_every=1000",
             f"train.eval_ns={ns}", f"eval.ns={ns}"]
 
@@ -86,8 +89,9 @@ def reusable_result(result: dict, cfg: dict, name: str, root: Path = ROOT) -> di
     return result
 
 
-def stage_name(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0, model: str = "swa_fb", segment: int | None = None) -> str:
-    cfg, explicit = C.load_config(ROOT / MODELS[model]["config"], stage_overrides(P, init, steps, lr, seed, warmup, curriculum, model, segment))
+def stage_name(P: int, init: str, steps: int, lr: float, seed: int = 0, warmup: int = 200, curriculum: int = 0, model: str = "swa_fb", segment: int | None = None,
+               window: int | None = None) -> str:
+    cfg, explicit = C.load_config(ROOT / MODELS[model]["config"], stage_overrides(P, init, steps, lr, seed, warmup, curriculum, model, segment, window))
     return C.run_name(cfg, explicit)
 
 
@@ -268,11 +272,31 @@ def reevaluate(gpu: int) -> None:
         merge_positions(updates)
 
 
+def stage_runner(model: str, steps: int, lr: float, seed: int, warmup: int, curriculum: int, segment: int | None, window: int | None, gpu: int):
+    """`run_stage(P, init)` for `chain` / `--budget-run`: trains the stage when its result file does not exist (waiting for free memory on `gpu` first), then returns
+    (the summary entry of the stage's result, the path of its weights relative to the repo). The result file of a finished stage is checked by `reusable_result`."""
+    def run_stage(P: int, init: str):
+        ensure_dataset(P)
+        overrides = stage_overrides(P, init, steps, lr, seed, warmup, curriculum, model, segment, window)
+        cfg, explicit = C.load_config(ROOT / MODELS[model]["config"], overrides)
+        name = C.run_name(cfg, explicit)
+        result_file = ROOT / "results" / "raw" / f"{name}.json"
+        if not result_file.exists():
+            wait_for_memory(gpu, C.footprint_gb(cfg))
+            print(f"stage {P}: training {name} from {init}", flush=True)
+            run_training(overrides, name, gpu, C.footprint_gb(cfg), ROOT / "logs" / "capacity" / f"{name}.log", config=MODELS[model]["config"])
+        result = reusable_result(json.loads(result_file.read_text()), cfg, name)
+        return summarize(P, name, init, result), str((ROOT / "runs" / name / "model.pt").relative_to(ROOT))
+    return run_stage
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", choices=list(MODELS), default="swa_fb", help="the model kind of the checkpoint (swa_2pass: two-pass layer; the results of a model other than swa_fb go under `stages_<model>` / `budget_runs_<model>`)")
     ap.add_argument("--tag", default="", help="suffix of the result keys, to keep two chains of one model with different recipes apart (e.g. 'budget': `stages_swa_2pass_budget`)")
     ap.add_argument("--segment", type=int, default=None, help="segment of the checkpoint (default: 8 for swa_fb, 32 for swa_2pass)")
+    ap.add_argument("--window", type=int, default=None, help="attention window of the checkpoint (default: the config file's, 64); the capacity grid runs windows 32 / 64 / 128")
+    ap.add_argument("--out", default=None, help="results file instead of results/capacity.json (the grid has its own: results/capacity_grid.json, so its chains do not merge with the single-checkpoint chains in the capacity report)")
     ap.add_argument("--init", default=None, help="weights of the checkpoint trained on 4-token passkeys (default: the best checkpoint of the model, see MODELS)")
     ap.add_argument("--gpu", type=int, default=0)
     ap.add_argument("--start", type=int, default=8)
@@ -285,24 +309,16 @@ def main() -> None:
     ap.add_argument("--budget-run", action="store_true", help="run only the stage --start with the given budget and record it under `budget_runs` (no chain, no stop rule)")
     ap.add_argument("--reevaluate", action="store_true", help="fill in the per-position accuracy of recorded stages and exit")
     a = ap.parse_args()
+    if a.out:
+        global OUT
+        OUT = ROOT / a.out
     if a.reevaluate:
         return reevaluate(a.gpu)
     a.init = a.init or MODELS[a.model]["init"]
     if not a.init:
         ap.error(f"--init is required for --model {a.model}")
 
-    def run_stage(P: int, init: str):
-        ensure_dataset(P)
-        overrides = stage_overrides(P, init, a.steps, a.lr, a.seed, a.warmup, a.curriculum, a.model, a.segment)
-        cfg, explicit = C.load_config(ROOT / MODELS[a.model]["config"], overrides)
-        name = C.run_name(cfg, explicit)
-        result_file = ROOT / "results" / "raw" / f"{name}.json"
-        if not result_file.exists():
-            wait_for_memory(a.gpu, C.footprint_gb(cfg))
-            print(f"stage {P}: training {name} from {init}", flush=True)
-            run_training(overrides, name, a.gpu, C.footprint_gb(cfg), ROOT / "logs" / "capacity" / f"{name}.log", config=MODELS[a.model]["config"])
-        result = reusable_result(json.loads(result_file.read_text()), cfg, name)
-        return summarize(P, name, init, result), str((ROOT / "runs" / name / "model.pt").relative_to(ROOT))
+    run_stage = stage_runner(a.model, a.steps, a.lr, a.seed, a.warmup, a.curriculum, a.segment, a.window, a.gpu)
 
     if a.budget_run:
         entry, _ = run_stage(a.start, a.init)
