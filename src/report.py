@@ -8,6 +8,7 @@
     python src/report.py p2 --out reports/p2_report.html     # design experiment E2: the two-pass layer
     python src/report.py capacity --out reports/capacity_report.html  # passkey capacity: how many passkey tokens fit
     python src/report.py attractor --out reports/attractor_report.html  # design experiment E5: attractor states of the two-pass layer
+    python src/report.py capgrid --out reports/capacity_grid_report.html  # passkey capacity of the two-pass layer by segment size and window (scripts/capacity_grid.py)
 
 All numbers in the text are computed from the data; the template is reports/report_template.html. (The value-adaptation report of E1, `va`, is an archive: its code was removed in E7,
 reports/va_report.html stays as it was published.)
@@ -786,7 +787,7 @@ def fb_data() -> tuple[dict, str, str]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("kind", choices=["gdn", "swa", "fb", "best", "p2", "capacity", "attractor"])
+    ap.add_argument("kind", choices=["gdn", "swa", "fb", "best", "p2", "capacity", "attractor", "capgrid"])
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
     if a.kind == "best":
@@ -796,6 +797,10 @@ def main() -> None:
     if a.kind == "capacity":
         import report_capacity  # the passkey-capacity experiment
         render(*report_capacity.capacity_data(), a.out)
+        return
+    if a.kind == "capgrid":
+        import report_capacity_grid  # passkey capacity by segment size and window
+        render(*report_capacity_grid.report_data(), a.out)
         return
     if a.kind == "attractor":
         import report_attractor  # design experiment E5: attractor states of the two-pass layer

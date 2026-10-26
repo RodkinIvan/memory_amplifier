@@ -104,15 +104,21 @@ class CapacityOf(unittest.TestCase):
 
 class Slots(unittest.TestCase):
     def test_parse_slots(self):
-        self.assertEqual(GRID.parse_slots(["local:1:2", "10.0.0.1:0:3"]), [("local", 1)] * 2 + [("10.0.0.1", 0)] * 3)
+        self.assertEqual(GRID.parse_slots(["local:1:2", "10.0.0.1:0:3"]), [("local", 1), ("10.0.0.1", 0), ("local", 1), ("10.0.0.1", 0), ("10.0.0.1", 0)])   # round-robin over the GPUs
 
-    def test_a_remote_slot_never_gets_the_local_only_cell_and_every_job_is_given_once(self):
-        pool = GRID.Pool([(32, 64, 0), (8, 128, 0), (32, 64, 1), (16, 32, 0)])
+    def test_a_remote_slot_never_gets_the_local_only_cell_and_a_local_slot_takes_it_first(self):
+        pool = GRID.Pool([(8, 128, 0), (32, 64, 0), (32, 64, 1), (16, 32, 0)])
         self.assertEqual(pool.take(remote=True), (8, 128, 0))
-        self.assertEqual(pool.take(remote=True), (16, 32, 0))
-        self.assertIsNone(pool.take(remote=True))                # only the local-only jobs are left
-        self.assertEqual(pool.take(remote=False), (32, 64, 0))
+        self.assertEqual(pool.take(remote=False), (32, 64, 0))   # local slots: the local-only cell before the others
         self.assertEqual(pool.take(remote=False), (32, 64, 1))
+        self.assertEqual(pool.take(remote=False), (16, 32, 0))   # then whatever is left, in order
+        self.assertIsNone(pool.take(remote=False))
+        self.assertIsNone(pool.take(remote=True))
+
+    def test_every_job_is_given_out_once(self):
+        pool = GRID.Pool(G.jobs())
+        got = [pool.take(remote=i % 2 == 0) for i in range(27)]
+        self.assertEqual(sorted(got), sorted(G.jobs()))
         self.assertIsNone(pool.take(remote=False))
 
     def test_the_local_only_cell_is_the_one_with_the_e4_bases(self):

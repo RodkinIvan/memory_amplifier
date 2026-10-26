@@ -14,7 +14,7 @@ The earlier six chains of (32, 64) all started from ONE base (the best of the si
 
 Remote hosts: `--slots local:1:5 10.127.105.38:0:4 10.127.105.38:1:4` = host:gpu:jobs at once. A job on a remote host runs in a tmux session there (it survives a dropped connection;
 `run` finds the session again after a restart), the driver polls it, then copies the job's raw results and weights (runs/<name>/model.pt, 2 MB) back and merges its chains into the local
-results/capacity_grid.json. The remote hosts need the repo folder (`sync-remote` copies the code and the datasets), the conda env under REMOTE_PY (a copy of this machine's, the fla and
+results/capacity_grid.json. The remote hosts need the repo folder (`sync-remote` checks out HEAD from GitHub on it (push first) and copies the datasets), the conda env under REMOTE_PY (a copy of this machine's, the fla and
 transformers versions of the hosts' own envs differ) and the git-ignored wandb_token. The cell (32, 64) is local only: its bases are the E4 runs, which exist on this machine only.
 
 Results: results/capacity_grid.json (key stages_swa_2pass_grid_s<segment>_w<window>_b<g>, one list of stage entries per chain), raw runs in results/raw/, weights in runs/ (local),
@@ -48,6 +48,7 @@ MODEL = "swa_2pass"
 
 REMOTE_ROOT = "/mnt/data/users/ivan.rodkin/lab/memory_amplifier"
 REMOTE_PY = "/mnt/data/users/ivan.rodkin/lab/envs/py311_pt2.6_cu12.4_fla052/bin/python"   # a copy of this machine's py311_pt2.6_cu12.4 (not the hosts' own env of that name)
+GITHUB = "https://github.com/RodkinIvan/memory_amplifier.git"
 SSH_KEY = Path.home() / ".ssh" / "id_ed25519_claude"
 SSH_OPTS = ["-i", str(SSH_KEY), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30"]
 DATA_DIRS = ["passkey_swar", "passkey_swar_pk8", "passkey_swar_pk16", "passkey_swar_pk32"]   # the datasets a chain needs up to P = 32 (P = 64 is generated on the host that first needs it)
@@ -100,16 +101,33 @@ def rsync(args: list[str], timeout: int = 3600) -> subprocess.CompletedProcess:
     return subprocess.run(["rsync", "-a", "-e", "ssh " + " ".join(shlex.quote(x) for x in SSH_OPTS), *args], capture_output=True, text=True, timeout=timeout)
 
 
-def sync_remote(addr: str, data: bool = True) -> None:
-    """Copy the code (src, scripts, configs, data/*.py), the datasets and the wandb token to the repo folder of a remote host; idempotent (rsync sends what changed)."""
-    dest = f"ivan.rodkin@{addr}:{REMOTE_ROOT}/"
+def git(*args: str) -> str:
+    r = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
+    if r.returncode:
+        raise SystemExit(f"git {' '.join(args)}: {r.stderr.strip()}")
+    return r.stdout.strip()
+
+
+def sync_code(addr: str, commit: str | None = None) -> str:
+    """Put a commit (default: this checkout's HEAD) on the remote host as a git checkout fetched from GitHub (the public repo, over https), so the host's results carry the commit like
+    the local ones. Stops when the commit is not on GitHub yet (push first) or, for HEAD, when code files have uncommitted changes (the host would run something else than this
+    machine). `commit` names an older pushed commit, e.g. while HEAD only adds to this driver's own dispatch code. Returns the commit."""
+    if commit is None and git("status", "--porcelain", "--untracked-files=no", "--", "src", "scripts", "configs", "data"):
+        raise SystemExit("src / scripts / configs / data have uncommitted changes: commit and push them first (the remote hosts run the commit, and their results record it)")
+    head, branch = git("rev-parse", commit or "HEAD"), git("rev-parse", "--abbrev-ref", "HEAD")
+    r = ssh(addr, f"cd {REMOTE_ROOT} && {{ [ -d .git ] || git init -q; }} && git fetch -q {GITHUB} {branch} && git checkout -q -f --detach {head} && git rev-parse HEAD", timeout=300)
+    if r.returncode or r.stdout.strip() != head:
+        raise SystemExit(f"{addr}: could not check out {head[:10]} from {GITHUB} (is it pushed?): {r.stderr.strip() or r.stdout.strip()}")
+    return head
+
+
+def sync_remote(addr: str, data: bool = True, commit: str | None = None) -> None:
+    """The code (git checkout of HEAD), the datasets and the wandb token on a remote host; idempotent (rsync sends what changed)."""
     r = ssh(addr, f"mkdir -p {REMOTE_ROOT}/results/raw {REMOTE_ROOT}/runs {REMOTE_ROOT}/logs/capacity {REMOTE_ROOT}/data_cache {REMOTE_ROOT}/checkpoints")
     if r.returncode:
         raise SystemExit(f"{addr}: cannot prepare {REMOTE_ROOT}: {r.stderr.strip()}")
-    for src in ("src", "scripts", "configs", "data"):
-        r = rsync(["--exclude", "__pycache__", "--exclude", "*.pyc", "--exclude", "*.parquet", str(ROOT / src), dest])
-        if r.returncode:
-            raise SystemExit(f"{addr}: rsync of {src} failed: {r.stderr.strip()}")
+    sync_code(addr, commit)
+    dest = f"ivan.rodkin@{addr}:{REMOTE_ROOT}/"
     if data:
         for d in DATA_DIRS:
             r = rsync([str(ROOT / "data_cache" / d), f"ivan.rodkin@{addr}:{REMOTE_ROOT}/data_cache/"])
@@ -196,17 +214,16 @@ def plan(seeds) -> None:
 
 
 class Pool:
-    """The jobs still to start. A remote slot does not take the local-only cell; a job is given out once."""
+    """The jobs still to start. A remote slot does not take the local-only cell, a local slot takes it first (nobody else can, and it is the cheap one); a job is given out once."""
 
     def __init__(self, jobs):
         self.jobs, self.lock = list(jobs), threading.Lock()
 
     def take(self, remote: bool):
         with self.lock:
-            for i, (s, w, g) in enumerate(self.jobs):
-                if not (remote and local_only(s, w)):
-                    return self.jobs.pop(i)
-        return None
+            order = [i for i, (s, w, g) in enumerate(self.jobs) if not local_only(s, w)] if remote else \
+                    sorted(range(len(self.jobs)), key=lambda i: not local_only(*self.jobs[i][:2]))
+            return self.jobs.pop(order[0]) if order else None
 
 
 def run_jobs(job_list, slots: list[tuple[str, int]], stagger: int) -> list[tuple]:
@@ -241,12 +258,13 @@ def run_jobs(job_list, slots: list[tuple[str, int]], stagger: int) -> list[tuple
 
 
 def parse_slots(specs: list[str]) -> list[tuple[str, int]]:
-    """`host:gpu:n` -> n slots on that GPU ("local" = this machine)."""
-    out = []
+    """`host:gpu:n` -> n slots on that GPU ("local" = this machine), interleaved round-robin over the GPUs: the jobs are handed out in the order of the slots, so the heavy ones of the
+    first jobs land on different GPUs instead of piling up on the first."""
+    lists = []
     for spec in specs:
         host, gpu, n = spec.split(":")
-        out += [(host, int(gpu))] * int(n)
-    return out
+        lists.append([(host, int(gpu))] * int(n))
+    return [lst[i] for i in range(max(map(len, lists), default=0)) for lst in lists if i < len(lst)]
 
 
 def main() -> None:
@@ -255,6 +273,7 @@ def main() -> None:
     ap.add_argument("--seeds", type=int, nargs="*", default=list(G.SEEDS), help="base seeds to run (default: all)")
     ap.add_argument("--slots", nargs="*", default=["local:1:5"], metavar="HOST:GPU:N", help="where jobs run (run): N at once on GPU `GPU` of HOST (local, or the address of a remote host); a job needs ~4 GB, config.footprint_gb says 7")
     ap.add_argument("--hosts", nargs="*", default=[], help="addresses of the remote hosts (sync-remote)")
+    ap.add_argument("--commit", default=None, help="commit to check out on the remote hosts (default: HEAD, which must be pushed and have no uncommitted code changes)")
     ap.add_argument("--stagger", type=int, default=60, help="seconds between the first starts of the slots (run)")
     ap.add_argument("--segment", type=int)
     ap.add_argument("--window", type=int)
@@ -270,12 +289,12 @@ def main() -> None:
         return
     if a.command == "sync-remote":
         for addr in a.hosts:
-            sync_remote(addr)
+            sync_remote(addr, commit=a.commit)
             print(f"{addr}: synced", flush=True)
         return
     slots = parse_slots(a.slots)
     for addr in sorted({h for h, _ in slots if h != "local"}):
-        sync_remote(addr, data=False)   # the code is current; the datasets were copied by `sync-remote` (a missing one is an error on the host, not copied by every run)
+        sync_remote(addr, data=False, commit=a.commit)   # the code is current; the datasets were copied by `sync-remote` (a missing one is an error on the host, not copied by every run)
     failures = run_jobs(G.jobs(a.seeds), slots, a.stagger)
     if failures:
         print(f"{len(failures)} job(s) failed:", *[f"  {j}: {m.splitlines()[0] if m else ''}" for j, m in failures], sep="\n")
